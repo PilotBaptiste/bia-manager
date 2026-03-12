@@ -321,7 +321,6 @@ export default function ElevesPage() {
       vol1_aeronef_id: form.vol1_aeronef_id || null,
       vol1_prix: form.vol1_prix ? parseFloat(form.vol1_prix) : null,
       vol1_pilote_nom: form.vol1_pilote_nom || null,
-      vol2_autorise: form.vol2_autorise,
       vol2_effectue: form.vol2_effectue,
       vol2_temps_minutes:
         form.vol2_effectue && form.vol2_temps_minutes
