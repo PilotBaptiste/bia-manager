@@ -1,0 +1,1219 @@
+"use client";
+import { useState, useEffect } from "react";
+import { createClient } from "@/lib/supabase/client";
+import {
+  Plane,
+  Plus,
+  Calendar,
+  List,
+  Loader2,
+  X,
+  Check,
+  AlertCircle,
+  Clock,
+  User,
+  Mail,
+  Phone,
+  History,
+  Edit,
+  Save,
+} from "lucide-react";
+
+export default function VolsPage() {
+  const supabase = createClient();
+  const [creneaux, setCreneaux] = useState<any[]>([]);
+  const [volsHisto, setVolsHisto] = useState<any[]>([]);
+  const [aeronefs, setAeronefs] = useState<any[]>([]);
+  const [etabs, setEtabs] = useState<any[]>([]);
+  const [pilotes, setPilotes] = useState<any[]>([]);
+  const [qualifs, setQualifs] = useState<any[]>([]);
+  const [piloteEtabs, setPiloteEtabs] = useState<any[]>([]);
+  const [profile, setProfile] = useState<any>(null);
+  const [anneeId, setAnneeId] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [mode, setMode] = useState<"list" | "calendar" | "historique">("list");
+  const [calMonth, setCalMonth] = useState(new Date().getMonth());
+  const [showCreate, setShowCreate] = useState(false);
+  const [showDetail, setShowDetail] = useState<any>(null);
+  const [showClose, setShowClose] = useState<any>(null);
+  const [editHisto, setEditHisto] = useState<any>(null);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [form, setForm] = useState({
+    date_vol: "",
+    heure_debut: "09:00",
+    heure_fin: "10:00",
+    aeronef_id: "",
+    etablissement_id: "",
+    notes_pilote: "",
+    pilote_id: "",
+  });
+  const [closeForm, setCloseForm] = useState({
+    numero_aerogest: "",
+    temps_vol_minutes: "",
+    nb_eleves: "",
+    prix_total: "",
+    notes: "",
+  });
+
+  async function load() {
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (!user) return;
+    const [profRes, crRes, aRes, eRes, anRes, vhRes, pRes, qRes, peRes] =
+      await Promise.all([
+        supabase.from("profiles").select("*").eq("id", user.id).single(),
+        supabase
+          .from("creneaux")
+          .select(
+            "*, pilote:profiles!pilote_id(nom,prenom,id,email,telephone), aeronef:aeronefs(*), etablissement:etablissements(nom), reservations(*, eleve:eleves(id,nom,prenom,date_naissance,lieu_naissance,classe,commentaires,vol1_temps_minutes,parent_nom,parent_prenom,parent_email,parent_telephone,etablissement:etablissements(nom)))",
+          )
+          .order("date_vol", { ascending: false }),
+        supabase.from("aeronefs").select("*").eq("actif", true),
+        supabase.from("etablissements").select("*").eq("actif", true),
+        supabase.from("annees").select("*").eq("active", true).single(),
+        supabase
+          .from("vols_effectues")
+          .select(
+            "*, creneau:creneaux(date_vol,heure_debut,heure_fin,pilote:profiles!pilote_id(nom,prenom),aeronef:aeronefs(type_aeronef,immatriculation),etablissement:etablissements(nom),reservations(eleve:eleves(nom,prenom)))",
+          )
+          .order("created_at", { ascending: false }),
+        supabase
+          .from("profiles")
+          .select("id, nom, prenom")
+          .contains("roles", ["pilote"])
+          .eq("actif", true)
+          .order("nom"),
+        supabase.from("pilote_qualifications").select("pilote_id, aeronef_id"),
+        supabase
+          .from("pilote_etablissements")
+          .select("pilote_id, etablissement_id"),
+      ]);
+    setProfile(profRes.data);
+    setCreneaux(crRes.data || []);
+    setAeronefs(aRes.data || []);
+    setEtabs(eRes.data || []);
+    setVolsHisto(vhRes.data || []);
+    setPilotes(pRes.data || []);
+    setQualifs(qRes.data || []);
+    setPiloteEtabs(peRes.data || []);
+    if (anRes.data) setAnneeId(anRes.data.id);
+    setLoading(false);
+  }
+
+  useEffect(() => {
+    load();
+  }, []);
+
+  const isPilote = profile?.roles?.includes("pilote");
+  const isSA = profile?.roles?.includes("superadmin");
+  const canCreate = isPilote || isSA;
+  const displayed =
+    isPilote && !isSA
+      ? creneaux.filter((c) => c.pilote_id === profile?.id)
+      : creneaux;
+
+  // Get qualified aeronefs for a pilot
+  function getQualifiedAeronefs(pid: string) {
+    const pq = qualifs.filter((q) => q.pilote_id === pid);
+    if (pq.length === 0) return aeronefs;
+    return aeronefs.filter((a) => pq.some((q) => q.aeronef_id === a.id));
+  }
+
+  // Get assigned etablissements for a pilot
+  function getPiloteEtabsList(pid: string) {
+    const pe = piloteEtabs.filter((x) => x.pilote_id === pid);
+    return etabs.filter((e) => pe.some((x) => x.etablissement_id === e.id));
+  }
+
+  const createPiloteId = isSA ? form.pilote_id : profile?.id;
+  const availableAeronefs = createPiloteId
+    ? getQualifiedAeronefs(createPiloteId)
+    : aeronefs;
+  const availableEtabs = isSA
+    ? etabs
+    : profile?.id
+      ? getPiloteEtabsList(profile.id)
+      : [];
+
+  async function handleCreateSlot() {
+    setError(null);
+    if (!form.date_vol || !form.aeronef_id) {
+      setError("Date et aeronef obligatoires.");
+      return;
+    }
+    if (isSA && !form.pilote_id) {
+      setError("Selectionnez un pilote.");
+      return;
+    }
+    if (!isSA && availableEtabs.length === 0) {
+      setError("Aucun etablissement assigne. Contactez le SuperAdmin.");
+      return;
+    }
+    if (!isSA && !form.etablissement_id) {
+      setError("Selectionnez un etablissement.");
+      return;
+    }
+    const piloteId = isSA && form.pilote_id ? form.pilote_id : profile.id;
+    const aeronef = aeronefs.find((a) => a.id === form.aeronef_id);
+    setSaving(true);
+    const { error: err } = await supabase.from("creneaux").insert({
+      pilote_id: piloteId,
+      aeronef_id: form.aeronef_id,
+      annee_id: anneeId,
+      etablissement_id: form.etablissement_id || null,
+      date_vol: form.date_vol,
+      heure_debut: form.heure_debut,
+      heure_fin: form.heure_fin,
+      places_disponibles: aeronef?.nb_places_eleves || 2,
+      notes_pilote: form.notes_pilote || null,
+    });
+    setSaving(false);
+    if (err) {
+      setError(err.message);
+      return;
+    }
+    setShowCreate(false);
+    setForm({
+      date_vol: "",
+      heure_debut: "09:00",
+      heure_fin: "10:00",
+      aeronef_id: "",
+      etablissement_id: "",
+      notes_pilote: "",
+      pilote_id: "",
+    });
+    load();
+  }
+
+  async function handleCloseFlight() {
+    setError(null);
+    if (
+      !closeForm.numero_aerogest ||
+      !closeForm.temps_vol_minutes ||
+      !closeForm.prix_total
+    ) {
+      setError("Champs obligatoires manquants.");
+      return;
+    }
+    setSaving(true);
+    await supabase
+      .from("vols_effectues")
+      .insert({
+        creneau_id: showClose.id,
+        numero_aerogest: closeForm.numero_aerogest,
+        temps_vol_minutes: parseInt(closeForm.temps_vol_minutes),
+        nb_eleves:
+          parseInt(closeForm.nb_eleves) || showClose.reservations?.length || 0,
+        prix_total: parseFloat(closeForm.prix_total),
+        notes: closeForm.notes || null,
+        valide_par: profile.id,
+      });
+    await supabase
+      .from("creneaux")
+      .update({ statut: "termine" })
+      .eq("id", showClose.id);
+    const activeRes = (showClose.reservations || []).filter(
+      (r: any) => r.statut !== "annule",
+    );
+    for (const r of activeRes) {
+      await supabase
+        .from("reservations")
+        .update({ statut: "effectue" })
+        .eq("id", r.id);
+      if (r.eleve?.id) {
+        const prixParEleve =
+          parseFloat(closeForm.prix_total) / Math.max(activeRes.length, 1);
+        const piloteNom = showClose.pilote
+          ? `${showClose.pilote.prenom} ${showClose.pilote.nom}`
+          : "";
+        if (r.type_vol === 2) {
+          await supabase
+            .from("eleves")
+            .update({
+              vol2_effectue: true,
+              vol2_temps_minutes: parseInt(closeForm.temps_vol_minutes),
+              vol2_aeronef_id: showClose.aeronef_id,
+              vol2_prix: prixParEleve,
+              vol2_pilote_nom: piloteNom,
+            })
+            .eq("id", r.eleve.id);
+        } else {
+          await supabase
+            .from("eleves")
+            .update({
+              vol1_effectue: true,
+              vol1_temps_minutes: parseInt(closeForm.temps_vol_minutes),
+              vol1_aeronef_id: showClose.aeronef_id,
+              vol1_prix: prixParEleve,
+              vol1_pilote_nom: piloteNom,
+            })
+            .eq("id", r.eleve.id);
+        }
+      }
+    }
+    setSaving(false);
+    setShowClose(null);
+    setCloseForm({
+      numero_aerogest: "",
+      temps_vol_minutes: "",
+      nb_eleves: "",
+      prix_total: "",
+      notes: "",
+    });
+    load();
+  }
+
+  async function handleDeleteSlot(id: string) {
+    if (!confirm("Supprimer ?")) return;
+    await supabase.from("creneaux").delete().eq("id", id);
+    setShowDetail(null);
+    load();
+  }
+  async function handleCancelSlot(id: string) {
+    await supabase.from("creneaux").update({ statut: "annule" }).eq("id", id);
+    setShowDetail(null);
+    load();
+  }
+  async function handleRemoveEleve(rid: string, name: string) {
+    if (!confirm(`Retirer ${name} ?`)) return;
+    await supabase
+      .from("reservations")
+      .update({ statut: "annule" })
+      .eq("id", rid);
+    const { data } = await supabase
+      .from("creneaux")
+      .select(
+        "*, pilote:profiles!pilote_id(nom,prenom,id,email,telephone), aeronef:aeronefs(*), etablissement:etablissements(nom), reservations(*, eleve:eleves(id,nom,prenom,date_naissance,lieu_naissance,classe,commentaires,vol1_temps_minutes,parent_nom,parent_prenom,parent_email,parent_telephone,etablissement:etablissements(nom)))",
+      )
+      .eq("id", showDetail.id)
+      .single();
+    if (data) setShowDetail(data);
+    load();
+  }
+  async function handleSaveHisto() {
+    if (!editHisto) return;
+    setSaving(true);
+    await supabase
+      .from("vols_effectues")
+      .update({
+        numero_aerogest: editHisto.numero_aerogest,
+        temps_vol_minutes: editHisto.temps_vol_minutes,
+        nb_eleves: editHisto.nb_eleves,
+        prix_total: editHisto.prix_total,
+        notes: editHisto.notes,
+      })
+      .eq("id", editHisto.id);
+    setSaving(false);
+    setEditHisto(null);
+    load();
+  }
+
+  const sL: Record<string, string> = {
+    ouvert: "Ouvert",
+    confirme: "Confirme",
+    termine: "Cloture",
+    annule: "Annule",
+    complet: "Complet",
+  };
+  const sS: Record<string, string> = {
+    ouvert: "bg-amber-50 text-amber-600",
+    confirme: "bg-brand-50 text-brand-500",
+    termine: "bg-emerald-50 text-emerald-600",
+    annule: "bg-red-50 text-red-600",
+    complet: "bg-blue-50 text-blue-600",
+  };
+  const mN = [
+    "Janvier",
+    "Fevrier",
+    "Mars",
+    "Avril",
+    "Mai",
+    "Juin",
+    "Juillet",
+    "Aout",
+    "Septembre",
+    "Octobre",
+    "Novembre",
+    "Decembre",
+  ];
+  const cY = 2026,
+    dIM = new Date(cY, calMonth + 1, 0).getDate(),
+    fD = (new Date(cY, calMonth, 1).getDay() + 6) % 7;
+  const cD: (number | null)[] = [];
+  for (let i = 0; i < fD; i++) cD.push(null);
+  for (let d = 1; d <= dIM; d++) cD.push(d);
+  const fBD: Record<number, any[]> = {};
+  displayed.forEach((c) => {
+    const d = new Date(c.date_vol);
+    if (d.getMonth() === calMonth && d.getFullYear() === cY) {
+      const day = d.getDate();
+      if (!fBD[day]) fBD[day] = [];
+      fBD[day].push(c);
+    }
+  });
+
+  if (loading)
+    return (
+      <div className="flex items-center justify-center h-64">
+        <Loader2 className="w-6 h-6 animate-spin text-brand-400" />
+      </div>
+    );
+
+  return (
+    <div>
+      {/* CREATE */}
+      {showCreate && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4"
+          onClick={() => setShowCreate(false)}
+        >
+          <div className="absolute inset-0 bg-black/40" />
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="relative bg-white rounded-2xl p-6 w-full max-w-lg shadow-xl max-h-[90vh] overflow-auto"
+          >
+            <div className="flex items-center justify-between mb-5">
+              <h3 className="text-lg font-bold text-gray-900">
+                Nouveau creneau
+              </h3>
+              <button
+                onClick={() => setShowCreate(false)}
+                className="p-1.5 rounded-lg hover:bg-gray-100"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            {error && (
+              <div className="mb-4 p-3 rounded-lg bg-red-50 text-sm text-red-700">
+                {error}
+              </div>
+            )}
+            <div className="space-y-3">
+              {isSA && (
+                <div>
+                  <label className="label">Pilote *</label>
+                  <select
+                    value={form.pilote_id}
+                    onChange={(e) =>
+                      setForm({
+                        ...form,
+                        pilote_id: e.target.value,
+                        aeronef_id: "",
+                      })
+                    }
+                    className="select"
+                  >
+                    <option value="">— Choisir —</option>
+                    {pilotes.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.prenom} {p.nom}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+              <div>
+                <label className="label">Date *</label>
+                <input
+                  type="date"
+                  value={form.date_vol}
+                  onChange={(e) =>
+                    setForm({ ...form, date_vol: e.target.value })
+                  }
+                  className="input"
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="label">Debut</label>
+                  <input
+                    type="time"
+                    value={form.heure_debut}
+                    onChange={(e) =>
+                      setForm({ ...form, heure_debut: e.target.value })
+                    }
+                    className="input"
+                  />
+                </div>
+                <div>
+                  <label className="label">Fin</label>
+                  <input
+                    type="time"
+                    value={form.heure_fin}
+                    onChange={(e) =>
+                      setForm({ ...form, heure_fin: e.target.value })
+                    }
+                    className="input"
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="label">
+                  Aeronef *{" "}
+                  {isSA && !form.pilote_id ? "(choisir un pilote d'abord)" : ""}
+                </label>
+                <select
+                  value={form.aeronef_id}
+                  onChange={(e) =>
+                    setForm({ ...form, aeronef_id: e.target.value })
+                  }
+                  className="select"
+                  disabled={isSA && !form.pilote_id}
+                >
+                  <option value="">— Choisir —</option>
+                  {availableAeronefs.map((a) => (
+                    <option key={a.id} value={a.id}>
+                      {a.type_aeronef} ({a.immatriculation}) — {a.prix_heure}E/h
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="label">
+                  Etablissement {!isSA ? "*" : ""}
+                </label>
+                <select
+                  value={form.etablissement_id}
+                  onChange={(e) =>
+                    setForm({ ...form, etablissement_id: e.target.value })
+                  }
+                  className="select"
+                >
+                  <option value="">{isSA ? "Tous" : "— Choisir —"}</option>
+                  {(isSA ? etabs : availableEtabs).map((e) => (
+                    <option key={e.id} value={e.id}>
+                      {e.nom}
+                    </option>
+                  ))}
+                </select>
+                {!isSA && availableEtabs.length === 0 && (
+                  <p className="text-xs text-red-500 mt-1">
+                    Aucun etablissement assigne. Contactez le SuperAdmin.
+                  </p>
+                )}
+              </div>
+              <div>
+                <label className="label">Notes</label>
+                <textarea
+                  value={form.notes_pilote}
+                  onChange={(e) =>
+                    setForm({ ...form, notes_pilote: e.target.value })
+                  }
+                  className="input min-h-[60px]"
+                />
+              </div>
+            </div>
+            <div className="flex justify-end gap-2 mt-5 pt-4 border-t border-gray-100">
+              <button
+                onClick={() => setShowCreate(false)}
+                className="btn-secondary"
+              >
+                Annuler
+              </button>
+              <button
+                onClick={handleCreateSlot}
+                disabled={saving}
+                className="btn-primary"
+              >
+                {saving ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <Plus className="w-4 h-4" />
+                )}{" "}
+                Creer
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* DETAIL */}
+      {showDetail && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4"
+          onClick={() => setShowDetail(null)}
+        >
+          <div className="absolute inset-0 bg-black/40" />
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="relative bg-white rounded-2xl p-6 w-full max-w-2xl shadow-xl max-h-[90vh] overflow-auto"
+          >
+            <div className="flex items-center justify-between mb-5">
+              <h3 className="text-lg font-bold text-gray-900">
+                Vol du{" "}
+                {new Date(showDetail.date_vol).toLocaleDateString("fr-FR")}
+              </h3>
+              <button
+                onClick={() => setShowDetail(null)}
+                className="p-1.5 rounded-lg hover:bg-gray-100"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <div className="grid grid-cols-2 gap-x-6 gap-y-2 mb-4 text-sm">
+              <div className="flex justify-between">
+                <span className="text-gray-500">Horaire</span>
+                <span className="font-medium">
+                  {showDetail.heure_debut?.slice(0, 5)} -{" "}
+                  {showDetail.heure_fin?.slice(0, 5)}
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-gray-500">Statut</span>
+                <span
+                  className={`badge ${sS[showDetail.statut] || "bg-gray-100"}`}
+                >
+                  {sL[showDetail.statut]}
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-gray-500">Pilote</span>
+                <span className="font-medium">
+                  {showDetail.pilote?.prenom} {showDetail.pilote?.nom}
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-gray-500">Aeronef</span>
+                <span className="font-medium">
+                  {showDetail.aeronef?.type_aeronef} (
+                  {showDetail.aeronef?.immatriculation})
+                </span>
+              </div>
+              {showDetail.etablissement && (
+                <div className="flex justify-between">
+                  <span className="text-gray-500">Etablissement</span>
+                  <span className="font-medium">
+                    {showDetail.etablissement.nom}
+                  </span>
+                </div>
+              )}
+            </div>
+            <div className="border-t border-gray-100 pt-4 mb-4">
+              <p className="text-sm font-semibold text-gray-900 mb-3">
+                Eleves (
+                {showDetail.reservations?.filter(
+                  (r: any) => r.statut !== "annule",
+                ).length || 0}
+                )
+              </p>
+              {showDetail.reservations
+                ?.filter((r: any) => r.statut !== "annule")
+                .map((r: any, i: number) => (
+                  <div
+                    key={i}
+                    className="p-4 rounded-lg bg-gray-50 mb-2 border border-gray-100"
+                  >
+                    <div className="flex items-center justify-between mb-2">
+                      <p className="text-sm font-bold text-gray-900">
+                        {r.eleve?.prenom} {r.eleve?.nom}
+                      </p>
+                      <div className="flex items-center gap-2">
+                        <span className="badge bg-brand-50 text-brand-500">
+                          Vol {r.type_vol || 1}
+                        </span>
+                        {showDetail.statut !== "termine" &&
+                          (canCreate ||
+                            showDetail.pilote_id === profile?.id) && (
+                            <button
+                              onClick={() =>
+                                handleRemoveEleve(
+                                  r.id,
+                                  `${r.eleve?.prenom} ${r.eleve?.nom}`,
+                                )
+                              }
+                              className="btn-danger btn-sm"
+                            >
+                              <X className="w-3 h-3" /> Retirer
+                            </button>
+                          )}
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs mb-2">
+                      <div>
+                        <span className="text-gray-400">Ne(e)</span>{" "}
+                        <span className="text-gray-700">
+                          {r.eleve?.date_naissance &&
+                            new Date(r.eleve.date_naissance).toLocaleDateString(
+                              "fr-FR",
+                            )}
+                        </span>
+                      </div>
+                      <div>
+                        <span className="text-gray-400">Classe</span>{" "}
+                        <span className="text-gray-700">{r.eleve?.classe}</span>
+                      </div>
+                    </div>
+                    {r.eleve?.vol1_temps_minutes && (
+                      <div className="p-2 bg-amber-50 rounded text-xs text-amber-700 mb-2">
+                        <Clock className="w-3 h-3 inline mr-1" />
+                        Vol 1: {r.eleve.vol1_temps_minutes}min — Cible: ~
+                        {45 - r.eleve.vol1_temps_minutes}min
+                      </div>
+                    )}
+                    {r.eleve?.commentaires && (
+                      <div className="p-2 bg-amber-50 rounded text-xs text-amber-700 mb-2">
+                        <AlertCircle className="w-3 h-3 inline mr-1" />
+                        {r.eleve.commentaires}
+                      </div>
+                    )}
+                    <div className="p-3 bg-white rounded border border-gray-200 mt-2">
+                      <p className="text-[10px] font-semibold text-gray-400 uppercase mb-1">
+                        Parent
+                      </p>
+                      <div className="space-y-1 text-xs">
+                        <div className="flex items-center gap-2">
+                          <User className="w-3 h-3 text-gray-400" />
+                          {r.eleve?.parent_prenom} {r.eleve?.parent_nom}
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <Mail className="w-3 h-3 text-gray-400" />
+                          <a
+                            href={`mailto:${r.eleve?.parent_email}`}
+                            className="text-brand-500 hover:underline"
+                          >
+                            {r.eleve?.parent_email}
+                          </a>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <Phone className="w-3 h-3 text-gray-400" />
+                          <a
+                            href={`tel:${r.eleve?.parent_telephone}`}
+                            className="text-brand-500 hover:underline"
+                          >
+                            {r.eleve?.parent_telephone}
+                          </a>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              {(!showDetail.reservations ||
+                showDetail.reservations.filter(
+                  (r: any) => r.statut !== "annule",
+                ).length === 0) && (
+                <p className="text-sm text-gray-400">Aucun eleve</p>
+              )}
+            </div>
+            {showDetail.statut !== "termine" &&
+              showDetail.statut !== "annule" &&
+              (canCreate || showDetail.pilote_id === profile?.id) && (
+                <div className="flex gap-2 pt-3 border-t border-gray-100">
+                  <button
+                    onClick={() => {
+                      setShowDetail(null);
+                      setShowClose(showDetail);
+                      setCloseForm({
+                        ...closeForm,
+                        nb_eleves: String(
+                          showDetail.reservations?.filter(
+                            (r: any) => r.statut !== "annule",
+                          ).length || 0,
+                        ),
+                      });
+                    }}
+                    className="btn-primary flex-1"
+                  >
+                    <Check className="w-4 h-4" /> Cloturer
+                  </button>
+                  <button
+                    onClick={() => handleCancelSlot(showDetail.id)}
+                    className="btn-secondary"
+                  >
+                    Annuler vol
+                  </button>
+                  <button
+                    onClick={() => handleDeleteSlot(showDetail.id)}
+                    className="btn-danger btn-sm"
+                  >
+                    Suppr.
+                  </button>
+                </div>
+              )}
+          </div>
+        </div>
+      )}
+
+      {/* CLOSE */}
+      {showClose && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4"
+          onClick={() => setShowClose(null)}
+        >
+          <div className="absolute inset-0 bg-black/40" />
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="relative bg-white rounded-2xl p-6 w-full max-w-lg shadow-xl max-h-[90vh] overflow-auto"
+          >
+            <div className="flex items-center justify-between mb-5">
+              <h3 className="text-lg font-bold text-gray-900">
+                Cloturer le vol
+              </h3>
+              <button
+                onClick={() => setShowClose(null)}
+                className="p-1.5 rounded-lg hover:bg-gray-100"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <div className="p-3 rounded-lg bg-gray-50 mb-4 text-sm">
+              <p className="font-medium">
+                {new Date(showClose.date_vol).toLocaleDateString("fr-FR")} ·{" "}
+                {showClose.heure_debut?.slice(0, 5)}
+              </p>
+              <p className="text-gray-500">
+                {showClose.aeronef?.type_aeronef} (
+                {showClose.aeronef?.immatriculation})
+              </p>
+            </div>
+            {error && (
+              <div className="mb-4 p-3 rounded-lg bg-red-50 text-sm text-red-700">
+                {error}
+              </div>
+            )}
+            <div className="space-y-3">
+              <div>
+                <label className="label">N Aerogest *</label>
+                <input
+                  value={closeForm.numero_aerogest}
+                  onChange={(e) =>
+                    setCloseForm({
+                      ...closeForm,
+                      numero_aerogest: e.target.value,
+                    })
+                  }
+                  className="input"
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="label">Temps vol (min) *</label>
+                  <input
+                    type="number"
+                    value={closeForm.temps_vol_minutes}
+                    onChange={(e) =>
+                      setCloseForm({
+                        ...closeForm,
+                        temps_vol_minutes: e.target.value,
+                      })
+                    }
+                    className="input"
+                  />
+                </div>
+                <div>
+                  <label className="label">Nb eleves</label>
+                  <input
+                    type="number"
+                    value={closeForm.nb_eleves}
+                    onChange={(e) =>
+                      setCloseForm({ ...closeForm, nb_eleves: e.target.value })
+                    }
+                    className="input"
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="label">Prix total (E) *</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  value={closeForm.prix_total}
+                  onChange={(e) =>
+                    setCloseForm({ ...closeForm, prix_total: e.target.value })
+                  }
+                  className="input"
+                />
+              </div>
+              <div>
+                <label className="label">Notes</label>
+                <textarea
+                  value={closeForm.notes}
+                  onChange={(e) =>
+                    setCloseForm({ ...closeForm, notes: e.target.value })
+                  }
+                  className="input min-h-[60px]"
+                />
+              </div>
+            </div>
+            <div className="flex justify-end gap-2 mt-5 pt-4 border-t border-gray-100">
+              <button
+                onClick={() => setShowClose(null)}
+                className="btn-secondary"
+              >
+                Annuler
+              </button>
+              <button
+                onClick={handleCloseFlight}
+                disabled={saving}
+                className="btn-primary"
+              >
+                {saving ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <Check className="w-4 h-4" />
+                )}{" "}
+                Valider
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* EDIT HISTO */}
+      {editHisto && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4"
+          onClick={() => setEditHisto(null)}
+        >
+          <div className="absolute inset-0 bg-black/40" />
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="relative bg-white rounded-2xl p-6 w-full max-w-lg shadow-xl"
+          >
+            <div className="flex items-center justify-between mb-5">
+              <h3 className="text-lg font-bold text-gray-900">Modifier</h3>
+              <button
+                onClick={() => setEditHisto(null)}
+                className="p-1.5 rounded-lg hover:bg-gray-100"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <div className="space-y-3">
+              <div>
+                <label className="label">N Aerogest</label>
+                <input
+                  value={editHisto.numero_aerogest}
+                  onChange={(e) =>
+                    setEditHisto({
+                      ...editHisto,
+                      numero_aerogest: e.target.value,
+                    })
+                  }
+                  className="input"
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="label">Temps (min)</label>
+                  <input
+                    type="number"
+                    value={editHisto.temps_vol_minutes}
+                    onChange={(e) =>
+                      setEditHisto({
+                        ...editHisto,
+                        temps_vol_minutes: parseInt(e.target.value) || 0,
+                      })
+                    }
+                    className="input"
+                  />
+                </div>
+                <div>
+                  <label className="label">Nb eleves</label>
+                  <input
+                    type="number"
+                    value={editHisto.nb_eleves}
+                    onChange={(e) =>
+                      setEditHisto({
+                        ...editHisto,
+                        nb_eleves: parseInt(e.target.value) || 0,
+                      })
+                    }
+                    className="input"
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="label">Prix (E)</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  value={editHisto.prix_total}
+                  onChange={(e) =>
+                    setEditHisto({
+                      ...editHisto,
+                      prix_total: parseFloat(e.target.value) || 0,
+                    })
+                  }
+                  className="input"
+                />
+              </div>
+              <div>
+                <label className="label">Notes</label>
+                <textarea
+                  value={editHisto.notes || ""}
+                  onChange={(e) =>
+                    setEditHisto({ ...editHisto, notes: e.target.value })
+                  }
+                  className="input min-h-[60px]"
+                />
+              </div>
+            </div>
+            <div className="flex justify-end gap-2 mt-5 pt-4 border-t border-gray-100">
+              <button
+                onClick={() => setEditHisto(null)}
+                className="btn-secondary"
+              >
+                Annuler
+              </button>
+              <button
+                onClick={handleSaveHisto}
+                disabled={saving}
+                className="btn-primary"
+              >
+                {saving ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <Save className="w-4 h-4" />
+                )}{" "}
+                Enregistrer
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* HEADER */}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-5">
+        <div>
+          <h1 className="text-xl font-bold text-gray-900">
+            {isPilote && !isSA ? "Mes creneaux" : "Planning des vols"}
+          </h1>
+          <p className="text-sm text-gray-500 mt-0.5">
+            {displayed.length} creneau{displayed.length > 1 ? "x" : ""}
+          </p>
+        </div>
+        <div className="flex gap-2 flex-wrap">
+          <div className="flex bg-gray-100 rounded-lg p-0.5">
+            {[
+              { k: "list", l: "Liste", i: List },
+              { k: "calendar", l: "Calendrier", i: Calendar },
+              ...(isSA
+                ? [{ k: "historique", l: "Historique", i: History }]
+                : []),
+            ].map(({ k, l, i: I }: any) => (
+              <button
+                key={k}
+                onClick={() => setMode(k)}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold transition-all ${mode === k ? "bg-white text-brand-500 shadow-sm" : "text-gray-500"}`}
+              >
+                <I className="w-3.5 h-3.5" />
+                {l}
+              </button>
+            ))}
+          </div>
+          {canCreate && (
+            <button
+              onClick={() => {
+                setError(null);
+                setShowCreate(true);
+              }}
+              className="btn-primary btn-sm"
+            >
+              <Plus className="w-3.5 h-3.5" /> Nouveau
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* LIST */}
+      {mode === "list" && (
+        <div className="flex flex-col gap-2.5">
+          {displayed.length === 0 ? (
+            <div className="card text-center py-12 text-gray-400">
+              <Plane className="w-8 h-8 mx-auto mb-2 text-gray-300" />
+              <p>Aucun creneau</p>
+            </div>
+          ) : (
+            displayed.map((c) => (
+              <div
+                key={c.id}
+                onClick={() => setShowDetail(c)}
+                className="card flex items-center justify-between flex-wrap gap-3 p-4 cursor-pointer hover:border-brand-200 transition-colors"
+              >
+                <div className="flex items-center gap-3 flex-1 min-w-[260px]">
+                  <div
+                    className={`w-10 h-10 rounded-lg flex items-center justify-center ${(sS[c.statut] || "bg-gray-100").split(" ")[0]}`}
+                  >
+                    <Plane
+                      className={`w-5 h-5 ${(sS[c.statut] || "text-gray-500").split(" ")[1]}`}
+                    />
+                  </div>
+                  <div>
+                    <p className="text-sm font-semibold text-gray-900">
+                      {new Date(c.date_vol).toLocaleDateString("fr-FR")} ·{" "}
+                      {c.heure_debut?.slice(0, 5)} - {c.heure_fin?.slice(0, 5)}
+                    </p>
+                    <p className="text-xs text-gray-500">
+                      {c.pilote?.prenom} {c.pilote?.nom} ·{" "}
+                      {c.aeronef?.type_aeronef} ({c.aeronef?.immatriculation})
+                    </p>
+                    {c.reservations?.filter((r: any) => r.statut !== "annule")
+                      .length > 0 && (
+                      <p className="text-xs text-gray-400 mt-0.5">
+                        {c.reservations
+                          .filter((r: any) => r.statut !== "annule")
+                          .map((r: any) => `${r.eleve?.prenom} ${r.eleve?.nom}`)
+                          .join(", ")}
+                      </p>
+                    )}
+                  </div>
+                </div>
+                <span
+                  className={`badge ${sS[c.statut] || "bg-gray-100 text-gray-500"}`}
+                >
+                  {sL[c.statut] || c.statut}
+                </span>
+              </div>
+            ))
+          )}
+        </div>
+      )}
+
+      {/* CALENDAR */}
+      {mode === "calendar" && (
+        <div className="card p-0 overflow-hidden">
+          <div className="flex items-center justify-between px-5 py-3 border-b border-gray-100">
+            <button
+              onClick={() => setCalMonth((m) => Math.max(0, m - 1))}
+              className="p-1.5 rounded-md bg-brand-50 text-brand-500 text-sm font-semibold"
+            >
+              ‹
+            </button>
+            <span className="text-sm font-bold text-gray-900">
+              {mN[calMonth]} {cY}
+            </span>
+            <button
+              onClick={() => setCalMonth((m) => Math.min(11, m + 1))}
+              className="p-1.5 rounded-md bg-brand-50 text-brand-500 text-sm font-semibold"
+            >
+              ›
+            </button>
+          </div>
+          <div className="grid grid-cols-7">
+            {["Lun", "Mar", "Mer", "Jeu", "Ven", "Sam", "Dim"].map((d) => (
+              <div
+                key={d}
+                className="px-1 py-2 text-center text-[10px] font-bold uppercase text-gray-400 bg-gray-50"
+              >
+                {d}
+              </div>
+            ))}
+            {cD.map((d, i) => {
+              const fls = d ? fBD[d] || [] : [];
+              return (
+                <div
+                  key={i}
+                  className={`min-h-[78px] p-1 border-t border-gray-100 ${(i + 1) % 7 !== 0 ? "border-r" : ""} ${d ? "bg-white" : "bg-gray-50 opacity-30"}`}
+                >
+                  {d && (
+                    <>
+                      <div className="text-xs text-right pr-1 mb-1 text-gray-500">
+                        {d}
+                      </div>
+                      {fls.map((f: any, fi: number) => (
+                        <div
+                          key={fi}
+                          onClick={() => setShowDetail(f)}
+                          className={`px-1.5 py-0.5 rounded text-[10px] font-semibold mb-0.5 truncate cursor-pointer ${sS[f.statut] || "bg-gray-100"}`}
+                        >
+                          {f.heure_debut?.slice(0, 5)} · {f.pilote?.nom}
+                        </div>
+                      ))}
+                    </>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* HISTORIQUE */}
+      {mode === "historique" && isSA && (
+        <div className="card p-0 overflow-auto">
+          <table className="w-full text-sm min-w-[900px]">
+            <thead>
+              <tr className="bg-gray-50">
+                {[
+                  "Date",
+                  "Pilote",
+                  "Aeronef",
+                  "Eleves",
+                  "N Aerogest",
+                  "Temps",
+                  "Prix",
+                  "Notes",
+                  "",
+                ].map((h) => (
+                  <th
+                    key={h}
+                    className="px-3 py-2.5 text-left text-[10px] font-semibold uppercase text-gray-400"
+                  >
+                    {h}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {volsHisto.length === 0 ? (
+                <tr>
+                  <td
+                    colSpan={9}
+                    className="px-3 py-12 text-center text-gray-400"
+                  >
+                    Aucun vol
+                  </td>
+                </tr>
+              ) : (
+                volsHisto.map((v) => (
+                  <tr
+                    key={v.id}
+                    className="border-t border-gray-100 hover:bg-gray-50"
+                  >
+                    <td className="px-3 py-2.5 font-medium">
+                      {v.creneau?.date_vol &&
+                        new Date(v.creneau.date_vol).toLocaleDateString(
+                          "fr-FR",
+                        )}
+                    </td>
+                    <td className="px-3 py-2.5">
+                      {v.creneau?.pilote?.prenom} {v.creneau?.pilote?.nom}
+                    </td>
+                    <td className="px-3 py-2.5 text-gray-500">
+                      {v.creneau?.aeronef?.type_aeronef}
+                    </td>
+                    <td className="px-3 py-2.5 text-gray-500 text-xs">
+                      {v.creneau?.reservations
+                        ?.map((r: any) => `${r.eleve?.prenom} ${r.eleve?.nom}`)
+                        .join(", ") || "—"}
+                    </td>
+                    <td className="px-3 py-2.5 font-mono text-xs">
+                      {v.numero_aerogest}
+                    </td>
+                    <td className="px-3 py-2.5">{v.temps_vol_minutes}min</td>
+                    <td className="px-3 py-2.5 font-semibold">
+                      {v.prix_total}E
+                    </td>
+                    <td className="px-3 py-2.5 text-gray-400 text-xs">
+                      {v.notes || "—"}
+                    </td>
+                    <td className="px-3 py-2.5">
+                      <button
+                        onClick={() => setEditHisto({ ...v })}
+                        className="btn-secondary btn-sm"
+                      >
+                        <Edit className="w-3 h-3" />
+                      </button>
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
