@@ -111,17 +111,21 @@ export default function ReservationPage() {
     load();
   }
 
-  // Filter creneaux by student's etablissement
+  // Filter creneaux by student's etablissement and eleves_autorises
   function getCreneauxForEleve(enfant: any) {
     return creneaux.filter((c) => {
       if ((c.reservations?.length || 0) >= c.places_disponibles) return false;
-      // Show creneaux for this student's etablissement OR creneaux open to all (no etablissement set)
+      // Show creneaux for this student's etablissement OR creneaux open to all
       if (
         c.etablissement_id &&
         enfant.etablissement_id &&
         c.etablissement_id !== enfant.etablissement_id
       )
         return false;
+      // If the slot restricts to specific students, check inclusion
+      if (c.eleves_autorises && c.eleves_autorises.length > 0) {
+        if (!c.eleves_autorises.includes(enfant.id)) return false;
+      }
       return true;
     });
   }

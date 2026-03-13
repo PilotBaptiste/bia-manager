@@ -12,7 +12,8 @@ export default function EtablissementsPage() {
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState<Etablissement | null>(null);
-  const [form, setForm] = useState({ nom: "", ville: "", adresse: "", code_postal: "", telephone: "", email: "" });
+  const [form, setForm] = useState({ nom: "", ville: "", adresse: "", code_postal: "", telephone: "", email: "", actif: true });
+  const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
   async function load() {
@@ -25,13 +26,13 @@ export default function EtablissementsPage() {
 
   function openCreate() {
     setEditing(null);
-    setForm({ nom: "", ville: "", adresse: "", code_postal: "", telephone: "", email: "" });
+    setForm({ nom: "", ville: "", adresse: "", code_postal: "", telephone: "", email: "", actif: true });
     setShowForm(true);
   }
 
   function openEdit(e: Etablissement) {
     setEditing(e);
-    setForm({ nom: e.nom, ville: e.ville || "", adresse: e.adresse || "", code_postal: e.code_postal || "", telephone: e.telephone || "", email: e.email || "" });
+    setForm({ nom: e.nom, ville: e.ville || "", adresse: e.adresse || "", code_postal: e.code_postal || "", telephone: e.telephone || "", email: e.email || "", actif: e.actif });
     setShowForm(true);
   }
 
@@ -53,6 +54,7 @@ export default function EtablissementsPage() {
   async function handleDelete(id: string) {
     await supabase.from("etablissements").delete().eq("id", id);
     toast.success("Établissement supprimé");
+    setConfirmDelete(null);
     load();
   }
 
@@ -93,6 +95,19 @@ export default function EtablissementsPage() {
                 <div><label className="label">Téléphone</label><input value={form.telephone} onChange={(e) => setForm({ ...form, telephone: e.target.value })} className="input" /></div>
                 <div><label className="label">Email</label><input value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} className="input" type="email" /></div>
               </div>
+              <div className="flex items-center justify-between p-3 rounded-lg bg-gray-50 border border-gray-200">
+                <div>
+                  <p className="text-sm font-medium text-gray-700">Statut</p>
+                  <p className="text-xs text-gray-500">{form.actif ? "Visible et sélectionnable" : "Masqué dans les listes"}</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setForm({ ...form, actif: !form.actif })}
+                  className={`relative w-11 h-6 rounded-full transition-colors duration-200 ${form.actif ? "bg-emerald-500" : "bg-gray-300"}`}
+                >
+                  <span className={`absolute top-1 left-1 w-4 h-4 bg-white rounded-full shadow transition-transform duration-200 ${form.actif ? "translate-x-5" : "translate-x-0"}`} />
+                </button>
+              </div>
             </div>
             <div className="flex justify-end gap-2 mt-5 pt-4 border-t border-gray-100">
               <button onClick={() => setShowForm(false)} className="btn-secondary btn-sm">Annuler</button>
@@ -100,6 +115,21 @@ export default function EtablissementsPage() {
                 {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : null}
                 {editing ? "Enregistrer" : "Créer"}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Confirm delete */}
+      {confirmDelete && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/40" onClick={() => setConfirmDelete(null)} />
+          <div className="relative bg-white rounded-2xl p-6 w-full max-w-sm shadow-xl">
+            <h3 className="text-base font-bold text-gray-900 mb-2">Supprimer l&apos;établissement ?</h3>
+            <p className="text-sm text-gray-500 mb-5">Cette action est irréversible. Les élèves liés ne seront pas supprimés.</p>
+            <div className="flex gap-2 justify-end">
+              <button onClick={() => setConfirmDelete(null)} className="btn-secondary btn-sm">Annuler</button>
+              <button onClick={() => handleDelete(confirmDelete)} className="btn-danger btn-sm">Supprimer</button>
             </div>
           </div>
         </div>
@@ -127,7 +157,7 @@ export default function EtablissementsPage() {
             {e.telephone && <p className="text-xs text-gray-500 mb-3">{e.telephone}</p>}
             <div className="flex gap-2 pt-3 border-t border-gray-100">
               <button onClick={() => openEdit(e)} className="btn-secondary btn-sm flex-1"><Edit className="w-3 h-3" /> Modifier</button>
-              <button onClick={() => handleDelete(e.id)} className="p-1.5 rounded-lg text-red-400 hover:bg-red-50 hover:text-red-600 transition-colors"><Trash2 className="w-3.5 h-3.5" /></button>
+              <button onClick={() => setConfirmDelete(e.id)} className="p-1.5 rounded-lg text-red-400 hover:bg-red-50 hover:text-red-600 transition-colors"><Trash2 className="w-3.5 h-3.5" /></button>
             </div>
           </div>
         ))}

@@ -26,6 +26,7 @@ export default function VolsPage() {
   const [volsHisto, setVolsHisto] = useState<any[]>([]);
   const [aeronefs, setAeronefs] = useState<any[]>([]);
   const [etabs, setEtabs] = useState<any[]>([]);
+  const [eleves, setEleves] = useState<any[]>([]);
   const [pilotes, setPilotes] = useState<any[]>([]);
   const [qualifs, setQualifs] = useState<any[]>([]);
   const [piloteEtabs, setPiloteEtabs] = useState<any[]>([]);
@@ -48,6 +49,7 @@ export default function VolsPage() {
     etablissement_id: "",
     notes_pilote: "",
     pilote_id: "",
+    eleves_autorises: [] as string[],
   });
   const [closeForm, setCloseForm] = useState({
     numero_aerogest: "",
@@ -62,7 +64,7 @@ export default function VolsPage() {
       data: { user },
     } = await supabase.auth.getUser();
     if (!user) return;
-    const [profRes, crRes, aRes, eRes, anRes, vhRes, pRes, qRes, peRes] =
+    const [profRes, crRes, aRes, eRes, anRes, vhRes, pRes, qRes, peRes, elRes] =
       await Promise.all([
         supabase.from("profiles").select("*").eq("id", user.id).single(),
         supabase
@@ -90,6 +92,11 @@ export default function VolsPage() {
         supabase
           .from("pilote_etablissements")
           .select("pilote_id, etablissement_id"),
+        supabase
+          .from("eleves")
+          .select("id, nom, prenom, etablissement_id")
+          .eq("archive", false)
+          .order("nom"),
       ]);
     setProfile(profRes.data);
     setCreneaux(crRes.data || []);
@@ -99,6 +106,7 @@ export default function VolsPage() {
     setPilotes(pRes.data || []);
     setQualifs(qRes.data || []);
     setPiloteEtabs(peRes.data || []);
+    setEleves(elRes.data || []);
     if (anRes.data) setAnneeId(anRes.data.id);
     setLoading(false);
   }
@@ -169,6 +177,7 @@ export default function VolsPage() {
       heure_fin: form.heure_fin,
       places_disponibles: aeronef?.nb_places_eleves || 2,
       notes_pilote: form.notes_pilote || null,
+      eleves_autorises: form.eleves_autorises.length > 0 ? form.eleves_autorises : null,
     });
     setSaving(false);
     if (err) {
@@ -184,6 +193,7 @@ export default function VolsPage() {
       etablissement_id: "",
       notes_pilote: "",
       pilote_id: "",
+      eleves_autorises: [],
     });
     load();
   }
@@ -493,6 +503,57 @@ export default function VolsPage() {
                   </p>
                 )}
               </div>
+              {/* Optional: restrict to specific students */}
+              {(() => {
+                const elevesDispo = eleves.filter((el) =>
+                  form.etablissement_id ? el.etablissement_id === form.etablissement_id : true,
+                );
+                if (elevesDispo.length === 0) return null;
+                const allSelected = form.eleves_autorises.length === 0;
+                return (
+                  <div>
+                    <label className="label">Élèves autorisés <span className="normal-case font-normal text-gray-400">(optionnel — vide = tous)</span></label>
+                    <div className="border border-gray-200 rounded-lg overflow-hidden">
+                      <button
+                        type="button"
+                        onClick={() => setForm({ ...form, eleves_autorises: [] })}
+                        className={`w-full flex items-center gap-2 px-3 py-2 text-sm border-b border-gray-100 transition-colors ${allSelected ? "bg-brand-50 text-brand-600 font-semibold" : "text-gray-500 hover:bg-gray-50"}`}
+                      >
+                        <span className={`w-4 h-4 rounded border-2 flex items-center justify-center shrink-0 ${allSelected ? "border-brand-500 bg-brand-500" : "border-gray-300"}`}>
+                          {allSelected && <Check className="w-2.5 h-2.5 text-white" />}
+                        </span>
+                        Tous les élèves
+                      </button>
+                      <div className="max-h-40 overflow-y-auto">
+                        {elevesDispo.map((el) => {
+                          const checked = form.eleves_autorises.includes(el.id);
+                          return (
+                            <button
+                              key={el.id}
+                              type="button"
+                              onClick={() => {
+                                const next = checked
+                                  ? form.eleves_autorises.filter((x) => x !== el.id)
+                                  : [...form.eleves_autorises, el.id];
+                                setForm({ ...form, eleves_autorises: next });
+                              }}
+                              className={`w-full flex items-center gap-2 px-3 py-2 text-sm border-b border-gray-50 last:border-0 transition-colors ${checked ? "bg-brand-50 text-brand-700" : "text-gray-700 hover:bg-gray-50"}`}
+                            >
+                              <span className={`w-4 h-4 rounded border-2 flex items-center justify-center shrink-0 ${checked ? "border-brand-500 bg-brand-500" : "border-gray-300"}`}>
+                                {checked && <Check className="w-2.5 h-2.5 text-white" />}
+                              </span>
+                              {el.prenom} {el.nom}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                    {form.eleves_autorises.length > 0 && (
+                      <p className="text-xs text-brand-500 mt-1">{form.eleves_autorises.length} élève{form.eleves_autorises.length > 1 ? "s" : ""} sélectionné{form.eleves_autorises.length > 1 ? "s" : ""}</p>
+                    )}
+                  </div>
+                );
+              })()}
               <div>
                 <label className="label">Notes</label>
                 <textarea
