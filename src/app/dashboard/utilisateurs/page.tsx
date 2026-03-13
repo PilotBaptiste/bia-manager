@@ -13,6 +13,7 @@ import {
   Mail,
   UserPlus,
   AlertCircle,
+  Trash2,
 } from "lucide-react";
 
 const ALL_ROLES = [
@@ -71,9 +72,12 @@ export default function UtilisateursPage() {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [sendingInvite, setSendingInvite] = useState<string | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState<any | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const [elevesByParentEmail, setElevesByParentEmail] = useState<Record<string, string[]>>({});
 
   async function load() {
-    const [usersRes, etabsRes] = await Promise.all([
+    const [usersRes, etabsRes, elevesRes] = await Promise.all([
       supabase
         .from("profiles")
         .select("*, etablissement:etablissements(nom)")
@@ -83,9 +87,22 @@ export default function UtilisateursPage() {
         .select("*")
         .eq("actif", true)
         .order("nom"),
+      supabase
+        .from("eleves")
+        .select("prenom, nom, email_parent"),
     ]);
     setUsers(usersRes.data || []);
     setEtabs(etabsRes.data || []);
+
+    // Build map: email_parent -> ["Prénom Nom", ...]
+    const map: Record<string, string[]> = {};
+    for (const e of elevesRes.data || []) {
+      if (!e.email_parent) continue;
+      const key = e.email_parent.toLowerCase();
+      if (!map[key]) map[key] = [];
+      map[key].push(`${e.prenom} ${e.nom}`);
+    }
+    setElevesByParentEmail(map);
     setLoading(false);
   }
   useEffect(() => {
@@ -184,6 +201,25 @@ export default function UtilisateursPage() {
     setCreating(false);
     setCreateForm(emptyCreate);
     toast.success(`Compte créé — identifiants envoyés à ${createForm.email}`);
+    load();
+  }
+
+  async function handleDelete() {
+    if (!confirmDelete) return;
+    setDeleting(true);
+    const res = await fetch("/api/delete-user", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ userId: confirmDelete.id }),
+    });
+    const json = await res.json();
+    setDeleting(false);
+    setConfirmDelete(null);
+    if (!res.ok) {
+      toast.error(`Erreur: ${json.error}`);
+      return;
+    }
+    toast.success(`Compte de ${confirmDelete.prenom} ${confirmDelete.nom} supprimé`);
     load();
   }
 
@@ -552,88 +588,104 @@ export default function UtilisateursPage() {
         </div>
       )}
 
+      {/* Delete Confirmation Modal */}
+      {confirmDelete && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" onClick={() => setConfirmDelete(null)}>
+          <div className="absolute inset-0 bg-black/40" />
+          <div onClick={(e) => e.stopPropagation()} className="relative bg-white rounded-2xl p-6 w-full max-w-sm shadow-xl">
+            <div className="flex items-center gap-3 mb-3">
+              <div className="w-10 h-10 rounded-full bg-red-100 flex items-center justify-center shrink-0">
+                <Trash2 className="w-5 h-5 text-red-600" />
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-gray-900">Supprimer le compte</h3>
+                <p className="text-sm text-gray-500">{confirmDelete.prenom} {confirmDelete.nom}</p>
+              </div>
+            </div>
+            <p className="text-sm text-gray-500 mb-5">
+              Cette action supprime définitivement le compte et l&apos;accès à la plateforme. Les données associées (élèves, etc.) ne seront pas supprimées.
+            </p>
+            <div className="flex gap-2 justify-end">
+              <button onClick={() => setConfirmDelete(null)} className="btn-secondary btn-sm">Annuler</button>
+              <button onClick={handleDelete} disabled={deleting} className="btn-danger btn-sm">
+                {deleting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />} Supprimer
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Users table */}
       <div className="card p-0 overflow-auto">
         <table className="w-full text-sm min-w-[750px]">
           <thead>
             <tr className="bg-gray-50">
-              {[
-                "Utilisateur",
-                "Email",
-                "Role(s)",
-                "Etablissement",
-                "Statut",
-                "",
-                "",
-              ].map((h, i) => (
-                <th
-                  key={i}
-                  className="px-3 py-2.5 text-left text-[10px] font-semibold uppercase tracking-wider text-gray-400"
-                >
+              {["Utilisateur", "Email", "Role(s)", "Établissement", "Statut", "", "", ""].map((h, i) => (
+                <th key={i} className="px-3 py-2.5 text-left text-[10px] font-semibold uppercase tracking-wider text-gray-400">
                   {h}
                 </th>
               ))}
             </tr>
           </thead>
           <tbody>
-            {filtered.map((u) => (
-              <tr
-                key={u.id}
-                className="border-t border-gray-100 hover:bg-gray-50"
-              >
-                <td className="px-3 py-2.5">
-                  <div className="font-semibold text-gray-900">
-                    {u.prenom} {u.nom}
-                  </div>
-                  {u.telephone && (
-                    <div className="text-[11px] text-gray-400">
-                      {u.telephone}
+            {filtered.map((u) => {
+              const linkedStudents = elevesByParentEmail[u.email?.toLowerCase()] || [];
+              return (
+                <tr key={u.id} className="border-t border-gray-100 hover:bg-gray-50">
+                  <td className="px-3 py-2.5">
+                    <div className="font-semibold text-gray-900">{u.prenom} {u.nom}</div>
+                    {linkedStudents.length > 0 && (
+                      <div className="text-[11px] text-blue-500 mt-0.5">
+                        Élève{linkedStudents.length > 1 ? "s" : ""} : {linkedStudents.join(", ")}
+                      </div>
+                    )}
+                    {u.telephone && (
+                      <div className="text-[11px] text-gray-400">{u.telephone}</div>
+                    )}
+                  </td>
+                  <td className="px-3 py-2.5 text-gray-500 text-xs">{u.email}</td>
+                  <td className="px-3 py-2.5">
+                    <div className="flex gap-1 flex-wrap">
+                      {u.roles?.map((r: string) => (
+                        <span key={r} className={`badge ${roleColor(r)}`}>
+                          {ALL_ROLES.find((ar) => ar.value === r)?.label || r}
+                        </span>
+                      ))}
                     </div>
-                  )}
-                </td>
-                <td className="px-3 py-2.5 text-gray-500 text-xs">{u.email}</td>
-                <td className="px-3 py-2.5">
-                  <div className="flex gap-1 flex-wrap">
-                    {u.roles?.map((r: string) => (
-                      <span key={r} className={`badge ${roleColor(r)}`}>
-                        {ALL_ROLES.find((ar) => ar.value === r)?.label || r}
-                      </span>
-                    ))}
-                  </div>
-                </td>
-                <td className="px-3 py-2.5 text-gray-500 text-xs">
-                  {u.etablissement?.nom || "—"}
-                </td>
-                <td className="px-3 py-2.5">
-                  <span className={u.actif ? "dot-success" : "dot-danger"} />
-                </td>
-                <td className="px-3 py-2.5">
-                  <button
-                    onClick={() => {
-                      setEditing({ ...u });
-                      setError(null);
-                    }}
-                    className="flex items-center gap-1 text-xs font-semibold text-brand-500 hover:text-brand-700 bg-brand-50 px-2 py-1 rounded-md"
-                  >
-                    <Edit className="w-3 h-3" /> Editer
-                  </button>
-                </td>
-                <td className="px-3 py-2.5">
-                  <button
-                    onClick={() => handleSendInvite(u)}
-                    disabled={sendingInvite === u.id}
-                    className="flex items-center gap-1 text-xs font-semibold text-amber-600 hover:text-amber-700 bg-amber-50 px-2 py-1 rounded-md"
-                  >
-                    {sendingInvite === u.id ? (
-                      <Loader2 className="w-3 h-3 animate-spin" />
-                    ) : (
-                      <Mail className="w-3 h-3" />
-                    )}{" "}
-                    Invitation
-                  </button>
-                </td>
-              </tr>
-            ))}
+                  </td>
+                  <td className="px-3 py-2.5 text-gray-500 text-xs">{u.etablissement?.nom || "—"}</td>
+                  <td className="px-3 py-2.5">
+                    <span className={u.actif ? "dot-success" : "dot-danger"} />
+                  </td>
+                  <td className="px-3 py-2.5">
+                    <button
+                      onClick={() => { setEditing({ ...u }); setError(null); }}
+                      className="flex items-center gap-1 text-xs font-semibold text-brand-500 hover:text-brand-700 bg-brand-50 px-2 py-1 rounded-md"
+                    >
+                      <Edit className="w-3 h-3" /> Éditer
+                    </button>
+                  </td>
+                  <td className="px-3 py-2.5">
+                    <button
+                      onClick={() => handleSendInvite(u)}
+                      disabled={sendingInvite === u.id}
+                      className="flex items-center gap-1 text-xs font-semibold text-amber-600 hover:text-amber-700 bg-amber-50 px-2 py-1 rounded-md"
+                    >
+                      {sendingInvite === u.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <Mail className="w-3 h-3" />}
+                      Invitation
+                    </button>
+                  </td>
+                  <td className="px-3 py-2.5">
+                    <button
+                      onClick={() => setConfirmDelete(u)}
+                      className="flex items-center gap-1 text-xs font-semibold text-red-500 hover:text-red-700 bg-red-50 px-2 py-1 rounded-md"
+                    >
+                      <Trash2 className="w-3 h-3" /> Supprimer
+                    </button>
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>
