@@ -1,6 +1,7 @@
 "use client";
 import { useState, useEffect } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { toast } from "sonner";
 import {
   CalendarPlus,
   Plane,
@@ -69,15 +70,10 @@ export default function ReservationPage() {
   }
 
   async function handleCancel(id: string) {
-    if (!confirm("Annuler cette reservation ?")) return;
     setSaving(true);
-    await supabase
-      .from("reservations")
-      .update({ statut: "annule" })
-      .eq("id", id);
+    await supabase.from("reservations").update({ statut: "annule" }).eq("id", id);
     setSaving(false);
-    setSuccess("Reservation annulee.");
-    setTimeout(() => setSuccess(null), 3000);
+    toast.success("Réservation annulée");
     load();
   }
 

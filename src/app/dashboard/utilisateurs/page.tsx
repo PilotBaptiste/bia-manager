@@ -1,6 +1,7 @@
 "use client";
 import { useState, useEffect } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { toast } from "sonner";
 import {
   Shield,
   Search,
@@ -140,9 +141,10 @@ export default function UtilisateursPage() {
       .eq("id", editing.id);
     setSaving(false);
     if (err) {
-      setError(err.message);
+      toast.error(err.message);
       return;
     }
+    toast.success("Profil mis à jour");
     setEditing(null);
     load();
   }
@@ -175,34 +177,29 @@ export default function UtilisateursPage() {
 
     setSaving(false);
     if (!res.ok) {
-      setError(`Erreur creation compte: ${json.error}`);
+      toast.error(`Erreur création compte: ${json.error}`);
       return;
     }
 
     setCreating(false);
-    setSuccess(
-      `Invitation envoyee a ${createForm.email}. L'utilisateur recevra un lien pour definir son mot de passe.`,
-    );
     setCreateForm(emptyCreate);
-    setTimeout(() => setSuccess(null), 10000);
+    toast.success(`Compte créé — identifiants envoyés à ${createForm.email}`);
     load();
   }
 
   async function handleSendInvite(user: any) {
     setSendingInvite(user.id);
+    const tid = toast.loading("Envoi de l'invitation…");
     const res = await fetch("/api/invite", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email: user.email }),
+      body: JSON.stringify({ email: user.email, nom: user.nom, prenom: user.prenom }),
     });
     const json = await res.json();
     setSendingInvite(null);
-    if (!res.ok) {
-      setError(`Erreur envoi email: ${json.error}`);
-    } else {
-      setSuccess(`Email d'invitation envoye a ${user.email}`);
-      setTimeout(() => setSuccess(null), 5000);
-    }
+    toast.dismiss(tid);
+    if (!res.ok) toast.error(`Erreur: ${json.error}`);
+    else toast.success(`Email envoyé à ${user.email}`);
   }
 
   const roleColor = (r: string) =>

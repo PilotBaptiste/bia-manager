@@ -1,6 +1,7 @@
 "use client";
 import { useState, useEffect, useMemo } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { toast } from "sonner";
 import type { Eleve, Etablissement } from "@/types";
 import {
   Users,
@@ -100,6 +101,7 @@ export default function ElevesPage() {
   const [aeronefs, setAeronefs] = useState<any[]>([]);
   const [anneeId, setAnneeId] = useState("");
   const [profileId, setProfileId] = useState("");
+  const [defaultMontant, setDefaultMontant] = useState("80");
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState<any | null>(null);
   const [showForm, setShowForm] = useState(false);
@@ -120,7 +122,7 @@ export default function ElevesPage() {
       data: { user },
     } = await supabase.auth.getUser();
     if (user) setProfileId(user.id);
-    const [eR, etR, aR, anR] = await Promise.all([
+    const [eR, etR, aR, anR, pR] = await Promise.all([
       supabase
         .from("eleves")
         .select(
@@ -128,22 +130,16 @@ export default function ElevesPage() {
         )
         .eq("archive", false)
         .order("nom"),
-      supabase
-        .from("etablissements")
-        .select("*")
-        .eq("actif", true)
-        .order("nom"),
-      supabase
-        .from("aeronefs")
-        .select("*")
-        .eq("actif", true)
-        .order("type_aeronef"),
+      supabase.from("etablissements").select("*").eq("actif", true).order("nom"),
+      supabase.from("aeronefs").select("*").eq("actif", true).order("type_aeronef"),
       supabase.from("annees").select("*").eq("active", true).single(),
+      supabase.from("parametres").select("cle,valeur").eq("cle", "prix_inscription").single(),
     ]);
     setEleves(eR.data || []);
     setEtablissements(etR.data || []);
     setAeronefs(aR.data || []);
     if (anR.data) setAnneeId(anR.data.id);
+    if (pR.data?.valeur) setDefaultMontant(pR.data.valeur);
     setLoading(false);
   }
 
@@ -217,7 +213,7 @@ export default function ElevesPage() {
 
   function openCreate() {
     setEditingId(null);
-    setForm({ ...emptyForm, etablissement_id: etablissements[0]?.id || "" });
+    setForm({ ...emptyForm, paiement_montant: defaultMontant, etablissement_id: etablissements[0]?.id || "" });
     setFormError(null);
     setShowForm(true);
   }
@@ -388,12 +384,10 @@ export default function ElevesPage() {
   }
 
   async function handleDelete(id: string) {
-    if (!confirm("Supprimer cet eleve ?")) return;
-    await logActivity("delete", id, {
-      nom: selected?.nom,
-      prenom: selected?.prenom,
-    });
-    await supabase.from("eleves").delete().eq("id", id);
+    const { error } = await supabase.from("eleves").delete().eq("id", id);
+    if (error) { toast.error("Erreur lors de la suppression"); return; }
+    await logActivity("delete", id, { nom: selected?.nom, prenom: selected?.prenom });
+    toast.success("Élève supprimé");
     setSelected(null);
     load();
   }
@@ -658,7 +652,7 @@ export default function ElevesPage() {
                             .from("attestations")
                             .upload(fileName, file);
                           if (error) {
-                            alert(`Erreur upload: ${error.message}`);
+                            toast.error(`Erreur upload: ${error.message}`);
                             return;
                           }
                           setForm((f) => ({
@@ -677,7 +671,7 @@ export default function ElevesPage() {
                         <button
                           type="button"
                           onClick={async () => {
-                            if (confirm("Supprimer ce document ?")) {
+                            {
                               await supabase.storage
                                 .from("attestations")
                                 .remove([form.attestation_url_manual]);
@@ -687,6 +681,7 @@ export default function ElevesPage() {
                                   .update({ attestation_url: null })
                                   .eq("id", editingId);
                               }
+                              toast.success("Document supprimé");
                               setForm((f) => ({
                                 ...f,
                                 attestation_url_manual: "",
@@ -1047,17 +1042,16 @@ export default function ElevesPage() {
               <div className="mt-2">
                 <button
                   onClick={async () => {
+                    const tid = toast.loading("Envoi de l'invitation…");
                     const res = await fetch("/api/invite", {
                       method: "POST",
                       headers: { "Content-Type": "application/json" },
                       body: JSON.stringify({ email: s.parent_email, nom: s.parent_nom, prenom: s.parent_prenom }),
                     });
                     const json = await res.json();
-                    alert(
-                      res.ok
-                        ? `Email d'invitation envoye a ${s.parent_email}`
-                        : `Erreur: ${json.error}`,
-                    );
+                    toast.dismiss(tid);
+                    if (res.ok) toast.success(`Invitation envoyée à ${s.parent_email}`);
+                    else toast.error(`Erreur: ${json.error}`);
                   }}
                   className="btn-secondary btn-sm"
                 >

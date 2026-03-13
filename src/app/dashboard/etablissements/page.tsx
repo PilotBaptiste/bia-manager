@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { toast } from "sonner";
 import { School, Plus, Edit, Trash2, Loader2, X } from "lucide-react";
 import type { Etablissement } from "@/types";
 
@@ -35,12 +36,14 @@ export default function EtablissementsPage() {
   }
 
   async function handleSave() {
-    if (!form.nom.trim()) return;
+    if (!form.nom.trim()) { toast.error("Le nom est obligatoire"); return; }
     setSaving(true);
     if (editing) {
       await supabase.from("etablissements").update(form).eq("id", editing.id);
+      toast.success("Établissement mis à jour");
     } else {
       await supabase.from("etablissements").insert(form);
+      toast.success("Établissement créé");
     }
     setSaving(false);
     setShowForm(false);
@@ -48,8 +51,8 @@ export default function EtablissementsPage() {
   }
 
   async function handleDelete(id: string) {
-    if (!confirm("Supprimer cet établissement ?")) return;
     await supabase.from("etablissements").delete().eq("id", id);
+    toast.success("Établissement supprimé");
     load();
   }
 

@@ -1,5 +1,6 @@
 import { getCurrentProfile } from "@/lib/auth";
 import Sidebar from "@/components/Sidebar";
+import { Toaster } from "sonner";
 
 export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
   const profile = await getCurrentProfile();
@@ -9,6 +10,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
       <main className="flex-1 overflow-x-hidden pt-14 lg:pt-0">
         <div className="max-w-[1280px] mx-auto p-4 sm:p-6 lg:p-8">{children}</div>
       </main>
+      <Toaster position="bottom-right" richColors closeButton />
     </div>
   );
 }

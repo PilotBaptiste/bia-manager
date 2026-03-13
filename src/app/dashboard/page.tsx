@@ -32,7 +32,7 @@ async function DashboardSuperAdmin({ supabase }: { supabase: any }) {
   return (
     <div>
       <div className="mb-6">
-        <h1 className="text-xl font-bold text-gray-900">Tableau de bord — 2026</h1>
+        <h1 className="text-xl font-bold text-gray-900">Tableau de bord — {new Date().getFullYear()}</h1>
         <p className="text-sm text-gray-500 mt-1">Aéro-Club du Bassin d&apos;Arcachon · SuperAdmin</p>
       </div>
       <div className="flex gap-3 flex-wrap mb-6">
@@ -125,7 +125,7 @@ async function DashboardCoordinateur({ supabase }: { supabase: any }) {
     <div>
       <div className="mb-6">
         <h1 className="text-xl font-bold text-gray-900">Tableau de bord — Coordinateur</h1>
-        <p className="text-sm text-gray-500 mt-1">Vue globale tous établissements · 2026</p>
+        <p className="text-sm text-gray-500 mt-1">Vue globale tous établissements · {new Date().getFullYear()}</p>
       </div>
       <div className="flex gap-3 flex-wrap mb-6">
         <Stat icon={Users} label="Total élèves" value={totalEleves || 0} />
@@ -260,8 +260,14 @@ async function DashboardGerant({ supabase, profile }: { supabase: any; profile: 
 
 // ─── Parent Dashboard ───────────────────────────────────
 async function DashboardParent({ supabase, profile }: { supabase: any; profile: any }) {
-  const { data: mesEnfants } = await supabase.from("eleves").select("*, etablissement:etablissements(nom), reservations(*, creneau:creneaux(date_vol, heure_debut, heure_fin, statut, pilote:profiles!pilote_id(nom, prenom, email, telephone), aeronef:aeronefs(type_aeronef, immatriculation)))").eq("parent_id", profile.id).eq("archive", false);
+  const [{ data: mesEnfants }, { data: paramsData }] = await Promise.all([
+    supabase.from("eleves").select("*, etablissement:etablissements(nom), reservations(*, creneau:creneaux(date_vol, heure_debut, heure_fin, statut, pilote:profiles!pilote_id(nom, prenom, email, telephone), aeronef:aeronefs(type_aeronef, immatriculation)))").eq("parent_id", profile.id).eq("archive", false),
+    supabase.from("parametres").select("cle, valeur"),
+  ]);
   const enfants = mesEnfants || [];
+  const params = Object.fromEntries((paramsData || []).map((p: any) => [p.cle, p.valeur]));
+  const contactEmail = params["contact_email"] || "contact@acba.fr";
+  const contactTel = params["contact_telephone"] || null;
 
   return (
     <div>
@@ -291,7 +297,7 @@ async function DashboardParent({ supabase, profile }: { supabase: any; profile: 
                 {e.paiement_effectue ? (
                   <p className="text-sm font-semibold text-emerald-700">✅ Paye — {e.paiement_montant || 80}€</p>
                 ) : (
-                  <p className="text-sm font-semibold text-red-700">❌ En attente — 80€</p>
+                  <p className="text-sm font-semibold text-red-700">❌ En attente — {e.paiement_montant || 80}€</p>
                 )}
               </div>
 
@@ -374,8 +380,9 @@ async function DashboardParent({ supabase, profile }: { supabase: any; profile: 
       {/* Contact */}
       <div className="card mt-4">
         <h2 className="text-sm font-semibold text-gray-900 mb-2">Contact</h2>
-        <p className="text-sm text-gray-500">Aero-Club du Bassin d&apos;Arcachon</p>
-        <p className="text-sm text-gray-500">contact@acba.fr</p>
+        <p className="text-sm text-gray-500">Aéro-Club du Bassin d&apos;Arcachon</p>
+        <p className="text-sm text-gray-500">{contactEmail}</p>
+        {contactTel && <p className="text-sm text-gray-500">{contactTel}</p>}
       </div>
     </div>
   );

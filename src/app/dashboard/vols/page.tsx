@@ -1,6 +1,7 @@
 "use client";
 import { useState, useEffect } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { toast } from "sonner";
 import {
   Plane,
   Plus,
@@ -266,22 +267,20 @@ export default function VolsPage() {
   }
 
   async function handleDeleteSlot(id: string) {
-    if (!confirm("Supprimer ?")) return;
     await supabase.from("creneaux").delete().eq("id", id);
+    toast.success("Créneau supprimé");
     setShowDetail(null);
     load();
   }
   async function handleCancelSlot(id: string) {
     await supabase.from("creneaux").update({ statut: "annule" }).eq("id", id);
+    toast.success("Créneau annulé");
     setShowDetail(null);
     load();
   }
   async function handleRemoveEleve(rid: string, name: string) {
-    if (!confirm(`Retirer ${name} ?`)) return;
-    await supabase
-      .from("reservations")
-      .update({ statut: "annule" })
-      .eq("id", rid);
+    await supabase.from("reservations").update({ statut: "annule" }).eq("id", rid);
+    toast.success(`${name} retiré du créneau`);
     const { data } = await supabase
       .from("creneaux")
       .select(
