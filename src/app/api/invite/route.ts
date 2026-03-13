@@ -13,21 +13,12 @@ export async function POST(req: Request) {
     process.env.SUPABASE_SERVICE_ROLE_KEY!,
   );
 
-  // Try invite first — works for new users and unconfirmed accounts
-  const { error: inviteErr } = await supabase.auth.admin.inviteUserByEmail(
-    email,
-    { redirectTo: `${process.env.NEXT_PUBLIC_APP_URL}/auth/callback?next=/auth/set-password` },
-  );
-
-  if (!inviteErr) return NextResponse.json({ success: true });
-
-  // If user is already confirmed, fall back to password reset link
-  const { error: resetErr } = await supabase.auth.resetPasswordForEmail(email, {
+  const { error } = await supabase.auth.resetPasswordForEmail(email, {
     redirectTo: `${process.env.NEXT_PUBLIC_APP_URL}/auth/callback?next=/auth/set-password`,
   });
 
-  if (resetErr) {
-    return NextResponse.json({ error: resetErr.message }, { status: 400 });
+  if (error) {
+    return NextResponse.json({ error: error.message }, { status: 400 });
   }
 
   return NextResponse.json({ success: true });
