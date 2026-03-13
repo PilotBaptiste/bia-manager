@@ -1050,7 +1050,7 @@ export default function ElevesPage() {
                     const res = await fetch("/api/invite", {
                       method: "POST",
                       headers: { "Content-Type": "application/json" },
-                      body: JSON.stringify({ email: s.parent_email }),
+                      body: JSON.stringify({ email: s.parent_email, nom: s.parent_nom, prenom: s.parent_prenom }),
                     });
                     const json = await res.json();
                     alert(
