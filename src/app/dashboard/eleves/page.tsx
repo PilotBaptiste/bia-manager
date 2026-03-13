@@ -116,13 +116,14 @@ export default function ElevesPage() {
   const [fVol1, setFVol1] = useState("all");
   const [fBia, setFBia] = useState("all");
   const [showFilters, setShowFilters] = useState(false);
+  const [parentProfiles, setParentProfiles] = useState<Record<string, any>>({});
 
   async function load() {
     const {
       data: { user },
     } = await supabase.auth.getUser();
     if (user) setProfileId(user.id);
-    const [eR, etR, aR, anR, pR] = await Promise.all([
+    const [eR, etR, aR, anR, pR, profR] = await Promise.all([
       supabase
         .from("eleves")
         .select(
@@ -134,12 +135,19 @@ export default function ElevesPage() {
       supabase.from("aeronefs").select("*").eq("actif", true).order("type_aeronef"),
       supabase.from("annees").select("*").eq("active", true).single(),
       supabase.from("parametres").select("cle,valeur").eq("cle", "prix_inscription").single(),
+      supabase.from("profiles").select("email, nom, prenom, telephone").contains("roles", ["parent"]),
     ]);
     setEleves(eR.data || []);
     setEtablissements(etR.data || []);
     setAeronefs(aR.data || []);
     if (anR.data) setAnneeId(anR.data.id);
     if (pR.data?.valeur) setDefaultMontant(pR.data.valeur);
+    // Build email → profile map for parent name sync
+    const pmap: Record<string, any> = {};
+    for (const p of profR.data || []) {
+      if (p.email) pmap[p.email.toLowerCase()] = p;
+    }
+    setParentProfiles(pmap);
     setLoading(false);
   }
 
@@ -1033,12 +1041,19 @@ export default function ElevesPage() {
               />
             </Section>
             <Section title="Responsable legal">
-              <InfoRow
-                label="Nom"
-                value={`${s.parent_prenom} ${s.parent_nom}`}
-              />
-              <InfoRow label="Email" value={s.parent_email} />
-              <InfoRow label="Telephone" value={s.parent_telephone} />
+              {(() => {
+                const profile = parentProfiles[s.parent_email?.toLowerCase()];
+                const nom = profile ? `${profile.prenom} ${profile.nom}` : `${s.parent_prenom} ${s.parent_nom}`;
+                const tel = profile?.telephone || s.parent_telephone;
+                return (<>
+                  <InfoRow label="Nom" value={nom} />
+                  {profile && nom.trim() !== `${s.parent_prenom} ${s.parent_nom}`.trim() && (
+                    <p className="text-[11px] text-gray-400 -mt-1 mb-1 px-1">Mis à jour via le profil parent</p>
+                  )}
+                  <InfoRow label="Email" value={s.parent_email} />
+                  <InfoRow label="Telephone" value={tel} />
+                </>);
+              })()}
               <div className="mt-2">
                 <button
                   onClick={async () => {
