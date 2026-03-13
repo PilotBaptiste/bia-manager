@@ -165,7 +165,7 @@ async function DashboardPilote({ supabase, profile }: { supabase: any; profile: 
       <div className="flex gap-3 flex-wrap mb-6">
         <Stat icon={Calendar} label="Créneaux à venir" value={aVenir.length} color="bg-amber-50 text-amber-600" />
         <Stat icon={Plane} label="Vols terminés" value={termines.length} color="bg-emerald-50 text-emerald-600" />
-        <Stat icon={Clock} label="Temps total" value={`${termines.reduce((acc: number, c: any) => acc, 0)} min`} color="bg-brand-50 text-brand-500" />
+        <Stat icon={Clock} label="Élèves emmenés" value={termines.reduce((acc: number, c: any) => acc + (c.reservations?.filter((r: any) => r.statut !== "annule").length || 0), 0)} color="bg-brand-50 text-brand-500" />
       </div>
 
       <div className="card mb-4">

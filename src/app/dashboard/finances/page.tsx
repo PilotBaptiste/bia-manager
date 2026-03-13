@@ -48,41 +48,22 @@ export default function FinancesPage() {
   const recettesFede = totalBia * subFede;
   const totalRecettes = recettesInscriptions + recettesFede;
 
-  // Vol costs from eleves data (manual entries)
-  const coutVolsEleves = eleves.reduce((acc, e) => acc + (parseFloat(e.vol1_prix) || 0) + (parseFloat(e.vol2_prix) || 0), 0);
-  // Vol costs from vols_effectues (cloture par pilote)
+  // Source unique pour les coûts vols : vols_effectues (une entrée par vol, évite le double comptage)
+  // Les prix copiés sur les élèves lors de la clôture ne sont pas additionnés pour éviter la duplication.
   const coutVolsClotures = vols.reduce((acc, v) => acc + (parseFloat(v.prix_total) || 0), 0);
-  const coutVolsTotal = coutVolsEleves + coutVolsClotures;
+  const coutVolsTotal = coutVolsClotures;
 
   const margeNonUtil = (totalBia - totalVol2) * subFede;
   const solde = totalRecettes - coutVolsTotal;
 
-  // Stats by pilot
+  // Stats by pilot — depuis vols_effectues uniquement (source unique, évite le double comptage)
   const piloteStats: Record<string, { nom: string; nbVols: number; heures: number; cout: number }> = {};
-  // From vols_effectues
   vols.forEach(v => {
     const pName = v.creneau?.pilote ? `${v.creneau.pilote.prenom} ${v.creneau.pilote.nom}` : "Inconnu";
     if (!piloteStats[pName]) piloteStats[pName] = { nom: pName, nbVols: 0, heures: 0, cout: 0 };
     piloteStats[pName].nbVols++;
     piloteStats[pName].heures += (v.temps_vol_minutes || 0) / 60;
     piloteStats[pName].cout += parseFloat(v.prix_total) || 0;
-  });
-  // From eleves manual vol data
-  eleves.forEach(e => {
-    if (e.vol1_effectue && e.vol1_pilote_nom) {
-      const pName = e.vol1_pilote_nom;
-      if (!piloteStats[pName]) piloteStats[pName] = { nom: pName, nbVols: 0, heures: 0, cout: 0 };
-      piloteStats[pName].nbVols++;
-      piloteStats[pName].heures += (e.vol1_temps_minutes || 0) / 60;
-      piloteStats[pName].cout += parseFloat(e.vol1_prix) || 0;
-    }
-    if (e.vol2_effectue && e.vol2_pilote_nom) {
-      const pName = e.vol2_pilote_nom;
-      if (!piloteStats[pName]) piloteStats[pName] = { nom: pName, nbVols: 0, heures: 0, cout: 0 };
-      piloteStats[pName].nbVols++;
-      piloteStats[pName].heures += (e.vol2_temps_minutes || 0) / 60;
-      piloteStats[pName].cout += parseFloat(e.vol2_prix) || 0;
-    }
   });
 
   // Stats by etablissement
@@ -101,12 +82,11 @@ export default function FinancesPage() {
   const operations: any[] = [];
   eleves.forEach(e => {
     if (e.paiement_effectue) operations.push({ date: e.paiement_date || e.created_at, type: "Inscription", sens: "recette", montant: e.paiement_montant || prixInscription, description: `${e.prenom} ${e.nom}`, etablissement: e.etablissement?.nom, mode: e.paiement_mode });
-    if (e.vol1_effectue && e.vol1_prix) operations.push({ date: e.updated_at, type: "Vol 1", sens: "depense", montant: parseFloat(e.vol1_prix), description: `${e.prenom} ${e.nom}`, etablissement: e.etablissement?.nom, aeronef: e.vol1_aeronef ? `${e.vol1_aeronef.type_aeronef}` : "", pilote: e.vol1_pilote_nom, temps: e.vol1_temps_minutes });
-    if (e.vol2_effectue && e.vol2_prix) operations.push({ date: e.updated_at, type: "Vol 2", sens: "depense", montant: parseFloat(e.vol2_prix), description: `${e.prenom} ${e.nom}`, etablissement: e.etablissement?.nom, aeronef: e.vol2_aeronef ? `${e.vol2_aeronef.type_aeronef}` : "", pilote: e.vol2_pilote_nom, temps: e.vol2_temps_minutes });
     if (e.bia_resultat && e.bia_resultat !== "Non admis") operations.push({ date: e.bia_date || e.updated_at, type: "Subvention BIA", sens: "recette", montant: subFede, description: `${e.prenom} ${e.nom} — ${e.bia_resultat}`, etablissement: e.etablissement?.nom });
   });
+  // Les vols sont comptés depuis vols_effectues uniquement (source unique, évite le double comptage)
   vols.forEach(v => {
-    operations.push({ date: v.created_at, type: "Vol cloture", sens: "depense", montant: parseFloat(v.prix_total), description: `${v.numero_aerogest} — ${v.creneau?.reservations?.map((r: any) => `${r.eleve?.prenom} ${r.eleve?.nom}`).join(", ") || "—"}`, aeronef: v.creneau?.aeronef?.type_aeronef, pilote: v.creneau?.pilote ? `${v.creneau.pilote.prenom} ${v.creneau.pilote.nom}` : "", temps: v.temps_vol_minutes });
+    operations.push({ date: v.created_at, type: "Vol", sens: "depense", montant: parseFloat(v.prix_total), description: `${v.numero_aerogest} — ${v.creneau?.reservations?.map((r: any) => `${r.eleve?.prenom} ${r.eleve?.nom}`).join(", ") || "—"}`, etablissement: v.creneau?.etablissement?.nom, aeronef: v.creneau?.aeronef?.type_aeronef, pilote: v.creneau?.pilote ? `${v.creneau.pilote.prenom} ${v.creneau.pilote.nom}` : "", temps: v.temps_vol_minutes });
   });
   operations.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 
@@ -115,7 +95,7 @@ export default function FinancesPage() {
   return (
     <div>
       <div className="mb-6">
-        <h1 className="text-xl font-bold text-gray-900">Finances — 2026</h1>
+        <h1 className="text-xl font-bold text-gray-900">Finances — {new Date().getFullYear()}</h1>
         <p className="text-sm text-gray-500 mt-0.5">Aero-Club du Bassin d&apos;Arcachon</p>
       </div>
 

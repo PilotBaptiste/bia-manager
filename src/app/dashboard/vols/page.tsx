@@ -338,7 +338,7 @@ export default function VolsPage() {
     "Novembre",
     "Decembre",
   ];
-  const cY = 2026,
+  const cY = new Date().getFullYear(),
     dIM = new Date(cY, calMonth + 1, 0).getDate(),
     fD = (new Date(cY, calMonth, 1).getDay() + 6) % 7;
   const cD: (number | null)[] = [];

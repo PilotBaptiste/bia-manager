@@ -168,8 +168,8 @@ export default function ElevesPage() {
         if (fAttest === "non" && s.attestation_signee) return false;
         if (fVol1 === "oui" && !s.vol1_effectue) return false;
         if (fVol1 === "non" && s.vol1_effectue) return false;
-        if (fBia === "admis" && !s.bia_resultat) return false;
-        if (fBia === "non" && s.bia_resultat) return false;
+        if (fBia === "admis" && (!s.bia_resultat || s.bia_resultat === "Non admis")) return false;
+        if (fBia === "non" && s.bia_resultat && s.bia_resultat !== "Non admis") return false;
         return true;
       }),
     [eleves, searchQ, fEtab, fPaiement, fAttest, fVol1, fBia],
