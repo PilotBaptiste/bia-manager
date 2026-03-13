@@ -52,7 +52,13 @@ export default function EtablissementsPage() {
   }
 
   async function handleDelete(id: string) {
-    await supabase.from("etablissements").delete().eq("id", id);
+    const { error } = await supabase.from("etablissements").delete().eq("id", id);
+    if (error) {
+      // FK constraint — there are students or pilots linked to this établissement
+      toast.error("Impossible de supprimer : des élèves ou pilotes sont liés à cet établissement. Passez-le en Inactif à la place.");
+      setConfirmDelete(null);
+      return;
+    }
     toast.success("Établissement supprimé");
     setConfirmDelete(null);
     load();
@@ -126,7 +132,7 @@ export default function EtablissementsPage() {
           <div className="absolute inset-0 bg-black/40" onClick={() => setConfirmDelete(null)} />
           <div className="relative bg-white rounded-2xl p-6 w-full max-w-sm shadow-xl">
             <h3 className="text-base font-bold text-gray-900 mb-2">Supprimer l&apos;établissement ?</h3>
-            <p className="text-sm text-gray-500 mb-5">Cette action est irréversible. Les élèves liés ne seront pas supprimés.</p>
+            <p className="text-sm text-gray-500 mb-5">Cette action est irréversible. Si des élèves sont liés à cet établissement, la suppression sera bloquée — utilisez plutôt le statut &quot;Inactif&quot;.</p>
             <div className="flex gap-2 justify-end">
               <button onClick={() => setConfirmDelete(null)} className="btn-secondary btn-sm">Annuler</button>
               <button onClick={() => handleDelete(confirmDelete)} className="btn-danger btn-sm">Supprimer</button>
