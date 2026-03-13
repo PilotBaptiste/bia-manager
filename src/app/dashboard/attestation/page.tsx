@@ -71,7 +71,7 @@ export default function AttestationPage() {
       .replace(/{ETABLISSEMENT}/g, enfant.etablissement?.nom || "")
       .replace(/{LIEU_SIGNATURE}/g, lieuVal || lieu || "________________")
       .replace(/{DATE_SIGNATURE}/g, now)
-      .replace(/{ANNEE}/g, "2026");
+      .replace(/{ANNEE}/g, new Date().getFullYear().toString());
   }
 
   function generateSignatureId() {
