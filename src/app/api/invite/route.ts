@@ -17,20 +17,36 @@ export async function POST(req: Request) {
   const appUrl =
     process.env.NEXT_PUBLIC_APP_URL ?? "https://bia-manager-acba.vercel.app";
 
-  // Generate the reset link without sending Supabase's email (avoids rate limit)
-  const { data, error } = await supabase.auth.admin.generateLink({
+  const redirectTo = `${appUrl}/auth/callback?next=/auth/set-password`;
+
+  // Try recovery first (existing auth user), fall back to invite (creates the account)
+  let linkData: any = null;
+  let linkError: any = null;
+
+  const recovery = await supabase.auth.admin.generateLink({
     type: "recovery",
     email,
-    options: {
-      redirectTo: `${appUrl}/auth/callback?next=/auth/set-password`,
-    },
+    options: { redirectTo },
   });
 
-  if (error) {
-    return NextResponse.json({ error: error.message }, { status: 400 });
+  if (recovery.error) {
+    // User doesn't have an auth account yet — create it via invite
+    const invite = await supabase.auth.admin.generateLink({
+      type: "invite",
+      email,
+      options: { redirectTo },
+    });
+    linkData = invite.data;
+    linkError = invite.error;
+  } else {
+    linkData = recovery.data;
   }
 
-  const resetLink = data.properties.action_link;
+  if (linkError) {
+    return NextResponse.json({ error: linkError.message }, { status: 400 });
+  }
+
+  const resetLink = linkData.properties.action_link;
   const displayName = nom && prenom ? `${prenom} ${nom}` : email;
 
   // Send via Resend — no rate limit issues
