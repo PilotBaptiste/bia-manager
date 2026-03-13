@@ -1,8 +1,8 @@
 "use client";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { createClient } from "@/lib/supabase/client";
-import { useRouter } from "next/navigation";
-import { Plane, Eye, EyeOff, Loader2 } from "lucide-react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { Plane, Eye, EyeOff, Loader2, CheckCircle } from "lucide-react";
 
 export default function ConnexionPage() {
   const [email, setEmail] = useState("");
@@ -10,17 +10,26 @@ export default function ConnexionPage() {
   const [showPw, setShowPw] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [resetMode, setResetMode] = useState(false);
+  const [resetEmail, setResetEmail] = useState("");
+  const [resetSent, setResetSent] = useState(false);
+  const [resetLoading, setResetLoading] = useState(false);
   const router = useRouter();
+  const searchParams = useSearchParams();
   const supabase = createClient();
+
+  useEffect(() => {
+    if (searchParams.get("error")) {
+      setError("Le lien est invalide ou expiré. Demandez un nouveau lien ci-dessous.");
+      setResetMode(true);
+    }
+  }, []);
 
   async function handleLogin(e: React.FormEvent) {
     e.preventDefault();
     setLoading(true);
     setError(null);
-    const { error } = await supabase.auth.signInWithPassword({
-      email,
-      password,
-    });
+    const { error } = await supabase.auth.signInWithPassword({ email, password });
     if (error) {
       setError("Email ou mot de passe incorrect.");
       setLoading(false);
@@ -28,6 +37,21 @@ export default function ConnexionPage() {
     }
     router.push("/dashboard");
     router.refresh();
+  }
+
+  async function handleReset(e: React.FormEvent) {
+    e.preventDefault();
+    setResetLoading(true);
+    setError(null);
+    const { error } = await supabase.auth.resetPasswordForEmail(resetEmail, {
+      redirectTo: `${window.location.origin}/auth/callback?next=/auth/set-password`,
+    });
+    setResetLoading(false);
+    if (error) {
+      setError(`Erreur: ${error.message}`);
+      return;
+    }
+    setResetSent(true);
   }
 
   return (
@@ -64,65 +88,124 @@ export default function ConnexionPage() {
               <p className="text-xs text-gray-500">ACBA</p>
             </div>
           </div>
-          <h2 className="text-2xl font-bold text-gray-900 mb-1">Connexion</h2>
-          <p className="text-gray-500 mb-6">Accédez à votre espace</p>
-          {error && (
-            <div className="mb-4 rounded-lg bg-red-50 border border-red-200 p-3 text-sm text-red-700">
-              {error}
-            </div>
-          )}
-          <form
-            onSubmit={(e) => {
-              e.preventDefault();
-              handleLogin(e);
-            }}
-            className="space-y-4"
-          >
-            <div>
-              <label className="label">Email</label>
-              <input
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                className="input"
-                required
-              />
-            </div>
-            <div>
-              <label className="label">Mot de passe</label>
-              <div className="relative">
-                <input
-                  type={showPw ? "text" : "password"}
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  className="input pr-10"
-                  required
-                />
+
+          {resetMode ? (
+            <>
+              <button
+                onClick={() => { setResetMode(false); setResetSent(false); setError(null); }}
+                className="text-xs text-gray-400 hover:text-gray-600 mb-4 flex items-center gap-1"
+              >
+                ← Retour à la connexion
+              </button>
+              <h2 className="text-2xl font-bold text-gray-900 mb-1">Mot de passe oublié</h2>
+              <p className="text-gray-500 mb-6">
+                Entrez votre email pour recevoir un lien de réinitialisation.
+              </p>
+              {error && (
+                <div className="mb-4 rounded-lg bg-red-50 border border-red-200 p-3 text-sm text-red-700">
+                  {error}
+                </div>
+              )}
+              {resetSent ? (
+                <div className="flex items-start gap-3 rounded-lg bg-emerald-50 border border-emerald-200 p-4">
+                  <CheckCircle className="w-5 h-5 text-emerald-500 shrink-0 mt-0.5" />
+                  <div>
+                    <p className="text-sm font-semibold text-emerald-800">Email envoyé !</p>
+                    <p className="text-sm text-emerald-700">
+                      Vérifiez votre boîte mail et cliquez sur le lien pour définir un nouveau mot de passe.
+                    </p>
+                  </div>
+                </div>
+              ) : (
+                <form onSubmit={handleReset} className="space-y-4">
+                  <div>
+                    <label className="label">Email</label>
+                    <input
+                      type="email"
+                      value={resetEmail}
+                      onChange={(e) => setResetEmail(e.target.value)}
+                      className="input"
+                      required
+                    />
+                  </div>
+                  <button
+                    type="submit"
+                    disabled={resetLoading}
+                    className="btn-primary w-full justify-center"
+                  >
+                    {resetLoading ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : (
+                      "Envoyer le lien"
+                    )}
+                  </button>
+                </form>
+              )}
+            </>
+          ) : (
+            <>
+              <h2 className="text-2xl font-bold text-gray-900 mb-1">Connexion</h2>
+              <p className="text-gray-500 mb-6">Accédez à votre espace</p>
+              {error && (
+                <div className="mb-4 rounded-lg bg-red-50 border border-red-200 p-3 text-sm text-red-700">
+                  {error}
+                </div>
+              )}
+              <form onSubmit={handleLogin} className="space-y-4">
+                <div>
+                  <label className="label">Email</label>
+                  <input
+                    type="email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    className="input"
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="label">Mot de passe</label>
+                  <div className="relative">
+                    <input
+                      type={showPw ? "text" : "password"}
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      className="input pr-10"
+                      required
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPw(!showPw)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400"
+                    >
+                      {showPw ? (
+                        <EyeOff className="w-4 h-4" />
+                      ) : (
+                        <Eye className="w-4 h-4" />
+                      )}
+                    </button>
+                  </div>
+                </div>
                 <button
-                  type="button"
-                  onClick={() => setShowPw(!showPw)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400"
+                  type="submit"
+                  disabled={loading}
+                  className="btn-primary w-full justify-center"
                 >
-                  {showPw ? (
-                    <EyeOff className="w-4 h-4" />
+                  {loading ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
                   ) : (
-                    <Eye className="w-4 h-4" />
+                    "Se connecter"
                   )}
                 </button>
-              </div>
-            </div>
-            <button
-              type="submit"
-              disabled={loading}
-              className="btn-primary w-full justify-center"
-            >
-              {loading ? (
-                <Loader2 className="w-4 h-4 animate-spin" />
-              ) : (
-                "Se connecter"
-              )}
-            </button>
-          </form>
+                <button
+                  type="button"
+                  onClick={() => { setResetMode(true); setResetEmail(email); setError(null); }}
+                  className="w-full text-center text-xs text-gray-400 hover:text-brand-500 transition-colors pt-1"
+                >
+                  Mot de passe oublié ?
+                </button>
+              </form>
+            </>
+          )}
         </div>
       </div>
     </div>
