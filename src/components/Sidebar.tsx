@@ -148,12 +148,12 @@ export default function Sidebar({ profile }: { profile: any }) {
   const Nav = () => (
     <>
       <div className="flex items-center gap-3 px-3 mb-6">
-        <div className="w-9 h-9 rounded-lg bg-brand-500 flex items-center justify-center shrink-0">
+        <div className="w-9 h-9 rounded-lg bg-brand-500 flex items-center justify-center shrink-0 shadow-sm">
           <Plane className="w-[18px] h-[18px] text-white" />
         </div>
         <div>
           <p className="text-sm font-bold text-brand-500">BIA Manager</p>
-          <p className="text-[10px] text-gray-400">ACBA · 2026</p>
+          <p className="text-[10px] text-gray-400">ACBA · {new Date().getFullYear()}</p>
         </div>
       </div>
       <nav className="flex-1 flex flex-col gap-0.5 overflow-y-auto">
@@ -168,16 +168,24 @@ export default function Sidebar({ profile }: { profile: any }) {
                 setOpen(false);
               }}
               className={cn(
-                "group flex items-center gap-2.5 w-full px-3 py-2 rounded-lg text-[13px] font-medium text-left transition-all duration-150 active:scale-[0.97]",
+                "group relative flex items-center gap-2.5 w-full px-3 py-2 rounded-lg text-[13px] font-medium text-left",
+                "transition-all duration-[120ms] cubic-bezier(.34,1.56,.64,1)",
+                "active:scale-[0.96] active:transition-none",
                 active
                   ? "bg-brand-50 text-brand-500 font-semibold shadow-sm"
-                  : "text-gray-500 hover:bg-gray-100 hover:text-gray-800 active:bg-gray-200",
+                  : "text-gray-500 hover:bg-gray-50 hover:text-gray-800 hover:translate-x-0.5 active:bg-gray-100",
               )}
             >
+              {/* Active accent strip */}
+              {active && (
+                <span className="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-5 bg-brand-500 rounded-r-full" />
+              )}
               <Icon
                 className={cn(
-                  "w-4 h-4 shrink-0 transition-colors duration-150",
-                  active ? "text-brand-500" : "text-gray-400 group-hover:text-gray-600",
+                  "w-4 h-4 shrink-0 transition-all duration-150",
+                  active
+                    ? "text-brand-500"
+                    : "text-gray-400 group-hover:text-gray-600 group-hover:scale-110",
                 )}
               />
               {item.label}
@@ -195,9 +203,9 @@ export default function Sidebar({ profile }: { profile: any }) {
         </div>
         <button
           onClick={logout}
-          className="flex items-center gap-2 w-full px-3 py-2 rounded-lg text-xs text-gray-400 hover:text-red-600 hover:bg-red-50 transition-all duration-150 active:scale-[0.97] active:bg-red-100"
+          className="group flex items-center gap-2 w-full px-3 py-2 rounded-lg text-xs text-gray-400 transition-all duration-[120ms] hover:text-red-600 hover:bg-red-50 active:scale-[0.96] active:bg-red-100 active:transition-none"
         >
-          <LogOut className="w-3.5 h-3.5" />
+          <LogOut className="w-3.5 h-3.5 transition-transform duration-150 group-hover:-translate-x-0.5" />
           Déconnexion
         </button>
       </div>
