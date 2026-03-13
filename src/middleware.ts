@@ -18,13 +18,17 @@ export async function middleware(request: NextRequest) {
     }
   );
   const { data: { user } } = await supabase.auth.getUser();
-  const isAuth = request.nextUrl.pathname.startsWith("/auth/");
-  const isRoot = request.nextUrl.pathname === "/";
+  const { pathname } = request.nextUrl;
+  const isAuth = pathname.startsWith("/auth/");
+  const isLoginPage = pathname === "/auth/connexion";
+  const isRoot = pathname === "/";
 
   if (!user && !isAuth && !isRoot) {
     return NextResponse.redirect(new URL("/auth/connexion", request.url));
   }
-  if (user && isAuth) {
+  // Only bounce logged-in users away from the login page itself,
+  // NOT from /auth/set-password or /auth/callback (they need those)
+  if (user && isLoginPage) {
     return NextResponse.redirect(new URL("/dashboard", request.url));
   }
   if (user && isRoot) {
