@@ -504,6 +504,11 @@ export default function VolsPage() {
                 )}
               </div>
               {/* Optional: restrict to specific students */}
+              {form.etablissement_id && eleves.length === 0 && (
+                <p className="text-xs text-gray-400 mt-1">
+                  Aucun élève trouvé (vérifier les droits RLS dans Supabase).
+                </p>
+              )}
               {(() => {
                 const elevesDispo = eleves.filter((el) =>
                   form.etablissement_id ? el.etablissement_id === form.etablissement_id : true,
