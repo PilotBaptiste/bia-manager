@@ -1047,16 +1047,16 @@ export default function ElevesPage() {
               <div className="mt-2">
                 <button
                   onClick={async () => {
-                    const { error } = await supabase.auth.resetPasswordForEmail(
-                      s.parent_email,
-                      {
-                        redirectTo: `${window.location.origin}/auth/connexion`,
-                      },
-                    );
+                    const res = await fetch("/api/invite", {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({ email: s.parent_email }),
+                    });
+                    const json = await res.json();
                     alert(
-                      error
-                        ? `Erreur: ${error.message}`
-                        : `Email envoye a ${s.parent_email}`,
+                      res.ok
+                        ? `Email d'invitation envoye a ${s.parent_email}`
+                        : `Erreur: ${json.error}`,
                     );
                   }}
                   className="btn-secondary btn-sm"

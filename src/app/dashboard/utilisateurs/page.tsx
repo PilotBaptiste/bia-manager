@@ -54,7 +54,6 @@ const emptyCreate = {
   telephone: "",
   roles: [] as string[],
   etablissement_id: "",
-  password: "",
 };
 
 export default function UtilisateursPage() {
@@ -160,64 +159,48 @@ export default function UtilisateursPage() {
     }
     setSaving(true);
 
-    // Generate random password if not set
-    const password =
-      createForm.password || Math.random().toString(36).slice(-10) + "A1!";
-
-    // Create user via Supabase Auth (admin endpoint)
-    const { data: authData, error: authErr } = await supabase.auth.signUp({
-      email: createForm.email,
-      password: password,
-      options: { data: { nom: createForm.nom, prenom: createForm.prenom } },
+    const res = await fetch("/api/create-user", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        email: createForm.email,
+        nom: createForm.nom,
+        prenom: createForm.prenom,
+        telephone: createForm.telephone,
+        roles: createForm.roles,
+        etablissement_id: createForm.etablissement_id || null,
+      }),
     });
+    const json = await res.json();
 
-    if (authErr) {
-      setError(`Erreur creation compte: ${authErr.message}`);
-      setSaving(false);
+    setSaving(false);
+    if (!res.ok) {
+      setError(`Erreur creation compte: ${json.error}`);
       return;
     }
 
-    // Wait a moment for the trigger to create the profile
-    await new Promise((r) => setTimeout(r, 1000));
-
-    // Update the profile with roles and other info
-    if (authData.user) {
-      await supabase
-        .from("profiles")
-        .update({
-          nom: createForm.nom,
-          prenom: createForm.prenom,
-          telephone: createForm.telephone,
-          roles: createForm.roles,
-          etablissement_id: createForm.etablissement_id || null,
-        })
-        .eq("id", authData.user.id);
-    }
-
-    setSaving(false);
     setCreating(false);
     setSuccess(
-      `Compte cree pour ${createForm.prenom} ${createForm.nom} (${createForm.email}). Mot de passe temporaire: ${password}`,
+      `Invitation envoyee a ${createForm.email}. L'utilisateur recevra un lien pour definir son mot de passe.`,
     );
     setCreateForm(emptyCreate);
-    setTimeout(() => setSuccess(null), 15000);
+    setTimeout(() => setSuccess(null), 10000);
     load();
   }
 
   async function handleSendInvite(user: any) {
     setSendingInvite(user.id);
-    // Use Supabase password reset to send a "set your password" email
-    const { error: err } = await supabase.auth.resetPasswordForEmail(
-      user.email,
-      {
-        redirectTo: `${window.location.origin}/auth/connexion`,
-      },
-    );
+    const res = await fetch("/api/invite", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email: user.email }),
+    });
+    const json = await res.json();
     setSendingInvite(null);
-    if (err) {
-      setError(`Erreur envoi email: ${err.message}`);
+    if (!res.ok) {
+      setError(`Erreur envoi email: ${json.error}`);
     } else {
-      setSuccess(`Email de creation de mot de passe envoye a ${user.email}`);
+      setSuccess(`Email d'invitation envoye a ${user.email}`);
       setTimeout(() => setSuccess(null), 5000);
     }
   }
@@ -356,17 +339,6 @@ export default function UtilisateursPage() {
                     setCreateForm({ ...createForm, telephone: e.target.value })
                   }
                   className="input"
-                />
-              </div>
-              <div>
-                <label className="label">Mot de passe (auto si vide)</label>
-                <input
-                  value={createForm.password}
-                  onChange={(e) =>
-                    setCreateForm({ ...createForm, password: e.target.value })
-                  }
-                  className="input"
-                  placeholder="Genere automatiquement"
                 />
               </div>
               <div>

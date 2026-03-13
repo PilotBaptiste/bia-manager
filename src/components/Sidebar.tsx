@@ -168,16 +168,16 @@ export default function Sidebar({ profile }: { profile: any }) {
                 setOpen(false);
               }}
               className={cn(
-                "flex items-center gap-2.5 w-full px-3 py-2 rounded-lg text-[13px] font-medium text-left transition-all",
+                "group flex items-center gap-2.5 w-full px-3 py-2 rounded-lg text-[13px] font-medium text-left transition-all duration-150 active:scale-[0.97]",
                 active
-                  ? "bg-brand-50 text-brand-500 font-semibold"
-                  : "text-gray-500 hover:bg-gray-50",
+                  ? "bg-brand-50 text-brand-500 font-semibold shadow-sm"
+                  : "text-gray-500 hover:bg-gray-100 hover:text-gray-800 active:bg-gray-200",
               )}
             >
               <Icon
                 className={cn(
-                  "w-4 h-4 shrink-0",
-                  active ? "text-brand-500" : "text-gray-400",
+                  "w-4 h-4 shrink-0 transition-colors duration-150",
+                  active ? "text-brand-500" : "text-gray-400 group-hover:text-gray-600",
                 )}
               />
               {item.label}
@@ -195,7 +195,7 @@ export default function Sidebar({ profile }: { profile: any }) {
         </div>
         <button
           onClick={logout}
-          className="flex items-center gap-2 w-full px-3 py-2 rounded-lg text-xs text-gray-400 hover:text-red-600 hover:bg-red-50 transition-colors"
+          className="flex items-center gap-2 w-full px-3 py-2 rounded-lg text-xs text-gray-400 hover:text-red-600 hover:bg-red-50 transition-all duration-150 active:scale-[0.97] active:bg-red-100"
         >
           <LogOut className="w-3.5 h-3.5" />
           Déconnexion
