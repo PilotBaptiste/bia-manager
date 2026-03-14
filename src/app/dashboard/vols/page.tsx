@@ -125,10 +125,11 @@ export default function VolsPage() {
       ? creneaux.filter((c) => c.pilote_id === profile?.id)
       : creneaux;
 
-  // Get qualified aeronefs for a pilot
+  // Get qualified aeronefs for a pilot — returns [] if no qualifications set
   function getQualifiedAeronefs(pid: string) {
+    if (!pid) return [];
     const pq = qualifs.filter((q) => q.pilote_id === pid);
-    if (pq.length === 0) return aeronefs;
+    // No fallback to all aeronefs — if no qualif assigned, pilot sees nothing
     return aeronefs.filter((a) => pq.some((q) => q.aeronef_id === a.id));
   }
 
@@ -139,9 +140,10 @@ export default function VolsPage() {
   }
 
   const createPiloteId = isSA ? form.pilote_id : profile?.id;
-  const availableAeronefs = createPiloteId
-    ? getQualifiedAeronefs(createPiloteId)
-    : aeronefs;
+  // SA without pilot selected → show all aeronefs; otherwise restrict to qualifs
+  const availableAeronefs = isSA && !form.pilote_id
+    ? aeronefs
+    : getQualifiedAeronefs(createPiloteId || "");
   const availableEtabs = isSA
     ? etabs
     : profile?.id
