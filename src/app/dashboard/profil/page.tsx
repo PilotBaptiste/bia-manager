@@ -56,7 +56,7 @@ export default function ProfilPage() {
         parent_telephone: form.telephone,
         responsable_legal_nom: `${form.prenom} ${form.nom}`.trim(),
       })
-      .eq("email_parent", profile.email);
+      .eq("parent_email", profile.email);
 
     setSaving(false);
     setSaved(true);

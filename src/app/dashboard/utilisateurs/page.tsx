@@ -91,16 +91,16 @@ export default function UtilisateursPage() {
         .order("nom"),
       supabase
         .from("eleves")
-        .select("prenom, nom, email_parent"),
+        .select("prenom, nom, parent_email"),
     ]);
     setUsers(usersRes.data || []);
     setEtabs(etabsRes.data || []);
 
-    // Build map: email_parent -> ["Prénom Nom", ...]
+    // Build map: parent_email -> ["Prénom Nom", ...]
     const map: Record<string, string[]> = {};
     for (const e of elevesRes.data || []) {
-      if (!e.email_parent) continue;
-      const key = e.email_parent.toLowerCase();
+      if (!e.parent_email) continue;
+      const key = e.parent_email.toLowerCase();
       if (!map[key]) map[key] = [];
       map[key].push(`${e.prenom} ${e.nom}`);
     }

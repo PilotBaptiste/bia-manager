@@ -1110,11 +1110,13 @@ export default function ElevesPage() {
             <Section title="Responsable legal">
               {(() => {
                 const profile = parentProfiles[s.parent_email?.toLowerCase()];
-                const nom = profile ? `${profile.prenom} ${profile.nom}` : `${s.parent_prenom} ${s.parent_nom}`;
+                const profileNom = profile ? `${profile.prenom ?? ""} ${profile.nom ?? ""}`.trim() : "";
+                const elevNom = `${s.parent_prenom ?? ""} ${s.parent_nom ?? ""}`.trim();
+                const nom = profileNom || elevNom;
                 const tel = profile?.telephone || s.parent_telephone;
                 return (<>
                   <InfoRow label="Nom" value={nom} />
-                  {profile && nom.trim() !== `${s.parent_prenom} ${s.parent_nom}`.trim() && (
+                  {profile && profileNom && profileNom !== elevNom && (
                     <p className="text-[11px] text-gray-400 -mt-1 mb-1 px-1">Mis à jour via le profil parent</p>
                   )}
                   <InfoRow label="Email" value={s.parent_email} />
