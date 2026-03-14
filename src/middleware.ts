@@ -20,10 +20,11 @@ export async function middleware(request: NextRequest) {
   const { data: { user } } = await supabase.auth.getUser();
   const { pathname } = request.nextUrl;
   const isAuth = pathname.startsWith("/auth/");
+  const isApi = pathname.startsWith("/api/");
   const isLoginPage = pathname === "/auth/connexion";
   const isRoot = pathname === "/";
 
-  if (!user && !isAuth && !isRoot) {
+  if (!user && !isAuth && !isApi && !isRoot) {
     return NextResponse.redirect(new URL("/auth/connexion", request.url));
   }
   // Only bounce logged-in users away from the login page itself,
