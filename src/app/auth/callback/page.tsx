@@ -16,8 +16,15 @@ function CallbackHandler() {
 
       // PKCE flow (code in query param)
       if (code) {
-        const { error } = await supabase.auth.exchangeCodeForSession(code);
+        const { data, error } = await supabase.auth.exchangeCodeForSession(code);
         if (!error) {
+          if (data.user?.email) {
+            await supabase
+              .from("eleves")
+              .update({ parent_id: data.user.id })
+              .eq("parent_email", data.user.email)
+              .is("parent_id", null);
+          }
           router.replace(next);
           return;
         }
@@ -30,11 +37,18 @@ function CallbackHandler() {
       const refreshToken = params.get("refresh_token");
 
       if (accessToken && refreshToken) {
-        const { error } = await supabase.auth.setSession({
+        const { data, error } = await supabase.auth.setSession({
           access_token: accessToken,
           refresh_token: refreshToken,
         });
         if (!error) {
+          if (data.user?.email) {
+            await supabase
+              .from("eleves")
+              .update({ parent_id: data.user.id })
+              .eq("parent_email", data.user.email)
+              .is("parent_id", null);
+          }
           router.replace(next);
           return;
         }

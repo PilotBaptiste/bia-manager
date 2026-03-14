@@ -104,6 +104,7 @@ export default function ElevesPage() {
   const [aeronefs, setAeronefs] = useState<any[]>([]);
   const [anneeId, setAnneeId] = useState("");
   const [profileId, setProfileId] = useState("");
+  const [profile, setProfile] = useState<any>(null);
   const [defaultMontant, setDefaultMontant] = useState("80");
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState<any | null>(null);
@@ -125,15 +126,40 @@ export default function ElevesPage() {
     const {
       data: { user },
     } = await supabase.auth.getUser();
-    if (user) setProfileId(user.id);
+    if (!user) return;
+    setProfileId(user.id);
+
+    // Fetch profile first to determine role-based filtering
+    const { data: prof } = await supabase
+      .from("profiles")
+      .select("*")
+      .eq("id", user.id)
+      .single();
+    setProfile(prof);
+
+    const isGerant =
+      prof?.roles?.includes("gerant") && !prof?.roles?.includes("superadmin");
+    const gerantEtabIds: string[] =
+      prof?.etablissement_ids?.length > 0
+        ? prof.etablissement_ids
+        : prof?.etablissement_id
+          ? [prof.etablissement_id]
+          : [];
+
+    let elevesQuery = supabase
+      .from("eleves")
+      .select(
+        "*, etablissement:etablissements(*), vol1_aeronef:aeronefs!vol1_aeronef_id(type_aeronef,immatriculation,prix_heure), vol2_aeronef:aeronefs!vol2_aeronef_id(type_aeronef,immatriculation,prix_heure)",
+      )
+      .eq("archive", false)
+      .order("nom");
+
+    if (isGerant && gerantEtabIds.length > 0) {
+      elevesQuery = elevesQuery.in("etablissement_id", gerantEtabIds);
+    }
+
     const [eR, etR, aR, anR, pR, profR] = await Promise.all([
-      supabase
-        .from("eleves")
-        .select(
-          "*, etablissement:etablissements(*), vol1_aeronef:aeronefs!vol1_aeronef_id(type_aeronef,immatriculation,prix_heure), vol2_aeronef:aeronefs!vol2_aeronef_id(type_aeronef,immatriculation,prix_heure)",
-        )
-        .eq("archive", false)
-        .order("nom"),
+      elevesQuery,
       supabase.from("etablissements").select("*").eq("actif", true).order("nom"),
       supabase.from("aeronefs").select("*").eq("actif", true).order("type_aeronef"),
       supabase.from("annees").select("*").eq("active", true).single(),

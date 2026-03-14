@@ -119,11 +119,24 @@ export default function VolsPage() {
 
   const isPilote = profile?.roles?.includes("pilote");
   const isSA = profile?.roles?.includes("superadmin");
+  const isGerant = profile?.roles?.includes("gerant") && !isSA;
+  const gerantEtabIds: string[] =
+    profile?.etablissement_ids?.length > 0
+      ? profile.etablissement_ids
+      : profile?.etablissement_id
+        ? [profile.etablissement_id]
+        : [];
   const canCreate = isPilote || isSA;
   const displayed =
     isPilote && !isSA
       ? creneaux.filter((c) => c.pilote_id === profile?.id)
-      : creneaux;
+      : isGerant && gerantEtabIds.length > 0
+        ? creneaux.filter(
+            (c) =>
+              !c.etablissement_id ||
+              gerantEtabIds.includes(c.etablissement_id),
+          )
+        : creneaux;
 
   // Get qualified aeronefs for a pilot — returns [] if no qualifications set
   function getQualifiedAeronefs(pid: string) {

@@ -43,12 +43,15 @@ function ConnexionInner() {
     e.preventDefault();
     setResetLoading(true);
     setError(null);
-    const { error } = await supabase.auth.resetPasswordForEmail(resetEmail, {
-      redirectTo: `${window.location.origin}/auth/callback?next=/auth/set-password`,
+    const res = await fetch("/api/invite", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email: resetEmail }),
     });
     setResetLoading(false);
-    if (error) {
-      setError(`Erreur: ${error.message}`);
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      setError(`Erreur: ${data.error ?? "impossible d'envoyer l'email"}`);
       return;
     }
     setResetSent(true);
