@@ -1,10 +1,12 @@
 "use client";
 import { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { User, Save, Loader2, Check, Lock } from "lucide-react";
 
 export default function ProfilPage() {
   const supabase = createClient();
+  const router = useRouter();
   const [profile, setProfile] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -42,15 +44,26 @@ export default function ProfilPage() {
     setSaving(true);
     await supabase
       .from("profiles")
-      .update({
-        nom: form.nom,
-        prenom: form.prenom,
-        telephone: form.telephone,
-      })
+      .update({ nom: form.nom, prenom: form.prenom, telephone: form.telephone })
       .eq("id", profile.id);
+
+    // Sync parent name to all linked eleves rows
+    await supabase
+      .from("eleves")
+      .update({
+        parent_nom: form.nom,
+        parent_prenom: form.prenom,
+        parent_telephone: form.telephone,
+        responsable_legal_nom: `${form.prenom} ${form.nom}`.trim(),
+      })
+      .eq("email_parent", profile.email);
+
     setSaving(false);
     setSaved(true);
+    setProfile({ ...profile, nom: form.nom, prenom: form.prenom, telephone: form.telephone });
     setTimeout(() => setSaved(false), 3000);
+    // Refresh server layout so sidebar name updates immediately
+    router.refresh();
   }
 
   async function handleChangePassword() {
