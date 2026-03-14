@@ -75,6 +75,7 @@ export default function UtilisateursPage() {
   const [sendingInvite, setSendingInvite] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<any | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
   const [elevesByParentEmail, setElevesByParentEmail] = useState<Record<string, string[]>>({});
 
   async function load() {
@@ -218,11 +219,13 @@ export default function UtilisateursPage() {
     });
     const json = await res.json();
     setDeleting(false);
-    setConfirmDelete(null);
     if (!res.ok) {
-      toast.error(`Erreur: ${json.error}`);
+      // Keep modal open and show the specific blocking reason
+      setDeleteError(json.error);
       return;
     }
+    setConfirmDelete(null);
+    setDeleteError(null);
     toast.success(`Compte de ${confirmDelete.prenom} ${confirmDelete.nom} supprimé`);
     load();
   }
@@ -608,7 +611,7 @@ export default function UtilisateursPage() {
 
       {/* Delete Confirmation Modal */}
       {confirmDelete && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" onClick={() => setConfirmDelete(null)}>
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" onClick={() => { setConfirmDelete(null); setDeleteError(null); }}>
           <div className="absolute inset-0 bg-black/40" />
           <div onClick={(e) => e.stopPropagation()} className="relative bg-white rounded-2xl p-6 w-full max-w-sm shadow-xl">
             <div className="flex items-center gap-3 mb-3">
@@ -620,14 +623,27 @@ export default function UtilisateursPage() {
                 <p className="text-sm text-gray-500">{confirmDelete.prenom} {confirmDelete.nom}</p>
               </div>
             </div>
-            <p className="text-sm text-gray-500 mb-5">
-              Cette action supprime définitivement le compte et l&apos;accès à la plateforme. Les données associées (élèves, etc.) ne seront pas supprimées.
-            </p>
+
+            {deleteError ? (
+              <div className="mb-4 p-3 rounded-lg bg-amber-50 border border-amber-200 flex items-start gap-2">
+                <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                <p className="text-sm text-amber-800">{deleteError}</p>
+              </div>
+            ) : (
+              <p className="text-sm text-gray-500 mb-5">
+                Cette action supprime définitivement le compte et l&apos;accès à la plateforme. Les données associées (élèves, créneaux, etc.) ne seront pas supprimées.
+              </p>
+            )}
+
             <div className="flex gap-2 justify-end">
-              <button onClick={() => setConfirmDelete(null)} className="btn-secondary btn-sm">Annuler</button>
-              <button onClick={handleDelete} disabled={deleting} className="btn-danger btn-sm">
-                {deleting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />} Supprimer
+              <button onClick={() => { setConfirmDelete(null); setDeleteError(null); }} className="btn-secondary btn-sm">
+                {deleteError ? "Fermer" : "Annuler"}
               </button>
+              {!deleteError && (
+                <button onClick={handleDelete} disabled={deleting} className="btn-danger btn-sm">
+                  {deleting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />} Supprimer
+                </button>
+              )}
             </div>
           </div>
         </div>
