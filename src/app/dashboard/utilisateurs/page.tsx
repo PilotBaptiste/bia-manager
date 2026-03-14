@@ -81,7 +81,7 @@ export default function UtilisateursPage() {
     const [usersRes, etabsRes, elevesRes] = await Promise.all([
       supabase
         .from("profiles")
-        .select("*, etablissement:etablissements(nom)")
+        .select("*, etablissement_ids, etablissement:etablissements(nom)")
         .order("nom"),
       supabase
         .from("etablissements")
@@ -146,6 +146,7 @@ export default function UtilisateursPage() {
     if (!editing) return;
     setSaving(true);
     setError(null);
+    const ids: string[] = editing.etablissement_ids || [];
     const { error: err } = await supabase
       .from("profiles")
       .update({
@@ -153,7 +154,8 @@ export default function UtilisateursPage() {
         prenom: editing.prenom,
         telephone: editing.telephone,
         roles: editing.roles,
-        etablissement_id: editing.etablissement_id || null,
+        etablissement_id: ids[0] || null,       // keep legacy FK in sync
+        etablissement_ids: ids,                  // full multi-etab array
         actif: editing.actif,
       })
       .eq("id", editing.id);
