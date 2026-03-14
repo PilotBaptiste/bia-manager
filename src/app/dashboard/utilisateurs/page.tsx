@@ -77,6 +77,7 @@ export default function UtilisateursPage() {
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [elevesByParentEmail, setElevesByParentEmail] = useState<Record<string, string[]>>({});
+  const [parentNameByEmail, setParentNameByEmail] = useState<Record<string, string>>({});
 
   async function load() {
     const [usersRes, etabsRes, elevesRes] = await Promise.all([
@@ -91,20 +92,26 @@ export default function UtilisateursPage() {
         .order("nom"),
       supabase
         .from("eleves")
-        .select("prenom, nom, parent_email"),
+        .select("prenom, nom, parent_email, parent_nom, parent_prenom"),
     ]);
     setUsers(usersRes.data || []);
     setEtabs(etabsRes.data || []);
 
-    // Build map: parent_email -> ["Prénom Nom", ...]
-    const map: Record<string, string[]> = {};
+    // Build maps: parent_email -> student names + parent name fallback
+    const studentMap: Record<string, string[]> = {};
+    const parentNameMap: Record<string, string> = {};
     for (const e of elevesRes.data || []) {
       if (!e.parent_email) continue;
       const key = e.parent_email.toLowerCase();
-      if (!map[key]) map[key] = [];
-      map[key].push(`${e.prenom} ${e.nom}`);
+      if (!studentMap[key]) studentMap[key] = [];
+      studentMap[key].push(`${e.prenom} ${e.nom}`);
+      // Store parent name from eleve fiche as fallback (in case profile has no name)
+      if (!parentNameMap[key] && (e.parent_prenom || e.parent_nom)) {
+        parentNameMap[key] = `${e.parent_prenom ?? ""} ${e.parent_nom ?? ""}`.trim();
+      }
     }
-    setElevesByParentEmail(map);
+    setElevesByParentEmail(studentMap);
+    setParentNameByEmail(parentNameMap);
     setLoading(false);
   }
   useEffect(() => {
@@ -663,11 +670,14 @@ export default function UtilisateursPage() {
           </thead>
           <tbody>
             {filtered.map((u) => {
-              const linkedStudents = elevesByParentEmail[u.email?.toLowerCase()] || [];
+              const emailKey = u.email?.toLowerCase();
+              const linkedStudents = elevesByParentEmail[emailKey] || [];
+              const profileName = `${u.prenom ?? ""} ${u.nom ?? ""}`.trim();
+              const displayName = profileName || parentNameByEmail[emailKey] || u.email;
               return (
                 <tr key={u.id} className="border-t border-gray-100 hover:bg-gray-50">
                   <td className="px-3 py-2.5">
-                    <div className="font-semibold text-gray-900">{u.prenom} {u.nom}</div>
+                    <div className="font-semibold text-gray-900">{displayName}</div>
                     {linkedStudents.length > 0 && (
                       <div className="text-[11px] text-blue-500 mt-0.5">
                         Élève{linkedStudents.length > 1 ? "s" : ""} : {linkedStudents.join(", ")}
