@@ -56,6 +56,7 @@ const emptyCreate = {
   telephone: "",
   roles: [] as string[],
   etablissement_id: "",
+  etablissement_ids: [] as string[],
 };
 
 export default function UtilisateursPage() {
@@ -188,6 +189,7 @@ export default function UtilisateursPage() {
         telephone: createForm.telephone,
         roles: createForm.roles,
         etablissement_id: createForm.etablissement_id || null,
+        etablissement_ids: createForm.etablissement_ids,
       }),
     });
     const json = await res.json();
@@ -199,7 +201,7 @@ export default function UtilisateursPage() {
     }
 
     setCreating(false);
-    setCreateForm(emptyCreate);
+    setCreateForm({ ...emptyCreate });
     toast.success(`Compte créé — identifiants envoyés à ${createForm.email}`);
     load();
   }
@@ -374,26 +376,35 @@ export default function UtilisateursPage() {
                   className="input"
                 />
               </div>
-              <div>
-                <label className="label">Etablissement</label>
-                <select
-                  value={createForm.etablissement_id}
-                  onChange={(e) =>
-                    setCreateForm({
-                      ...createForm,
-                      etablissement_id: e.target.value,
-                    })
-                  }
-                  className="select"
-                >
-                  <option value="">Aucun</option>
-                  {etabs.map((e) => (
-                    <option key={e.id} value={e.id}>
+            </div>
+            <div className="mb-4">
+              <label className="label mb-2">Établissements</label>
+              <div className="border border-gray-200 rounded-lg overflow-hidden max-h-48 overflow-y-auto">
+                {etabs.map((e) => {
+                  const checked = createForm.etablissement_ids.includes(e.id);
+                  return (
+                    <button
+                      key={e.id}
+                      type="button"
+                      onClick={() => {
+                        const next = checked
+                          ? createForm.etablissement_ids.filter((x) => x !== e.id)
+                          : [...createForm.etablissement_ids, e.id];
+                        setCreateForm({ ...createForm, etablissement_ids: next, etablissement_id: next[0] || "" });
+                      }}
+                      className={`w-full flex items-center gap-2 px-3 py-2 text-sm border-b border-gray-50 last:border-0 transition-colors ${checked ? "bg-brand-50 text-brand-700" : "text-gray-700 hover:bg-gray-50"}`}
+                    >
+                      <span className={`w-4 h-4 rounded border-2 flex items-center justify-center shrink-0 ${checked ? "border-brand-500 bg-brand-500" : "border-gray-300"}`}>
+                        {checked && <Check className="w-2.5 h-2.5 text-white" />}
+                      </span>
                       {e.nom}
-                    </option>
-                  ))}
-                </select>
+                    </button>
+                  );
+                })}
               </div>
+              {createForm.etablissement_ids.length > 0 && (
+                <p className="text-xs text-brand-500 mt-1">{createForm.etablissement_ids.length} établissement{createForm.etablissement_ids.length > 1 ? "s" : ""} sélectionné{createForm.etablissement_ids.length > 1 ? "s" : ""}</p>
+              )}
             </div>
             <div className="mb-4">
               <label className="label mb-2">Roles *</label>
@@ -511,24 +522,29 @@ export default function UtilisateursPage() {
                 />
               </div>
               <div className="col-span-2">
-                <label className="label">Etablissement</label>
-                <select
-                  value={editing.etablissement_id || ""}
-                  onChange={(e) =>
-                    setEditing({
-                      ...editing,
-                      etablissement_id: e.target.value || null,
-                    })
-                  }
-                  className="select"
-                >
-                  <option value="">Aucun</option>
-                  {etabs.map((e: any) => (
-                    <option key={e.id} value={e.id}>
-                      {e.nom}
-                    </option>
-                  ))}
-                </select>
+                <label className="label mb-2">Établissements</label>
+                <div className="border border-gray-200 rounded-lg overflow-hidden max-h-48 overflow-y-auto">
+                  {etabs.map((e: any) => {
+                    const ids: string[] = editing.etablissement_ids || (editing.etablissement_id ? [editing.etablissement_id] : []);
+                    const checked = ids.includes(e.id);
+                    return (
+                      <button
+                        key={e.id}
+                        type="button"
+                        onClick={() => {
+                          const next = checked ? ids.filter((x: string) => x !== e.id) : [...ids, e.id];
+                          setEditing({ ...editing, etablissement_ids: next, etablissement_id: next[0] || null });
+                        }}
+                        className={`w-full flex items-center gap-2 px-3 py-2 text-sm border-b border-gray-50 last:border-0 transition-colors ${checked ? "bg-brand-50 text-brand-700" : "text-gray-700 hover:bg-gray-50"}`}
+                      >
+                        <span className={`w-4 h-4 rounded border-2 flex items-center justify-center shrink-0 ${checked ? "border-brand-500 bg-brand-500" : "border-gray-300"}`}>
+                          {checked && <Check className="w-2.5 h-2.5 text-white" />}
+                        </span>
+                        {e.nom}
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
             </div>
             <div className="mb-4">

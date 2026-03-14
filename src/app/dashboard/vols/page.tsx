@@ -38,6 +38,7 @@ export default function VolsPage() {
   const [showCreate, setShowCreate] = useState(false);
   const [showDetail, setShowDetail] = useState<any>(null);
   const [showClose, setShowClose] = useState<any>(null);
+  const [showEditSlot, setShowEditSlot] = useState<any>(null);
   const [editHisto, setEditHisto] = useState<any>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -57,6 +58,7 @@ export default function VolsPage() {
     nb_eleves: "",
     prix_total: "",
     notes: "",
+    pilote_override: "",
   });
 
   async function load() {
@@ -236,7 +238,9 @@ export default function VolsPage() {
       if (r.eleve?.id) {
         const prixParEleve =
           parseFloat(closeForm.prix_total) / Math.max(activeRes.length, 1);
-        const piloteNom = showClose.pilote
+        const piloteNom = closeForm.pilote_override
+          ? (() => { const p = pilotes.find((x) => x.id === closeForm.pilote_override); return p ? `${p.prenom} ${p.nom}` : ""; })()
+          : showClose.pilote
           ? `${showClose.pilote.prenom} ${showClose.pilote.nom}`
           : "";
         if (r.type_vol === 2) {
@@ -248,6 +252,7 @@ export default function VolsPage() {
               vol2_aeronef_id: showClose.aeronef_id,
               vol2_prix: prixParEleve,
               vol2_pilote_nom: piloteNom,
+              vol2_numero_aerogest: closeForm.numero_aerogest || null,
             })
             .eq("id", r.eleve.id);
         } else {
@@ -259,6 +264,7 @@ export default function VolsPage() {
               vol1_aeronef_id: showClose.aeronef_id,
               vol1_prix: prixParEleve,
               vol1_pilote_nom: piloteNom,
+              vol1_numero_aerogest: closeForm.numero_aerogest || null,
             })
             .eq("id", r.eleve.id);
         }
@@ -272,6 +278,7 @@ export default function VolsPage() {
       nb_eleves: "",
       prix_total: "",
       notes: "",
+      pilote_override: "",
     });
     load();
   }
@@ -288,6 +295,25 @@ export default function VolsPage() {
     setShowDetail(null);
     load();
   }
+  async function handleEditSlot(updated: any) {
+    setSaving(true);
+    const { error: err } = await supabase.from("creneaux").update({
+      date_vol: updated.date_vol,
+      heure_debut: updated.heure_debut,
+      heure_fin: updated.heure_fin,
+      aeronef_id: updated.aeronef_id,
+      etablissement_id: updated.etablissement_id || null,
+      pilote_id: updated.pilote_id,
+      notes_pilote: updated.notes_pilote || null,
+      eleves_autorises: updated.eleves_autorises?.length > 0 ? updated.eleves_autorises : null,
+    }).eq("id", updated.id);
+    setSaving(false);
+    if (err) { toast.error(err.message); return; }
+    toast.success("Créneau modifié");
+    setShowEditSlot(null);
+    load();
+  }
+
   async function handleRemoveEleve(rid: string, name: string) {
     await supabase.from("reservations").update({ statut: "annule" }).eq("id", rid);
     toast.success(`${name} retiré du créneau`);
@@ -783,6 +809,18 @@ export default function VolsPage() {
                     <Check className="w-4 h-4" /> Cloturer
                   </button>
                   <button
+                    onClick={() => {
+                      setShowDetail(null);
+                      setShowEditSlot({
+                        ...showDetail,
+                        eleves_autorises: showDetail.eleves_autorises || [],
+                      });
+                    }}
+                    className="btn-secondary"
+                  >
+                    <Edit className="w-4 h-4" /> Modifier
+                  </button>
+                  <button
                     onClick={() => handleCancelSlot(showDetail.id)}
                     className="btn-secondary"
                   >
@@ -838,6 +876,15 @@ export default function VolsPage() {
               </div>
             )}
             <div className="space-y-3">
+              {isSA && (
+                <div>
+                  <label className="label">Pilote (optionnel — remplace le pilote du créneau)</label>
+                  <select value={closeForm.pilote_override} onChange={(e) => setCloseForm({ ...closeForm, pilote_override: e.target.value })} className="select">
+                    <option value="">{showClose?.pilote ? `${showClose.pilote.prenom} ${showClose.pilote.nom} (par défaut)` : "— Choisir —"}</option>
+                    {pilotes.map((p) => <option key={p.id} value={p.id}>{p.prenom} {p.nom}</option>)}
+                  </select>
+                </div>
+              )}
               <div>
                 <label className="label">N Aerogest *</label>
                 <input
@@ -919,6 +966,90 @@ export default function VolsPage() {
                   <Check className="w-4 h-4" />
                 )}{" "}
                 Valider
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* EDIT SLOT */}
+      {showEditSlot && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" onClick={() => setShowEditSlot(null)}>
+          <div className="absolute inset-0 bg-black/40" />
+          <div onClick={(e) => e.stopPropagation()} className="relative bg-white rounded-2xl p-6 w-full max-w-lg shadow-xl max-h-[90vh] overflow-auto">
+            <div className="flex items-center justify-between mb-5">
+              <h3 className="text-lg font-bold text-gray-900">Modifier le créneau</h3>
+              <button onClick={() => setShowEditSlot(null)} className="p-1.5 rounded-lg hover:bg-gray-100"><X className="w-4 h-4" /></button>
+            </div>
+            <div className="space-y-3">
+              {isSA && (
+                <div>
+                  <label className="label">Pilote</label>
+                  <select value={showEditSlot.pilote_id} onChange={(e) => setShowEditSlot({ ...showEditSlot, pilote_id: e.target.value })} className="select">
+                    <option value="">— Choisir —</option>
+                    {pilotes.map((p) => <option key={p.id} value={p.id}>{p.prenom} {p.nom}</option>)}
+                  </select>
+                </div>
+              )}
+              <div>
+                <label className="label">Date *</label>
+                <input type="date" value={showEditSlot.date_vol} onChange={(e) => setShowEditSlot({ ...showEditSlot, date_vol: e.target.value })} className="input" />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div><label className="label">Début</label><input type="time" value={showEditSlot.heure_debut} onChange={(e) => setShowEditSlot({ ...showEditSlot, heure_debut: e.target.value })} className="input" /></div>
+                <div><label className="label">Fin</label><input type="time" value={showEditSlot.heure_fin} onChange={(e) => setShowEditSlot({ ...showEditSlot, heure_fin: e.target.value })} className="input" /></div>
+              </div>
+              <div>
+                <label className="label">Aéronef</label>
+                <select value={showEditSlot.aeronef_id} onChange={(e) => setShowEditSlot({ ...showEditSlot, aeronef_id: e.target.value })} className="select">
+                  <option value="">— Choisir —</option>
+                  {aeronefs.map((a) => <option key={a.id} value={a.id}>{a.type_aeronef} ({a.immatriculation}) — {a.prix_heure}E/h</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="label">Établissement</label>
+                <select value={showEditSlot.etablissement_id || ""} onChange={(e) => setShowEditSlot({ ...showEditSlot, etablissement_id: e.target.value })} className="select">
+                  <option value="">Tous</option>
+                  {etabs.map((e) => <option key={e.id} value={e.id}>{e.nom}</option>)}
+                </select>
+              </div>
+              {/* Student picker */}
+              {(() => {
+                const elevesDispo = eleves.filter((el) => showEditSlot.etablissement_id ? el.etablissement_id === showEditSlot.etablissement_id : true);
+                if (elevesDispo.length === 0) return null;
+                const allSelected = (showEditSlot.eleves_autorises || []).length === 0;
+                return (
+                  <div>
+                    <label className="label">Élèves autorisés <span className="normal-case font-normal text-gray-400">(vide = tous)</span></label>
+                    <div className="border border-gray-200 rounded-lg overflow-hidden">
+                      <button type="button" onClick={() => setShowEditSlot({ ...showEditSlot, eleves_autorises: [] })} className={`w-full flex items-center gap-2 px-3 py-2 text-sm border-b border-gray-100 transition-colors ${allSelected ? "bg-brand-50 text-brand-600 font-semibold" : "text-gray-500 hover:bg-gray-50"}`}>
+                        <span className={`w-4 h-4 rounded border-2 flex items-center justify-center shrink-0 ${allSelected ? "border-brand-500 bg-brand-500" : "border-gray-300"}`}>{allSelected && <Check className="w-2.5 h-2.5 text-white" />}</span>
+                        Tous les élèves
+                      </button>
+                      <div className="max-h-40 overflow-y-auto">
+                        {elevesDispo.map((el) => {
+                          const checked = (showEditSlot.eleves_autorises || []).includes(el.id);
+                          return (
+                            <button key={el.id} type="button" onClick={() => { const next = checked ? (showEditSlot.eleves_autorises || []).filter((x: string) => x !== el.id) : [...(showEditSlot.eleves_autorises || []), el.id]; setShowEditSlot({ ...showEditSlot, eleves_autorises: next }); }} className={`w-full flex items-center gap-2 px-3 py-2 text-sm border-b border-gray-50 last:border-0 transition-colors ${checked ? "bg-brand-50 text-brand-700" : "text-gray-700 hover:bg-gray-50"}`}>
+                              <span className={`w-4 h-4 rounded border-2 flex items-center justify-center shrink-0 ${checked ? "border-brand-500 bg-brand-500" : "border-gray-300"}`}>{checked && <Check className="w-2.5 h-2.5 text-white" />}</span>
+                              {el.prenom} {el.nom}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
+              <div>
+                <label className="label">Notes</label>
+                <textarea value={showEditSlot.notes_pilote || ""} onChange={(e) => setShowEditSlot({ ...showEditSlot, notes_pilote: e.target.value })} className="input min-h-[60px]" />
+              </div>
+            </div>
+            <div className="flex justify-end gap-2 mt-5 pt-4 border-t border-gray-100">
+              <button onClick={() => setShowEditSlot(null)} className="btn-secondary">Annuler</button>
+              <button onClick={() => handleEditSlot(showEditSlot)} disabled={saving} className="btn-primary">
+                {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />} Enregistrer
               </button>
             </div>
           </div>

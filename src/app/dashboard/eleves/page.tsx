@@ -65,6 +65,7 @@ const emptyForm = {
   prenom: "",
   date_naissance: "",
   lieu_naissance: "",
+  adresse: "",
   etablissement_id: "",
   classe: "",
   parent_nom: "",
@@ -81,12 +82,14 @@ const emptyForm = {
   vol1_aeronef_id: "",
   vol1_prix: "",
   vol1_pilote_nom: "",
+  vol1_numero_aerogest: "",
   vol2_autorise: false,
   vol2_effectue: false,
   vol2_temps_minutes: "",
   vol2_aeronef_id: "",
   vol2_prix: "",
   vol2_pilote_nom: "",
+  vol2_numero_aerogest: "",
   bia_passe: false,
   bia_resultat: "",
   bia_date: "",
@@ -233,6 +236,7 @@ export default function ElevesPage() {
       prenom: s.prenom,
       date_naissance: s.date_naissance,
       lieu_naissance: s.lieu_naissance || "",
+      adresse: s.adresse || "",
       etablissement_id: s.etablissement_id || "",
       classe: s.classe || "",
       parent_nom: s.parent_nom,
@@ -249,12 +253,14 @@ export default function ElevesPage() {
       vol1_aeronef_id: s.vol1_aeronef_id || "",
       vol1_prix: String(s.vol1_prix || ""),
       vol1_pilote_nom: s.vol1_pilote_nom || "",
+      vol1_numero_aerogest: s.vol1_numero_aerogest || "",
       vol2_autorise: s.vol2_autorise,
       vol2_effectue: s.vol2_effectue,
       vol2_temps_minutes: String(s.vol2_temps_minutes || ""),
       vol2_aeronef_id: s.vol2_aeronef_id || "",
       vol2_prix: String(s.vol2_prix || ""),
       vol2_pilote_nom: s.vol2_pilote_nom || "",
+      vol2_numero_aerogest: s.vol2_numero_aerogest || "",
       bia_passe: s.bia_passe,
       bia_resultat: s.bia_resultat || "",
       bia_date: s.bia_date || "",
@@ -297,6 +303,7 @@ export default function ElevesPage() {
       prenom: form.prenom,
       date_naissance: form.date_naissance,
       lieu_naissance: form.lieu_naissance || "—",
+      adresse: form.adresse || null,
       etablissement_id: form.etablissement_id || null,
       classe: form.classe || "—",
       annee_id: anneeId,
@@ -325,6 +332,7 @@ export default function ElevesPage() {
       vol1_aeronef_id: form.vol1_aeronef_id || null,
       vol1_prix: form.vol1_prix ? parseFloat(form.vol1_prix) : null,
       vol1_pilote_nom: form.vol1_pilote_nom || null,
+      vol1_numero_aerogest: form.vol1_numero_aerogest || null,
       vol2_effectue: form.vol2_effectue,
       vol2_temps_minutes:
         form.vol2_effectue && form.vol2_temps_minutes
@@ -333,6 +341,7 @@ export default function ElevesPage() {
       vol2_aeronef_id: form.vol2_aeronef_id || null,
       vol2_prix: form.vol2_prix ? parseFloat(form.vol2_prix) : null,
       vol2_pilote_nom: form.vol2_pilote_nom || null,
+      vol2_numero_aerogest: form.vol2_numero_aerogest || null,
       bia_passe: form.bia_passe,
       bia_resultat: form.bia_resultat || null,
       bia_date: form.bia_date || null,
@@ -472,6 +481,15 @@ export default function ElevesPage() {
                   setForm({ ...form, lieu_naissance: e.target.value })
                 }
                 className="input"
+              />
+            </div>
+            <div className="sm:col-span-3">
+              <label className="label">Adresse postale</label>
+              <input
+                value={form.adresse}
+                onChange={(e) => setForm({ ...form, adresse: e.target.value })}
+                className="input"
+                placeholder="16 rue de Tournon, 33260 La Teste"
               />
             </div>
             <div>
@@ -830,6 +848,17 @@ export default function ElevesPage() {
                       placeholder="Nom du pilote"
                     />
                   </div>
+                  <div className="mb-2">
+                    <label className="label">N° Aerogest</label>
+                    <input
+                      value={form.vol1_numero_aerogest}
+                      onChange={(e) =>
+                        setForm({ ...form, vol1_numero_aerogest: e.target.value })
+                      }
+                      className="input"
+                      placeholder="Ex: 24-0123"
+                    />
+                  </div>
                   <div className="p-2.5 rounded-lg bg-emerald-50 border border-emerald-200">
                     <p className="text-xs text-emerald-600 font-medium">
                       Prix calcule
@@ -918,6 +947,17 @@ export default function ElevesPage() {
                         setForm({ ...form, vol2_pilote_nom: e.target.value })
                       }
                       className="input"
+                    />
+                  </div>
+                  <div className="mb-2">
+                    <label className="label">N° Aerogest</label>
+                    <input
+                      value={form.vol2_numero_aerogest}
+                      onChange={(e) =>
+                        setForm({ ...form, vol2_numero_aerogest: e.target.value })
+                      }
+                      className="input"
+                      placeholder="Ex: 24-0124"
                     />
                   </div>
                   <div className="p-2.5 rounded-lg bg-emerald-50 border border-emerald-200">
@@ -1034,6 +1074,7 @@ export default function ElevesPage() {
                 value={new Date(s.date_naissance).toLocaleDateString("fr-FR")}
               />
               <InfoRow label="Lieu" value={s.lieu_naissance} />
+              {s.adresse && <InfoRow label="Adresse" value={s.adresse} />}
               <InfoRow label="Classe" value={s.classe} />
               <InfoRow
                 label="Etablissement"
@@ -1175,6 +1216,9 @@ export default function ElevesPage() {
                   {s.vol1_pilote_nom && (
                     <InfoRow label="Pilote" value={s.vol1_pilote_nom} />
                   )}
+                  {s.vol1_numero_aerogest && (
+                    <InfoRow label="N° Aerogest" value={s.vol1_numero_aerogest} />
+                  )}
                   {s.vol1_prix && (
                     <InfoRow
                       label="Prix vol"
@@ -1235,6 +1279,9 @@ export default function ElevesPage() {
                   )}
                   {s.vol2_pilote_nom && (
                     <InfoRow label="Pilote" value={s.vol2_pilote_nom} />
+                  )}
+                  {s.vol2_numero_aerogest && (
+                    <InfoRow label="N° Aerogest" value={s.vol2_numero_aerogest} />
                   )}
                   {s.vol2_prix && (
                     <InfoRow

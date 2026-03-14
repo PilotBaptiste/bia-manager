@@ -3,8 +3,10 @@
 import { useState, useEffect } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { toast } from "sonner";
-import { School, Plus, Edit, Trash2, Loader2, X } from "lucide-react";
+import { School, Plus, Edit, Trash2, Loader2, X, User } from "lucide-react";
 import type { Etablissement } from "@/types";
+
+const emptyForm = { nom: "", ville: "", adresse: "", code_postal: "", telephone: "", email: "", contact_prenom: "", contact_nom: "", actif: true };
 
 export default function EtablissementsPage() {
   const supabase = createClient();
@@ -12,7 +14,7 @@ export default function EtablissementsPage() {
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState<Etablissement | null>(null);
-  const [form, setForm] = useState({ nom: "", ville: "", adresse: "", code_postal: "", telephone: "", email: "", actif: true });
+  const [form, setForm] = useState(emptyForm);
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
@@ -26,13 +28,23 @@ export default function EtablissementsPage() {
 
   function openCreate() {
     setEditing(null);
-    setForm({ nom: "", ville: "", adresse: "", code_postal: "", telephone: "", email: "", actif: true });
+    setForm(emptyForm);
     setShowForm(true);
   }
 
   function openEdit(e: Etablissement) {
     setEditing(e);
-    setForm({ nom: e.nom, ville: e.ville || "", adresse: e.adresse || "", code_postal: e.code_postal || "", telephone: e.telephone || "", email: e.email || "", actif: e.actif });
+    setForm({
+      nom: e.nom,
+      ville: e.ville || "",
+      adresse: e.adresse || "",
+      code_postal: e.code_postal || "",
+      telephone: e.telephone || "",
+      email: e.email || "",
+      contact_prenom: e.contact_prenom || "",
+      contact_nom: e.contact_nom || "",
+      actif: e.actif,
+    });
     setShowForm(true);
   }
 
@@ -54,7 +66,7 @@ export default function EtablissementsPage() {
   async function handleDelete(id: string) {
     const { error } = await supabase.from("etablissements").delete().eq("id", id);
     if (error) {
-      toast.error("Erreur lors de la suppression : " + error.message);
+      toast.error("Impossible de supprimer : des élèves ou pilotes sont liés à cet établissement. Passez-le en Inactif à la place.");
       setConfirmDelete(null);
       return;
     }
@@ -81,7 +93,7 @@ export default function EtablissementsPage() {
       {showForm && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4" onClick={() => setShowForm(false)}>
           <div className="absolute inset-0 bg-black/40" />
-          <div onClick={(e) => e.stopPropagation()} className="relative bg-white rounded-2xl p-6 w-full max-w-lg shadow-xl">
+          <div onClick={(e) => e.stopPropagation()} className="relative bg-white rounded-2xl p-6 w-full max-w-lg shadow-xl max-h-[90vh] overflow-auto">
             <div className="flex items-center justify-between mb-5">
               <h3 className="text-lg font-bold text-gray-900">{editing ? "Modifier" : "Nouvel établissement"}</h3>
               <button onClick={() => setShowForm(false)} className="p-1.5 rounded-lg hover:bg-gray-100"><X className="w-4 h-4" /></button>
@@ -99,6 +111,14 @@ export default function EtablissementsPage() {
               <div className="grid grid-cols-2 gap-3">
                 <div><label className="label">Téléphone</label><input value={form.telephone} onChange={(e) => setForm({ ...form, telephone: e.target.value })} className="input" /></div>
                 <div><label className="label">Email</label><input value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} className="input" type="email" /></div>
+              </div>
+              {/* Contact person */}
+              <div className="pt-2 border-t border-gray-100">
+                <p className="text-[11px] font-bold uppercase tracking-wider text-gray-400 mb-2">Responsable de l&apos;établissement</p>
+                <div className="grid grid-cols-2 gap-3">
+                  <div><label className="label">Prénom</label><input value={form.contact_prenom} onChange={(e) => setForm({ ...form, contact_prenom: e.target.value })} className="input" placeholder="Jean" /></div>
+                  <div><label className="label">Nom</label><input value={form.contact_nom} onChange={(e) => setForm({ ...form, contact_nom: e.target.value })} className="input" placeholder="Dupont" /></div>
+                </div>
               </div>
               <div className="flex items-center justify-between p-3 rounded-lg bg-gray-50 border border-gray-200">
                 <div>
@@ -131,7 +151,7 @@ export default function EtablissementsPage() {
           <div className="absolute inset-0 bg-black/40" onClick={() => setConfirmDelete(null)} />
           <div className="relative bg-white rounded-2xl p-6 w-full max-w-sm shadow-xl">
             <h3 className="text-base font-bold text-gray-900 mb-2">Supprimer l&apos;établissement ?</h3>
-            <p className="text-sm text-gray-500 mb-5">Cette action est irréversible. Tous les élèves, créneaux et réservations liés à cet établissement seront également supprimés.</p>
+            <p className="text-sm text-gray-500 mb-5">Cette action est irréversible. Si des élèves ou pilotes sont liés à cet établissement, la suppression échouera — passez-le en <strong>Inactif</strong> à la place.</p>
             <div className="flex gap-2 justify-end">
               <button onClick={() => setConfirmDelete(null)} className="btn-secondary btn-sm">Annuler</button>
               <button onClick={() => handleDelete(confirmDelete)} className="btn-danger btn-sm">Supprimer</button>
@@ -158,6 +178,12 @@ export default function EtablissementsPage() {
                 {e.actif ? "Actif" : "Inactif"}
               </span>
             </div>
+            {(e.contact_prenom || e.contact_nom) && (
+              <div className="flex items-center gap-1.5 text-xs text-gray-500 mb-1">
+                <User className="w-3 h-3 text-gray-400" />
+                {e.contact_prenom} {e.contact_nom}
+              </div>
+            )}
             {e.email && <p className="text-xs text-gray-500 mb-1">{e.email}</p>}
             {e.telephone && <p className="text-xs text-gray-500 mb-3">{e.telephone}</p>}
             <div className="flex gap-2 pt-3 border-t border-gray-100">
