@@ -3,15 +3,20 @@ import { Resend } from "resend";
 import { NextResponse } from "next/server";
 
 export async function POST(req: Request) {
+  try {
   const { email, nom, prenom } = await req.json();
 
   if (!email) {
     return NextResponse.json({ error: "email obligatoire" }, { status: 400 });
   }
 
+  if (!process.env.SUPABASE_SERVICE_ROLE_KEY) {
+    return NextResponse.json({ error: "SUPABASE_SERVICE_ROLE_KEY manquant dans les variables d'environnement Vercel" }, { status: 500 });
+  }
+
   const supabase = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY,
   );
 
   const appUrl =
@@ -83,4 +88,7 @@ export async function POST(req: Request) {
   }
 
   return NextResponse.json({ success: true });
+  } catch (e: any) {
+    return NextResponse.json({ error: e?.message ?? "Erreur serveur inattendue" }, { status: 500 });
+  }
 }
