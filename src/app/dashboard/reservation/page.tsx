@@ -44,7 +44,7 @@ export default function ReservationPage() {
       supabase
         .from("creneaux")
         .select(
-          "*, pilote:profiles!pilote_id(nom, prenom, email, telephone), aeronef:aeronefs(type_aeronef, immatriculation), etablissement:etablissements(nom), reservations(id)",
+          "*, pilote:profiles!pilote_id(nom, prenom, email, telephone), aeronef:aeronefs(type_aeronef, immatriculation, nb_places_eleves), etablissement:etablissements(nom), reservations(id, statut)",
         )
         .in("statut", ["ouvert", "confirme"])
         .order("date_vol"),
@@ -114,7 +114,12 @@ export default function ReservationPage() {
   // Filter creneaux by student's etablissement and eleves_autorises
   function getCreneauxForEleve(enfant: any) {
     return creneaux.filter((c) => {
-      if ((c.reservations?.length || 0) >= c.places_disponibles) return false;
+      // Use live aeronef capacity, not the stale stored places_disponibles
+      const capacity = c.aeronef?.nb_places_eleves ?? c.places_disponibles ?? 1;
+      const activeBookings = (c.reservations || []).filter(
+        (r: any) => r.statut !== "annule",
+      ).length;
+      if (activeBookings >= capacity) return false;
       // Show creneaux for this student's etablissement OR creneaux open to all
       if (
         c.etablissement_id &&
