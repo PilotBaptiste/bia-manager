@@ -306,6 +306,12 @@ export default function VolsPage() {
   }
   async function handleCancelSlot(id: string) {
     await supabase.from("creneaux").update({ statut: "annule" }).eq("id", id);
+    // Also cancel all active reservations on this slot so parents see the cancellation
+    await supabase
+      .from("reservations")
+      .update({ statut: "annule" })
+      .eq("creneau_id", id)
+      .neq("statut", "annule");
     toast.success("Créneau annulé");
     setShowDetail(null);
     load();

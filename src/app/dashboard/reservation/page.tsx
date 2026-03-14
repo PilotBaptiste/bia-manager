@@ -144,7 +144,7 @@ export default function ReservationPage() {
 
   const bookableEnfants = enfants.filter((e) => {
     const activeRes = (e.reservations || []).filter(
-      (r: any) => r.statut !== "annule",
+      (r: any) => r.statut !== "annule" && r.creneau?.statut !== "annule",
     );
     const hasActiveVol1 = activeRes.some(
       (r: any) => r.type_vol === 1 && r.statut !== "effectue",
@@ -181,7 +181,7 @@ export default function ReservationPage() {
       {/* Active reservations */}
       {enfants.some(
         (e) =>
-          e.reservations?.filter((r: any) => r.statut !== "annule").length > 0,
+          e.reservations?.filter((r: any) => r.statut !== "annule" && r.creneau?.statut !== "annule").length > 0,
       ) && (
         <div className="card mb-4">
           <h2 className="text-sm font-semibold text-gray-900 mb-3">
@@ -189,7 +189,7 @@ export default function ReservationPage() {
           </h2>
           {enfants.map((e) =>
             e.reservations
-              ?.filter((r: any) => r.statut !== "annule")
+              ?.filter((r: any) => r.statut !== "annule" && r.creneau?.statut !== "annule")
               .map((r: any) => {
                 const ci = canCancel(r);
                 return (
