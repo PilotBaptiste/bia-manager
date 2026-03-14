@@ -119,7 +119,8 @@ export default function VolsPage() {
 
   const isPilote = profile?.roles?.includes("pilote");
   const isSA = profile?.roles?.includes("superadmin");
-  const isGerant = profile?.roles?.includes("gerant") && !isSA;
+  const isCoord = profile?.roles?.includes("coordinateur");
+  const isGerant = profile?.roles?.includes("gerant") && !isSA && !isCoord;
   const gerantEtabIds: string[] =
     profile?.etablissement_ids?.length > 0
       ? profile.etablissement_ids
@@ -127,16 +128,19 @@ export default function VolsPage() {
         ? [profile.etablissement_id]
         : [];
   const canCreate = isPilote || isSA;
+  // Priority: SA/coordinateur → all | gérant → their établissements | pilot only → their slots
   const displayed =
-    isPilote && !isSA
-      ? creneaux.filter((c) => c.pilote_id === profile?.id)
+    isSA || isCoord
+      ? creneaux
       : isGerant && gerantEtabIds.length > 0
         ? creneaux.filter(
             (c) =>
               !c.etablissement_id ||
               gerantEtabIds.includes(c.etablissement_id),
           )
-        : creneaux;
+        : isPilote
+          ? creneaux.filter((c) => c.pilote_id === profile?.id)
+          : creneaux;
 
   // Get qualified aeronefs for a pilot — returns [] if no qualifications set
   function getQualifiedAeronefs(pid: string) {
@@ -1235,58 +1239,78 @@ export default function VolsPage() {
       </div>
 
       {/* LIST */}
-      {mode === "list" && (
-        <div className="flex flex-col gap-2.5">
-          {displayed.length === 0 ? (
-            <div className="card text-center py-12 text-gray-400">
-              <Plane className="w-8 h-8 mx-auto mb-2 text-gray-300" />
-              <p>Aucun creneau</p>
-            </div>
-          ) : (
-            displayed.map((c) => (
+      {mode === "list" && (() => {
+        const activeSlots = displayed.filter((c) => !["termine", "annule"].includes(c.statut));
+        const pastSlots = displayed.filter((c) => ["termine", "annule"].includes(c.statut));
+        const SlotCard = ({ c }: { c: any }) => (
+          <div
+            key={c.id}
+            onClick={() => setShowDetail(c)}
+            className="card flex items-center justify-between flex-wrap gap-3 p-4 cursor-pointer hover:border-brand-200 transition-colors"
+          >
+            <div className="flex items-center gap-3 flex-1 min-w-[260px]">
               <div
-                key={c.id}
-                onClick={() => setShowDetail(c)}
-                className="card flex items-center justify-between flex-wrap gap-3 p-4 cursor-pointer hover:border-brand-200 transition-colors"
+                className={`w-10 h-10 rounded-lg flex items-center justify-center ${(sS[c.statut] || "bg-gray-100").split(" ")[0]}`}
               >
-                <div className="flex items-center gap-3 flex-1 min-w-[260px]">
-                  <div
-                    className={`w-10 h-10 rounded-lg flex items-center justify-center ${(sS[c.statut] || "bg-gray-100").split(" ")[0]}`}
-                  >
-                    <Plane
-                      className={`w-5 h-5 ${(sS[c.statut] || "text-gray-500").split(" ")[1]}`}
-                    />
-                  </div>
-                  <div>
-                    <p className="text-sm font-semibold text-gray-900">
-                      {new Date(c.date_vol).toLocaleDateString("fr-FR")} ·{" "}
-                      {c.heure_debut?.slice(0, 5)} - {c.heure_fin?.slice(0, 5)}
-                    </p>
-                    <p className="text-xs text-gray-500">
-                      {c.pilote?.prenom} {c.pilote?.nom} ·{" "}
-                      {c.aeronef?.type_aeronef} ({c.aeronef?.immatriculation})
-                    </p>
-                    {c.reservations?.filter((r: any) => r.statut !== "annule")
-                      .length > 0 && (
-                      <p className="text-xs text-gray-400 mt-0.5">
-                        {c.reservations
-                          .filter((r: any) => r.statut !== "annule")
-                          .map((r: any) => `${r.eleve?.prenom} ${r.eleve?.nom}`)
-                          .join(", ")}
-                      </p>
-                    )}
-                  </div>
-                </div>
-                <span
-                  className={`badge ${sS[c.statut] || "bg-gray-100 text-gray-500"}`}
-                >
-                  {sL[c.statut] || c.statut}
-                </span>
+                <Plane
+                  className={`w-5 h-5 ${(sS[c.statut] || "text-gray-500").split(" ")[1]}`}
+                />
               </div>
-            ))
-          )}
-        </div>
-      )}
+              <div>
+                <p className="text-sm font-semibold text-gray-900">
+                  {new Date(c.date_vol).toLocaleDateString("fr-FR")} ·{" "}
+                  {c.heure_debut?.slice(0, 5)} - {c.heure_fin?.slice(0, 5)}
+                </p>
+                <p className="text-xs text-gray-500">
+                  {c.pilote?.prenom} {c.pilote?.nom} ·{" "}
+                  {c.aeronef?.type_aeronef} ({c.aeronef?.immatriculation})
+                </p>
+                {c.reservations?.filter((r: any) => r.statut !== "annule")
+                  .length > 0 && (
+                  <p className="text-xs text-gray-400 mt-0.5">
+                    {c.reservations
+                      .filter((r: any) => r.statut !== "annule")
+                      .map((r: any) => `${r.eleve?.prenom} ${r.eleve?.nom}`)
+                      .join(", ")}
+                  </p>
+                )}
+              </div>
+            </div>
+            <span
+              className={`badge ${sS[c.statut] || "bg-gray-100 text-gray-500"}`}
+            >
+              {sL[c.statut] || c.statut}
+            </span>
+          </div>
+        );
+        return (
+          <div className="flex flex-col gap-2.5">
+            {activeSlots.length === 0 && pastSlots.length === 0 ? (
+              <div className="card text-center py-12 text-gray-400">
+                <Plane className="w-8 h-8 mx-auto mb-2 text-gray-300" />
+                <p>Aucun creneau</p>
+              </div>
+            ) : (
+              <>
+                {activeSlots.length === 0 && (
+                  <p className="text-sm text-gray-400 text-center py-4">Aucun créneau actif</p>
+                )}
+                {activeSlots.map((c) => <SlotCard key={c.id} c={c} />)}
+                {pastSlots.length > 0 && (
+                  <details className="mt-2">
+                    <summary className="text-xs font-semibold text-gray-400 uppercase tracking-wider cursor-pointer select-none py-2 px-1 hover:text-gray-600">
+                      Terminés / Annulés ({pastSlots.length})
+                    </summary>
+                    <div className="flex flex-col gap-2.5 mt-2 opacity-70">
+                      {pastSlots.map((c) => <SlotCard key={c.id} c={c} />)}
+                    </div>
+                  </details>
+                )}
+              </>
+            )}
+          </div>
+        );
+      })()}
 
       {/* CALENDAR */}
       {mode === "calendar" && (
