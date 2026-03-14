@@ -3,7 +3,8 @@
 import { useState, useEffect } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { toast } from "sonner";
-import { School, Plus, Edit, Trash2, Loader2, X, User } from "lucide-react";
+import { School, Plus, Edit, Trash2, Loader2, X, User, Users } from "lucide-react";
+import Link from "next/link";
 import type { Etablissement } from "@/types";
 
 const emptyForm = { nom: "", ville: "", adresse: "", code_postal: "", telephone: "", email: "", contact_prenom: "", contact_nom: "", actif: true };
@@ -11,6 +12,7 @@ const emptyForm = { nom: "", ville: "", adresse: "", code_postal: "", telephone:
 export default function EtablissementsPage() {
   const supabase = createClient();
   const [etabs, setEtabs] = useState<Etablissement[]>([]);
+  const [isSA, setIsSA] = useState(false);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState<Etablissement | null>(null);
@@ -19,6 +21,11 @@ export default function EtablissementsPage() {
   const [saving, setSaving] = useState(false);
 
   async function load() {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (user) {
+      const { data: prof } = await supabase.from("profiles").select("roles").eq("id", user.id).single();
+      setIsSA(prof?.roles?.includes("superadmin") ?? false);
+    }
     const { data } = await supabase.from("etablissements").select("*").order("nom");
     setEtabs(data || []);
     setLoading(false);
@@ -187,6 +194,9 @@ export default function EtablissementsPage() {
             {e.email && <p className="text-xs text-gray-500 mb-1">{e.email}</p>}
             {e.telephone && <p className="text-xs text-gray-500 mb-3">{e.telephone}</p>}
             <div className="flex gap-2 pt-3 border-t border-gray-100">
+              {isSA && (
+                <Link href={`/dashboard/eleves?etablissement=${e.id}`} className="btn-secondary btn-sm flex-1"><Users className="w-3 h-3" /> Élèves</Link>
+              )}
               <button onClick={() => openEdit(e)} className="btn-secondary btn-sm flex-1"><Edit className="w-3 h-3" /> Modifier</button>
               <button onClick={() => setConfirmDelete(e.id)} className="p-1.5 rounded-lg text-red-400 hover:bg-red-50 hover:text-red-600 transition-colors"><Trash2 className="w-3.5 h-3.5" /></button>
             </div>

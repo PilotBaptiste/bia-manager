@@ -1,5 +1,6 @@
 "use client";
 import { useState, useEffect, useMemo } from "react";
+import { useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { toast } from "sonner";
 import type { Eleve, Etablissement } from "@/types";
@@ -99,6 +100,7 @@ const emptyForm = {
 
 export default function ElevesPage() {
   const supabase = createClient();
+  const searchParams = useSearchParams();
   const [eleves, setEleves] = useState<any[]>([]);
   const [etablissements, setEtablissements] = useState<Etablissement[]>([]);
   const [aeronefs, setAeronefs] = useState<any[]>([]);
@@ -114,7 +116,7 @@ export default function ElevesPage() {
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [searchQ, setSearchQ] = useState("");
-  const [fEtab, setFEtab] = useState("all");
+  const [fEtab, setFEtab] = useState(() => searchParams.get("etablissement") || "all");
   const [fPaiement, setFPaiement] = useState("all");
   const [fAttest, setFAttest] = useState("all");
   const [fVol1, setFVol1] = useState("all");
