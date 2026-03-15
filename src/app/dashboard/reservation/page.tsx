@@ -137,17 +137,17 @@ export default function ReservationPage() {
     // Send booking confirmation emails (fire-and-forget)
     const { data: { user } } = await supabase.auth.getUser();
     const creneau = creneaux.find((c) => c.id === booking.creneauId);
-    const enfant = enfants.find((e) => e.id === booking.eleveId);
-    if (creneau && enfant) {
+    const bookedEnfant = enfants.find((e) => e.id === booking.eleveId);
+    if (creneau && bookedEnfant) {
       fetch("/api/email", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           type: "booking_confirm",
           parent_email: user?.email,
-          parent_prenom: enfant.parent_prenom || "",
-          eleve_prenom: enfant.prenom,
-          eleve_nom: enfant.nom,
+          parent_prenom: bookedEnfant.parent_prenom || "",
+          eleve_prenom: bookedEnfant.prenom,
+          eleve_nom: bookedEnfant.nom,
           type_vol: booking.typeVol,
           date_vol: creneau.date_vol,
           heure_debut: creneau.heure_debut,
