@@ -413,8 +413,29 @@ export default function VolsPage() {
   }
 
   async function handleRemoveEleve(rid: string, name: string) {
+    // Capture eleve/slot info before cancelling for the email
+    const removedRes = (showDetail?.reservations || []).find((r: any) => r.id === rid);
     await supabase.from("reservations").update({ statut: "annule" }).eq("id", rid);
     toast.success(`${name} retiré du créneau`);
+    // Notify the parent (fire-and-forget) — pilote_email omitted intentionally
+    if (removedRes?.eleve?.parent_email) {
+      fetch("/api/email", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          type: "booking_cancel",
+          parent_email: removedRes.eleve.parent_email,
+          parent_prenom: removedRes.eleve.parent_prenom || "",
+          eleve_prenom: removedRes.eleve.prenom,
+          eleve_nom: removedRes.eleve.nom,
+          type_vol: removedRes.type_vol,
+          date_vol: showDetail?.date_vol,
+          heure_debut: showDetail?.heure_debut,
+          pilote_email: "", // pilot is the one removing — don't notify themselves
+          pilote_nom: "",
+        }),
+      }).catch(() => {});
+    }
     const { data } = await supabase
       .from("creneaux")
       .select(

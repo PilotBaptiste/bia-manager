@@ -119,13 +119,28 @@ export default function ReservationPage() {
       }
     }
     setSaving(true);
-    const { error: err } = await supabase
+    // Upsert: reactivate a cancelled reservation if one exists (avoids unique constraint violation)
+    const { data: cancelled } = await supabase
       .from("reservations")
-      .insert({
-        creneau_id: booking.creneauId,
-        eleve_id: booking.eleveId,
-        type_vol: booking.typeVol,
-      });
+      .select("id")
+      .eq("creneau_id", booking.creneauId)
+      .eq("eleve_id", booking.eleveId)
+      .eq("statut", "annule")
+      .maybeSingle();
+
+    let err: any = null;
+    if (cancelled) {
+      const { error: e } = await supabase
+        .from("reservations")
+        .update({ statut: "reserve", type_vol: booking.typeVol })
+        .eq("id", cancelled.id);
+      err = e;
+    } else {
+      const { error: e } = await supabase
+        .from("reservations")
+        .insert({ creneau_id: booking.creneauId, eleve_id: booking.eleveId, type_vol: booking.typeVol });
+      err = e;
+    }
     setSaving(false);
     if (err) {
       setError(err.message);
