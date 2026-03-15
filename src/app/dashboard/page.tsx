@@ -186,10 +186,10 @@ async function DashboardPilote({ supabase, profile }: { supabase: any; profile: 
                     {c.statut === "confirme" ? "Confirmé" : "Ouvert"}
                   </span>
                 </div>
-                {c.reservations?.length > 0 && (
+                {c.reservations?.filter((r: any) => r.statut !== "annule").length > 0 && (
                   <div className="mt-2 p-2 bg-white rounded border border-gray-100 text-xs">
                     <p className="font-semibold text-gray-700 mb-1">Élèves inscrits :</p>
-                    {c.reservations.map((r: any, i: number) => (
+                    {c.reservations.filter((r: any) => r.statut !== "annule").map((r: any, i: number) => (
                       <div key={i} className="flex items-center gap-2 py-0.5">
                         <span className="text-gray-900">{r.eleve?.prenom} {r.eleve?.nom}</span>
                         {r.eleve?.vol1_temps_minutes && <span className="text-gray-400">(Vol 1: {r.eleve.vol1_temps_minutes}min)</span>}

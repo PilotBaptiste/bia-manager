@@ -115,8 +115,8 @@ export async function POST(req: Request) {
         `),
       });
 
-      // To pilot — new booking notification
-      if (pilote_email) {
+      // To pilot — new booking notification (skip if same address as parent)
+      if (pilote_email && pilote_email !== parent_email) {
         emails.push({
           to: pilote_email,
           subject: `🆕 Nouvelle réservation — ${eleve_prenom} ${eleve_nom} · Vol ${type_vol} · ${fmt(date_vol)}`,
@@ -171,8 +171,8 @@ export async function POST(req: Request) {
         `),
       });
 
-      // To pilot — cancellation notification
-      if (pilote_email) {
+      // To pilot — cancellation notification (skip if same address as parent)
+      if (pilote_email && pilote_email !== parent_email) {
         emails.push({
           to: pilote_email,
           subject: `⚠️ Annulation de réservation — ${eleve_prenom} ${eleve_nom} · ${fmt(date_vol)}`,
