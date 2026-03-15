@@ -78,9 +78,18 @@ export default function UtilisateursPage() {
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [elevesByParentEmail, setElevesByParentEmail] = useState<Record<string, string[]>>({});
   const [parentNameByEmail, setParentNameByEmail] = useState<Record<string, string>>({});
+  const [isSA, setIsSA] = useState(false);
+  const [parentEmails, setParentEmails] = useState<{ email: string; nom: string; prenom: string }[]>([]);
+  // Bulk invite state
+  const [showBulkInvite, setShowBulkInvite] = useState(false);
+  const [bulkSending, setBulkSending] = useState(false);
+  const [bulkProgress, setBulkProgress] = useState(0);
+  const [bulkTotal, setBulkTotal] = useState(0);
+  const [bulkDone, setBulkDone] = useState(false);
 
   async function load() {
-    const [usersRes, etabsRes, elevesRes] = await Promise.all([
+    const { data: { user } } = await supabase.auth.getUser();
+    const [usersRes, etabsRes, elevesRes, profRes] = await Promise.all([
       supabase
         .from("profiles")
         .select("*, etablissement_ids, etablissement:etablissements(nom)")
@@ -93,9 +102,25 @@ export default function UtilisateursPage() {
       supabase
         .from("eleves")
         .select("prenom, nom, parent_email, parent_nom, parent_prenom"),
+      user
+        ? supabase.from("profiles").select("roles").eq("id", user.id).single()
+        : Promise.resolve({ data: null }),
     ]);
     setUsers(usersRes.data || []);
     setEtabs(etabsRes.data || []);
+    setIsSA(profRes.data?.roles?.includes("superadmin") ?? false);
+    // Build unique parent email list for bulk invite
+    const seen = new Set<string>();
+    const pList: { email: string; nom: string; prenom: string }[] = [];
+    for (const e of elevesRes.data || []) {
+      if (!e.parent_email) continue;
+      const key = e.parent_email.toLowerCase();
+      if (!seen.has(key)) {
+        seen.add(key);
+        pList.push({ email: e.parent_email, nom: e.parent_nom || "", prenom: e.parent_prenom || "" });
+      }
+    }
+    setParentEmails(pList);
 
     // Build maps: parent_email -> student names + parent name fallback
     const studentMap: Record<string, string[]> = {};
@@ -252,6 +277,27 @@ export default function UtilisateursPage() {
     else toast.success(`Email envoyé à ${user.email}`);
   }
 
+  async function handleBulkInvite() {
+    if (parentEmails.length === 0) return;
+    setBulkSending(true);
+    setBulkProgress(0);
+    setBulkTotal(parentEmails.length);
+    setBulkDone(false);
+    for (let i = 0; i < parentEmails.length; i++) {
+      const p = parentEmails[i];
+      await fetch("/api/invite", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: p.email, nom: p.nom, prenom: p.prenom }),
+      }).catch(() => {});
+      setBulkProgress(i + 1);
+      // Small delay to avoid Resend rate limits
+      await new Promise((r) => setTimeout(r, 300));
+    }
+    setBulkSending(false);
+    setBulkDone(true);
+  }
+
   const roleColor = (r: string) =>
     ALL_ROLES.find((ar) => ar.value === r)?.color ||
     "text-gray-500 bg-gray-100";
@@ -274,15 +320,25 @@ export default function UtilisateursPage() {
             {users.length} utilisateur{users.length > 1 ? "s" : ""}
           </p>
         </div>
-        <button
-          onClick={() => {
-            setCreating(true);
-            setError(null);
-          }}
-          className="btn-primary btn-sm"
-        >
-          <UserPlus className="w-3.5 h-3.5" /> Creer un compte
-        </button>
+        <div className="flex gap-2">
+          {isSA && (
+            <button
+              onClick={() => { setShowBulkInvite(true); setBulkDone(false); setBulkProgress(0); }}
+              className="btn-secondary btn-sm"
+            >
+              <Mail className="w-3.5 h-3.5" /> Inviter les parents
+            </button>
+          )}
+          <button
+            onClick={() => {
+              setCreating(true);
+              setError(null);
+            }}
+            className="btn-primary btn-sm"
+          >
+            <UserPlus className="w-3.5 h-3.5" /> Creer un compte
+          </button>
+        </div>
       </div>
 
       {success && (
@@ -302,7 +358,8 @@ export default function UtilisateursPage() {
             value={searchQ}
             onChange={(e) => setSearchQ(e.target.value)}
             placeholder="Rechercher..."
-            className="input pl-9"
+            className="input"
+            style={{ paddingLeft: "2.25rem" }}
           />
         </div>
         <div className="flex gap-1 flex-wrap">
@@ -317,6 +374,75 @@ export default function UtilisateursPage() {
           ))}
         </div>
       </div>
+
+      {/* Bulk Invite Modal */}
+      {showBulkInvite && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/40" onClick={() => !bulkSending && setShowBulkInvite(false)} />
+          <div className="relative bg-white rounded-2xl p-6 w-full max-w-md shadow-xl">
+            <div className="flex items-center justify-between mb-5">
+              <h3 className="text-base font-bold text-gray-900">Inviter les parents</h3>
+              {!bulkSending && (
+                <button onClick={() => setShowBulkInvite(false)} className="p-1.5 rounded-lg hover:bg-gray-100">
+                  <X className="w-4 h-4" />
+                </button>
+              )}
+            </div>
+            {!bulkSending && !bulkDone && (
+              <>
+                <div className="p-4 rounded-xl bg-amber-50 border border-amber-200 mb-5">
+                  <p className="text-sm font-semibold text-amber-800 mb-1">Confirmation requise</p>
+                  <p className="text-sm text-amber-700">
+                    Vous allez envoyer un email d&apos;invitation (ou de réinitialisation de mot de passe) à{" "}
+                    <strong>{parentEmails.length} adresse{parentEmails.length > 1 ? "s" : ""}</strong> parent.
+                  </p>
+                  <p className="text-xs text-amber-600 mt-2">
+                    Les parents qui ont déjà un compte recevront un lien de réinitialisation de mot de passe.
+                    Les nouveaux recevront une invitation pour créer leur compte.
+                  </p>
+                </div>
+                <div className="max-h-40 overflow-auto rounded-lg border border-gray-200 mb-5 text-xs">
+                  {parentEmails.map((p, i) => (
+                    <div key={i} className="flex justify-between px-3 py-1.5 border-b border-gray-100 last:border-0">
+                      <span className="text-gray-700">{p.prenom} {p.nom}</span>
+                      <span className="text-gray-400">{p.email}</span>
+                    </div>
+                  ))}
+                </div>
+                <div className="flex gap-2 justify-end">
+                  <button onClick={() => setShowBulkInvite(false)} className="btn-secondary btn-sm">Annuler</button>
+                  <button onClick={handleBulkInvite} className="btn-primary btn-sm">
+                    <Mail className="w-3.5 h-3.5" /> Envoyer {parentEmails.length} email{parentEmails.length > 1 ? "s" : ""}
+                  </button>
+                </div>
+              </>
+            )}
+            {bulkSending && (
+              <div className="text-center py-6">
+                <Loader2 className="w-8 h-8 animate-spin text-brand-400 mx-auto mb-4" />
+                <p className="text-sm font-semibold text-gray-900 mb-2">Envoi en cours…</p>
+                <p className="text-sm text-gray-500 mb-4">{bulkProgress} / {bulkTotal} emails envoyés</p>
+                <div className="w-full bg-gray-100 rounded-full h-2 overflow-hidden">
+                  <div
+                    className="bg-brand-500 h-2 rounded-full transition-all duration-300"
+                    style={{ width: `${bulkTotal > 0 ? (bulkProgress / bulkTotal) * 100 : 0}%` }}
+                  />
+                </div>
+              </div>
+            )}
+            {bulkDone && (
+              <div className="text-center py-6">
+                <div className="w-14 h-14 rounded-full bg-emerald-100 flex items-center justify-center mx-auto mb-4">
+                  <Check className="w-7 h-7 text-emerald-600" />
+                </div>
+                <p className="text-sm font-semibold text-gray-900 mb-2">{bulkTotal} emails envoyés !</p>
+                <p className="text-sm text-gray-500 mb-5">Tous les parents ont reçu leur invitation.</p>
+                <button onClick={() => setShowBulkInvite(false)} className="btn-primary btn-sm">Fermer</button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Create Modal */}
       {creating && (

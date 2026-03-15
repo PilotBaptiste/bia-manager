@@ -411,6 +411,34 @@ export default function ElevesPage() {
       setFormError(`Erreur: ${result.error.message}`);
       return;
     }
+    // Send attestation_ready email if paiement + attestation just became complete
+    if (
+      editingId &&
+      form.paiement_effectue &&
+      form.attestation_signee &&
+      form.parent_email
+    ) {
+      const prevEleve = eleves.find((e) => e.id === editingId);
+      const wasAlreadyReady =
+        prevEleve?.paiement_effectue && prevEleve?.attestation_signee;
+      if (!wasAlreadyReady) {
+        const etab = etablissements.find(
+          (e: any) => e.id === form.etablissement_id,
+        );
+        fetch("/api/email", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            type: "attestation_ready",
+            parent_email: form.parent_email,
+            parent_prenom: form.parent_prenom || "",
+            eleve_prenom: form.prenom,
+            eleve_nom: form.nom,
+            etablissement: etab?.nom || "",
+          }),
+        }).catch(() => {});
+      }
+    }
     setShowForm(false);
     // Reload the selected student if editing from fiche
     if (selected && editingId) {
@@ -1380,7 +1408,8 @@ export default function ElevesPage() {
             value={searchQ}
             onChange={(e) => setSearchQ(e.target.value)}
             placeholder="Rechercher..."
-            className="input pl-9"
+            className="input"
+            style={{ paddingLeft: "2.25rem" }}
           />
         </div>
         <button

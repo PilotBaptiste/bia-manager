@@ -71,9 +71,35 @@ export default function ReservationPage() {
 
   async function handleCancel(id: string) {
     setSaving(true);
+    // Find the reservation details before cancelling (for the email)
+    let cancelledRes: any = null;
+    for (const e of enfants) {
+      const r = (e.reservations || []).find((r: any) => r.id === id);
+      if (r) { cancelledRes = { ...r, eleve: e }; break; }
+    }
     await supabase.from("reservations").update({ statut: "annule" }).eq("id", id);
     setSaving(false);
     toast.success("Réservation annulée");
+    // Send cancellation emails (fire-and-forget)
+    if (cancelledRes) {
+      const { data: { user } } = await supabase.auth.getUser();
+      fetch("/api/email", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          type: "booking_cancel",
+          parent_email: user?.email,
+          parent_prenom: cancelledRes.eleve?.parent_prenom || "",
+          eleve_prenom: cancelledRes.eleve?.prenom,
+          eleve_nom: cancelledRes.eleve?.nom,
+          type_vol: cancelledRes.type_vol,
+          date_vol: cancelledRes.creneau?.date_vol,
+          heure_debut: cancelledRes.creneau?.heure_debut,
+          pilote_email: cancelledRes.creneau?.pilote?.email,
+          pilote_nom: cancelledRes.creneau?.pilote ? `${cancelledRes.creneau.pilote.prenom} ${cancelledRes.creneau.pilote.nom}` : "",
+        }),
+      }).catch(() => {});
+    }
     load();
   }
 
@@ -108,6 +134,32 @@ export default function ReservationPage() {
     setSuccess("Reservation confirmee !");
     setBooking(null);
     setTimeout(() => setSuccess(null), 3000);
+    // Send booking confirmation emails (fire-and-forget)
+    const { data: { user } } = await supabase.auth.getUser();
+    const creneau = creneaux.find((c) => c.id === booking.creneauId);
+    const enfant = enfants.find((e) => e.id === booking.eleveId);
+    if (creneau && enfant) {
+      fetch("/api/email", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          type: "booking_confirm",
+          parent_email: user?.email,
+          parent_prenom: enfant.parent_prenom || "",
+          eleve_prenom: enfant.prenom,
+          eleve_nom: enfant.nom,
+          type_vol: booking.typeVol,
+          date_vol: creneau.date_vol,
+          heure_debut: creneau.heure_debut,
+          heure_fin: creneau.heure_fin,
+          aeronef: creneau.aeronef ? `${creneau.aeronef.type_aeronef} (${creneau.aeronef.immatriculation})` : "",
+          pilote_nom: creneau.pilote ? `${creneau.pilote.prenom} ${creneau.pilote.nom}` : "",
+          pilote_email: creneau.pilote?.email || "",
+          pilote_telephone: creneau.pilote?.telephone || "",
+          etablissement: creneau.etablissement?.nom || "",
+        }),
+      }).catch(() => {});
+    }
     load();
   }
 

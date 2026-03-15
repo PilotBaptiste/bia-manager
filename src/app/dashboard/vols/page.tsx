@@ -302,13 +302,51 @@ export default function VolsPage() {
     load();
   }
 
+  function getAffectedParents(creneau: any) {
+    return (creneau?.reservations || [])
+      .filter((r: any) => r.statut !== "annule" && r.eleve?.parent_email)
+      .map((r: any) => ({
+        email: r.eleve.parent_email,
+        prenom: r.eleve.parent_prenom || "",
+        eleve_prenom: r.eleve.prenom,
+        eleve_nom: r.eleve.nom,
+      }));
+  }
+
   async function handleDeleteSlot(id: string) {
+    // Collect affected parents BEFORE deleting
+    const parents = getAffectedParents(showDetail);
+    const pilotNom = showDetail?.pilote
+      ? `${showDetail.pilote.prenom} ${showDetail.pilote.nom}`
+      : "";
     await supabase.from("creneaux").delete().eq("id", id);
     toast.success("Créneau supprimé");
     setShowDetail(null);
+    // Notify affected parents
+    if (parents.length > 0) {
+      fetch("/api/email", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          type: "slot_cancelled",
+          parents,
+          date_vol: showDetail?.date_vol,
+          heure_debut: showDetail?.heure_debut,
+          pilote_nom: pilotNom,
+        }),
+      }).catch(() => {});
+    }
     load();
   }
+
   async function handleCancelSlot(id: string) {
+    // Collect affected parents BEFORE cancelling
+    const parents = getAffectedParents(showDetail);
+    const pilotNom = showDetail?.pilote
+      ? `${showDetail.pilote.prenom} ${showDetail.pilote.nom}`
+      : "";
+    const slotDate = showDetail?.date_vol;
+    const slotHeure = showDetail?.heure_debut;
     await supabase.from("creneaux").update({ statut: "annule" }).eq("id", id);
     // Also cancel all active reservations on this slot so parents see the cancellation
     await supabase
@@ -318,9 +356,26 @@ export default function VolsPage() {
       .neq("statut", "annule");
     toast.success("Créneau annulé");
     setShowDetail(null);
+    // Notify affected parents
+    if (parents.length > 0) {
+      fetch("/api/email", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          type: "slot_cancelled",
+          parents,
+          date_vol: slotDate,
+          heure_debut: slotHeure,
+          pilote_nom: pilotNom,
+        }),
+      }).catch(() => {});
+    }
     load();
   }
+
   async function handleEditSlot(updated: any) {
+    // Collect affected parents from original slot BEFORE updating
+    const parents = getAffectedParents(showEditSlot);
     setSaving(true);
     const { error: err } = await supabase.from("creneaux").update({
       date_vol: updated.date_vol,
@@ -336,6 +391,24 @@ export default function VolsPage() {
     if (err) { toast.error(err.message); return; }
     toast.success("Créneau modifié");
     setShowEditSlot(null);
+    // Notify affected parents about the modification
+    if (parents.length > 0) {
+      const aeronef = aeronefs.find((a: any) => a.id === updated.aeronef_id);
+      const etab = etabs.find((e: any) => e.id === updated.etablissement_id);
+      fetch("/api/email", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          type: "slot_modified",
+          parents,
+          date_vol: updated.date_vol,
+          heure_debut: updated.heure_debut,
+          heure_fin: updated.heure_fin,
+          aeronef: aeronef ? `${aeronef.type_aeronef} (${aeronef.immatriculation})` : "",
+          etablissement: etab?.nom || "",
+        }),
+      }).catch(() => {});
+    }
     load();
   }
 
