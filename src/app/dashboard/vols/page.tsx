@@ -88,7 +88,7 @@ export default function VolsPage() {
         supabase
           .from("vols_effectues")
           .select(
-            "*, creneau:creneaux(date_vol,heure_debut,heure_fin,pilote:profiles!pilote_id(nom,prenom),aeronef:aeronefs(type_aeronef,immatriculation),etablissement:etablissements(nom),reservations(eleve:eleves(nom,prenom)))",
+            "*, creneau:creneaux(date_vol,heure_debut,heure_fin,pilote_id,aeronef_id,etablissement_id,pilote:profiles!pilote_id(nom,prenom),aeronef:aeronefs(type_aeronef,immatriculation),etablissement:etablissements(nom),reservations(eleve:eleves(nom,prenom)))",
           )
           .order("created_at", { ascending: false }),
         supabase
@@ -159,6 +159,15 @@ export default function VolsPage() {
     return true;
   });
   const hasFilters = !!(filterPilote || filterAeronef || filterEtab || filterStatut || filterDateFrom || filterDateTo);
+
+  const filteredHisto = volsHisto.filter((v) => {
+    if (filterPilote && v.creneau?.pilote_id !== filterPilote) return false;
+    if (filterAeronef && v.creneau?.aeronef_id !== filterAeronef) return false;
+    if (filterEtab && v.creneau?.etablissement_id !== filterEtab) return false;
+    if (filterDateFrom && v.creneau?.date_vol < filterDateFrom) return false;
+    if (filterDateTo && v.creneau?.date_vol > filterDateTo) return false;
+    return true;
+  });
 
   // Get qualified aeronefs for a pilot — returns [] if no qualifications set
   function getQualifiedAeronefs(pid: string) {
@@ -1616,7 +1625,7 @@ export default function VolsPage() {
               </tr>
             </thead>
             <tbody>
-              {volsHisto.length === 0 ? (
+              {filteredHisto.length === 0 ? (
                 <tr>
                   <td
                     colSpan={9}
@@ -1626,7 +1635,7 @@ export default function VolsPage() {
                   </td>
                 </tr>
               ) : (
-                volsHisto.map((v) => (
+                filteredHisto.map((v) => (
                   <tr
                     key={v.id}
                     className="border-t border-gray-100 hover:bg-gray-50"
