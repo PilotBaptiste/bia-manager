@@ -33,6 +33,12 @@ export default function ReservationPage() {
       data: { user },
     } = await supabase.auth.getUser();
     if (!user) return;
+    // Auto-link any unlinked children (handles multi-child families and late additions)
+    fetch("/api/link-parent", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ userId: user.id, email: user.email }),
+    }).catch(() => {});
     const [eR, cR] = await Promise.all([
       supabase
         .from("eleves")

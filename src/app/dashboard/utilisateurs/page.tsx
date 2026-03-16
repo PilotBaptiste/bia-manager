@@ -80,6 +80,7 @@ export default function UtilisateursPage() {
   const [parentNameByEmail, setParentNameByEmail] = useState<Record<string, string>>({});
   const [isSA, setIsSA] = useState(false);
   const [parentEmails, setParentEmails] = useState<{ email: string; nom: string; prenom: string }[]>([]);
+  const [parentDataByEmail, setParentDataByEmail] = useState<Record<string, { nom: string; prenom: string }>>({});
   // Bulk invite state
   const [showBulkInvite, setShowBulkInvite] = useState(false);
   const [bulkSending, setBulkSending] = useState(false);
@@ -125,6 +126,7 @@ export default function UtilisateursPage() {
     // Build maps: parent_email -> student names + parent name fallback
     const studentMap: Record<string, string[]> = {};
     const parentNameMap: Record<string, string> = {};
+    const parentDataMap: Record<string, { nom: string; prenom: string }> = {};
     for (const e of elevesRes.data || []) {
       if (!e.parent_email) continue;
       const key = e.parent_email.toLowerCase();
@@ -133,10 +135,12 @@ export default function UtilisateursPage() {
       // Store parent name from eleve fiche as fallback (in case profile has no name)
       if (!parentNameMap[key] && (e.parent_prenom || e.parent_nom)) {
         parentNameMap[key] = `${e.parent_prenom ?? ""} ${e.parent_nom ?? ""}`.trim();
+        parentDataMap[key] = { nom: e.parent_nom || "", prenom: e.parent_prenom || "" };
       }
     }
     setElevesByParentEmail(studentMap);
     setParentNameByEmail(parentNameMap);
+    setParentDataByEmail(parentDataMap);
     setLoading(false);
   }
   useEffect(() => {
@@ -829,7 +833,16 @@ export default function UtilisateursPage() {
                   </td>
                   <td className="px-3 py-2.5">
                     <button
-                      onClick={() => { setEditing({ ...u }); setError(null); }}
+                      onClick={() => {
+                        const emailKey = u.email?.toLowerCase();
+                        const fallback = parentDataByEmail[emailKey] || { nom: "", prenom: "" };
+                        setEditing({
+                          ...u,
+                          nom: u.nom || fallback.nom,
+                          prenom: u.prenom || fallback.prenom,
+                        });
+                        setError(null);
+                      }}
                       className="flex items-center gap-1 text-xs font-semibold text-brand-500 hover:text-brand-700 bg-brand-50 px-2 py-1 rounded-md"
                     >
                       <Edit className="w-3 h-3" /> Éditer

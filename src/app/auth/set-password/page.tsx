@@ -44,6 +44,15 @@ export default function SetPasswordPage() {
       setError(`Erreur: ${err.message}`);
       return;
     }
+    // Auto-link children and sync profile name (fire-and-forget)
+    const { data: { user } } = await supabase.auth.getUser();
+    if (user?.email) {
+      fetch("/api/link-parent", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId: user.id, email: user.email }),
+      }).catch(() => {});
+    }
     setDone(true);
     setTimeout(() => router.push("/dashboard"), 2000);
   }
