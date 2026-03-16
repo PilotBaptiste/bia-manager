@@ -311,7 +311,7 @@ export default function FinancesPage() {
                   <td className="px-3 py-2.5"><span className={`badge ${op.type.includes("Vol") ? "bg-red-50 text-red-600" : op.type === "Subvention BIA" ? "bg-blue-50 text-blue-600" : op.sens === "depense" ? "bg-orange-50 text-orange-600" : "bg-emerald-50 text-emerald-600"}`}>{op.type}</span></td>
                   <td className="px-3 py-2.5"><span className={`text-xs font-semibold ${op.sens === "recette" ? "text-emerald-600" : "text-red-600"}`}>{op.sens === "recette" ? "+" : "−"}</span></td>
                   <td className={`px-3 py-2.5 font-semibold ${op.sens === "recette" ? "text-emerald-600" : "text-red-600"}`}>{op.sens === "recette" ? "+" : "−"}{op.montant?.toFixed(2)}€</td>
-                  <td className="px-3 py-2.5 text-gray-700 text-xs max-w-[200px] truncate">{op.description}</td>
+                  <td className="px-3 py-2.5 text-gray-700 text-xs">{op.description}</td>
                   <td className="px-3 py-2.5 text-gray-500 text-xs">{op.etablissement || "—"}</td>
                   <td className="px-3 py-2.5 text-gray-500 text-xs">{op.aeronef || "—"}</td>
                   <td className="px-3 py-2.5 text-gray-500 text-xs">{op.pilote || "—"}</td>
