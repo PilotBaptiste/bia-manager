@@ -1,5 +1,13 @@
 import { Resend } from "resend";
 import { NextResponse } from "next/server";
+import { createClient } from "@supabase/supabase-js";
+
+function adminSupabase() {
+  return createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!,
+  );
+}
 
 const FROM =
   process.env.RESEND_FROM ?? "BIA Manager <noreply@bia-manager-acba.vercel.app>";
@@ -300,16 +308,38 @@ export async function POST(req: Request) {
       );
     }
 
-    // Send all emails
-    const results = await Promise.allSettled(
-      emails.map((e) =>
-        resend.emails.send({ from: FROM, to: e.to, subject: e.subject, html: e.html }),
-      ),
-    );
+    // Send all emails and log each one
+    const supabase = adminSupabase();
+    const errors: string[] = [];
 
-    const errors = results
-      .filter((r) => r.status === "rejected")
-      .map((r: any) => r.reason?.message);
+    for (const e of emails) {
+      let resendId: string | null = null;
+      let statut = "envoye";
+      try {
+        const result = await resend.emails.send({
+          from: FROM,
+          to: e.to,
+          subject: e.subject,
+          html: e.html,
+        });
+        resendId = (result.data as any)?.id ?? null;
+      } catch (err: any) {
+        errors.push(err?.message ?? "Erreur envoi");
+        statut = "erreur";
+      }
+
+      // Log to email_logs (best-effort, don't fail the request if logging fails)
+      try {
+        await supabase.from("email_logs").insert({
+          type,
+          to_email: e.to,
+          subject: e.subject,
+          eleve_id: body.eleve_id ?? null,
+          resend_id: resendId,
+          statut,
+        });
+      } catch { /* ignore logging errors */ }
+    }
 
     return NextResponse.json({
       success: true,

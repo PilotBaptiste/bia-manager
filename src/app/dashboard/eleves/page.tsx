@@ -113,6 +113,8 @@ export default function ElevesPage() {
   const [defaultMontant, setDefaultMontant] = useState("80");
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState<any | null>(null);
+  const [emailLogs, setEmailLogs] = useState<any[]>([]);
+  const [emailLogsLoading, setEmailLogsLoading] = useState(false);
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState(emptyForm);
@@ -188,6 +190,26 @@ export default function ElevesPage() {
   useEffect(() => {
     load();
   }, []);
+
+  async function loadEmailLogs(eleve: any) {
+    if (!eleve?.parent_email) return;
+    setEmailLogs([]);
+    setEmailLogsLoading(true);
+    try {
+      const res = await fetch(`/api/email/logs?email=${encodeURIComponent(eleve.parent_email)}`);
+      const data = await res.json();
+      setEmailLogs(data.logs ?? []);
+    } catch {
+      setEmailLogs([]);
+    } finally {
+      setEmailLogsLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    if (selected) loadEmailLogs(selected);
+    else setEmailLogs([]);
+  }, [selected?.id]);
 
   const filtered = useMemo(
     () =>
@@ -1296,6 +1318,7 @@ export default function ElevesPage() {
                         eleve_prenom: s.prenom,
                         eleve_nom: s.nom,
                         etablissement: etab?.nom || "",
+                        eleve_id: s.id,
                       }),
                     });
                     toast.dismiss(tid);
@@ -1432,6 +1455,53 @@ export default function ElevesPage() {
         </div>
 
         {/* Prev / Next navigation */}
+        {/* EMAIL LOGS */}
+        {s.parent_email && (
+          <Section title="Emails envoyés">
+            {emailLogsLoading ? (
+              <div className="flex justify-center py-4">
+                <Loader2 className="w-4 h-4 animate-spin text-gray-300" />
+              </div>
+            ) : emailLogs.length === 0 ? (
+              <p className="text-sm text-gray-400">Aucun email enregistré</p>
+            ) : (
+              <div className="space-y-1.5">
+                {emailLogs.map((log) => {
+                  const statusMap: Record<string, { label: string; cls: string }> = {
+                    envoye: { label: "Envoyé", cls: "bg-blue-50 text-blue-600" },
+                    delivre: { label: "Délivré", cls: "bg-emerald-50 text-emerald-600" },
+                    ouvert: { label: "Ouvert", cls: "bg-green-50 text-green-700" },
+                    clique: { label: "Cliqué", cls: "bg-green-100 text-green-800" },
+                    retarde: { label: "Retardé", cls: "bg-amber-50 text-amber-600" },
+                    rebondi: { label: "Rebondi", cls: "bg-red-50 text-red-600" },
+                    spam: { label: "Spam", cls: "bg-red-100 text-red-700" },
+                    erreur: { label: "Erreur", cls: "bg-red-50 text-red-500" },
+                    supprime: { label: "Supprimé", cls: "bg-gray-100 text-gray-500" },
+                  };
+                  const st = statusMap[log.statut] ?? { label: log.statut, cls: "bg-gray-100 text-gray-500" };
+                  const typeMap: Record<string, string> = {
+                    attestation_ready: "Vol disponible",
+                    booking_confirm: "Réservation confirmée",
+                    booking_cancel: "Annulation réservation",
+                    slot_modified: "Créneau modifié",
+                    slot_cancelled: "Créneau annulé",
+                    invite: "Invitation compte",
+                  };
+                  return (
+                    <div key={log.id} className="flex items-center justify-between gap-2 text-xs py-1.5 border-b border-gray-50 last:border-0">
+                      <div className="flex-1 min-w-0">
+                        <p className="font-medium text-gray-800 truncate">{typeMap[log.type] ?? log.type}</p>
+                        <p className="text-gray-400">{new Date(log.created_at).toLocaleString("fr-FR", { day: "2-digit", month: "2-digit", year: "2-digit", hour: "2-digit", minute: "2-digit" })}</p>
+                      </div>
+                      <span className={`shrink-0 px-2 py-0.5 rounded-full text-[10px] font-bold ${st.cls}`}>{st.label}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </Section>
+        )}
+
         {(() => {
           const idx = filtered.findIndex(e => e.id === s.id);
           const prev = idx > 0 ? filtered[idx - 1] : null;
