@@ -71,9 +71,14 @@ export default function EtablissementsPage() {
   }
 
   async function handleDelete(id: string) {
-    const { error } = await supabase.from("etablissements").delete().eq("id", id);
-    if (error) {
-      toast.error("Impossible de supprimer : des élèves ou pilotes sont liés à cet établissement. Passez-le en Inactif à la place.");
+    const res = await fetch("/api/delete-etablissement", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id }),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      toast.error(data.error || "Impossible de supprimer cet établissement.");
       setConfirmDelete(null);
       return;
     }
