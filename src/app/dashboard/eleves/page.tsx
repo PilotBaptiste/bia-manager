@@ -1,6 +1,8 @@
 "use client";
 import { useState, useEffect, useMemo } from "react";
+import { useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
+import { toast } from "sonner";
 import type { Eleve, Etablissement } from "@/types";
 import {
   Users,
@@ -13,11 +15,13 @@ import {
   Edit,
   Trash2,
   ChevronLeft,
+  ChevronRight,
   Loader2,
   Save,
   AlertCircle,
   Mail,
 } from "lucide-react";
+import ConfirmModal from "@/components/ConfirmModal";
 
 function Dot({ ok }: { ok: boolean }) {
   return <span className={ok ? "dot-success" : "dot-danger"} />;
@@ -64,6 +68,9 @@ const emptyForm = {
   prenom: "",
   date_naissance: "",
   lieu_naissance: "",
+  adresse_rue: "",
+  adresse_ville: "",
+  adresse_cp: "",
   etablissement_id: "",
   classe: "",
   parent_nom: "",
@@ -80,12 +87,14 @@ const emptyForm = {
   vol1_aeronef_id: "",
   vol1_prix: "",
   vol1_pilote_nom: "",
+  vol1_numero_aerogest: "",
   vol2_autorise: false,
   vol2_effectue: false,
   vol2_temps_minutes: "",
   vol2_aeronef_id: "",
   vol2_prix: "",
   vol2_pilote_nom: "",
+  vol2_numero_aerogest: "",
   bia_passe: false,
   bia_resultat: "",
   bia_date: "",
@@ -95,61 +104,115 @@ const emptyForm = {
 
 export default function ElevesPage() {
   const supabase = createClient();
+  const searchParams = useSearchParams();
   const [eleves, setEleves] = useState<any[]>([]);
   const [etablissements, setEtablissements] = useState<Etablissement[]>([]);
   const [aeronefs, setAeronefs] = useState<any[]>([]);
   const [anneeId, setAnneeId] = useState("");
   const [profileId, setProfileId] = useState("");
+  const [profile, setProfile] = useState<any>(null);
+  const [defaultMontant, setDefaultMontant] = useState("80");
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState<any | null>(null);
+  const [emailLogs, setEmailLogs] = useState<any[]>([]);
+  const [emailLogsLoading, setEmailLogsLoading] = useState(false);
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState(emptyForm);
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [searchQ, setSearchQ] = useState("");
-  const [fEtab, setFEtab] = useState("all");
+  const [fEtab, setFEtab] = useState(() => searchParams.get("etablissement") || "all");
   const [fPaiement, setFPaiement] = useState("all");
   const [fAttest, setFAttest] = useState("all");
   const [fVol1, setFVol1] = useState("all");
   const [fBia, setFBia] = useState("all");
   const [showFilters, setShowFilters] = useState(false);
+  const [parentProfiles, setParentProfiles] = useState<Record<string, any>>({});
+  const [confirmAction, setConfirmAction] = useState<{ title: string; message: string; variant?: "danger" | "primary"; onConfirm: () => void } | null>(null);
+  const [confirmLoading, setConfirmLoading] = useState(false);
 
   async function load() {
     const {
       data: { user },
     } = await supabase.auth.getUser();
-    if (user) setProfileId(user.id);
-    const [eR, etR, aR, anR] = await Promise.all([
-      supabase
-        .from("eleves")
-        .select(
-          "*, etablissement:etablissements(*), vol1_aeronef:aeronefs!vol1_aeronef_id(type_aeronef,immatriculation,prix_heure), vol2_aeronef:aeronefs!vol2_aeronef_id(type_aeronef,immatriculation,prix_heure)",
-        )
-        .eq("archive", false)
-        .order("nom"),
-      supabase
-        .from("etablissements")
-        .select("*")
-        .eq("actif", true)
-        .order("nom"),
-      supabase
-        .from("aeronefs")
-        .select("*")
-        .eq("actif", true)
-        .order("type_aeronef"),
+    if (!user) return;
+    setProfileId(user.id);
+
+    // Fetch profile first to determine role-based filtering
+    const { data: prof } = await supabase
+      .from("profiles")
+      .select("*")
+      .eq("id", user.id)
+      .single();
+    setProfile(prof);
+
+    const isGerant =
+      prof?.roles?.includes("gerant") && !prof?.roles?.includes("superadmin");
+    const gerantEtabIds: string[] =
+      prof?.etablissement_ids?.length > 0
+        ? prof.etablissement_ids
+        : prof?.etablissement_id
+          ? [prof.etablissement_id]
+          : [];
+
+    let elevesQuery = supabase
+      .from("eleves")
+      .select(
+        "*, etablissement:etablissements(*), vol1_aeronef:aeronefs!vol1_aeronef_id(type_aeronef,immatriculation,prix_heure), vol2_aeronef:aeronefs!vol2_aeronef_id(type_aeronef,immatriculation,prix_heure)",
+      )
+      .eq("archive", false)
+      .order("nom");
+
+    if (isGerant && gerantEtabIds.length > 0) {
+      elevesQuery = elevesQuery.in("etablissement_id", gerantEtabIds);
+    }
+
+    const [eR, etR, aR, anR, pR, profR] = await Promise.all([
+      elevesQuery,
+      supabase.from("etablissements").select("*").eq("actif", true).order("nom"),
+      supabase.from("aeronefs").select("*").eq("actif", true).order("type_aeronef"),
       supabase.from("annees").select("*").eq("active", true).single(),
+      supabase.from("parametres").select("cle,valeur").eq("cle", "prix_inscription").single(),
+      supabase.from("profiles").select("email, nom, prenom, telephone").contains("roles", ["parent"]),
     ]);
     setEleves(eR.data || []);
     setEtablissements(etR.data || []);
     setAeronefs(aR.data || []);
     if (anR.data) setAnneeId(anR.data.id);
+    if (pR.data?.valeur) setDefaultMontant(pR.data.valeur);
+    // Build email → profile map for parent name sync
+    const pmap: Record<string, any> = {};
+    for (const p of profR.data || []) {
+      if (p.email) pmap[p.email.toLowerCase()] = p;
+    }
+    setParentProfiles(pmap);
     setLoading(false);
   }
 
   useEffect(() => {
     load();
   }, []);
+
+  async function loadEmailLogs(eleve: any) {
+    if (!eleve?.parent_email) return;
+    setEmailLogs([]);
+    setEmailLogsLoading(true);
+    try {
+      const res = await fetch(`/api/email/logs?email=${encodeURIComponent(eleve.parent_email)}`);
+      const data = await res.json();
+      setEmailLogs(data.logs ?? []);
+    } catch {
+      setEmailLogs([]);
+    } finally {
+      setEmailLogsLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    if (selected) loadEmailLogs(selected);
+    else setEmailLogs([]);
+  }, [selected?.id]);
 
   const filtered = useMemo(
     () =>
@@ -217,7 +280,7 @@ export default function ElevesPage() {
 
   function openCreate() {
     setEditingId(null);
-    setForm({ ...emptyForm, etablissement_id: etablissements[0]?.id || "" });
+    setForm({ ...emptyForm, paiement_montant: defaultMontant, etablissement_id: etablissements[0]?.id || "" });
     setFormError(null);
     setShowForm(true);
   }
@@ -229,6 +292,9 @@ export default function ElevesPage() {
       prenom: s.prenom,
       date_naissance: s.date_naissance,
       lieu_naissance: s.lieu_naissance || "",
+      adresse_rue: s.adresse || "",
+      adresse_ville: "",
+      adresse_cp: "",
       etablissement_id: s.etablissement_id || "",
       classe: s.classe || "",
       parent_nom: s.parent_nom,
@@ -245,12 +311,14 @@ export default function ElevesPage() {
       vol1_aeronef_id: s.vol1_aeronef_id || "",
       vol1_prix: String(s.vol1_prix || ""),
       vol1_pilote_nom: s.vol1_pilote_nom || "",
+      vol1_numero_aerogest: s.vol1_numero_aerogest || "",
       vol2_autorise: s.vol2_autorise,
       vol2_effectue: s.vol2_effectue,
       vol2_temps_minutes: String(s.vol2_temps_minutes || ""),
       vol2_aeronef_id: s.vol2_aeronef_id || "",
       vol2_prix: String(s.vol2_prix || ""),
       vol2_pilote_nom: s.vol2_pilote_nom || "",
+      vol2_numero_aerogest: s.vol2_numero_aerogest || "",
       bia_passe: s.bia_passe,
       bia_resultat: s.bia_resultat || "",
       bia_date: s.bia_date || "",
@@ -293,6 +361,7 @@ export default function ElevesPage() {
       prenom: form.prenom,
       date_naissance: form.date_naissance,
       lieu_naissance: form.lieu_naissance || "—",
+      adresse: [form.adresse_rue, [form.adresse_cp, form.adresse_ville].filter(Boolean).join(" ")].filter(Boolean).join(", ") || null,
       etablissement_id: form.etablissement_id || null,
       classe: form.classe || "—",
       annee_id: anneeId,
@@ -321,6 +390,7 @@ export default function ElevesPage() {
       vol1_aeronef_id: form.vol1_aeronef_id || null,
       vol1_prix: form.vol1_prix ? parseFloat(form.vol1_prix) : null,
       vol1_pilote_nom: form.vol1_pilote_nom || null,
+      vol1_numero_aerogest: form.vol1_numero_aerogest || null,
       vol2_effectue: form.vol2_effectue,
       vol2_temps_minutes:
         form.vol2_effectue && form.vol2_temps_minutes
@@ -329,6 +399,7 @@ export default function ElevesPage() {
       vol2_aeronef_id: form.vol2_aeronef_id || null,
       vol2_prix: form.vol2_prix ? parseFloat(form.vol2_prix) : null,
       vol2_pilote_nom: form.vol2_pilote_nom || null,
+      vol2_numero_aerogest: form.vol2_numero_aerogest || null,
       bia_passe: form.bia_passe,
       bia_resultat: form.bia_resultat || null,
       bia_date: form.bia_date || null,
@@ -387,15 +458,57 @@ export default function ElevesPage() {
     load();
   }
 
-  async function handleDelete(id: string) {
-    if (!confirm("Supprimer cet eleve ?")) return;
-    await logActivity("delete", id, {
-      nom: selected?.nom,
-      prenom: selected?.prenom,
-    });
-    await supabase.from("eleves").delete().eq("id", id);
+  function handleExport() {
+    const headers = ["Nom","Prenom","Date naissance","Lieu naissance","Adresse","Etablissement","Classe","Parent nom","Parent prenom","Email parent","Tel parent","Paiement","Montant","Mode paiement","Attestation","Vol 1","Temps vol 1 (min)","Prix vol 1","BIA resultat","Vol 2 autorise","Vol 2","Temps vol 2 (min)","Prix vol 2","Commentaires"];
+    const rows = filtered.map(s => [
+      s.nom, s.prenom,
+      s.date_naissance ? new Date(s.date_naissance).toLocaleDateString("fr-FR") : "",
+      s.lieu_naissance || "",
+      s.adresse || "",
+      s.etablissement?.nom || "",
+      s.classe || "",
+      s.parent_nom || "", s.parent_prenom || "", s.parent_email || "", s.parent_telephone || "",
+      s.paiement_effectue ? "Oui" : "Non",
+      s.paiement_montant || "",
+      s.paiement_mode || "",
+      s.attestation_signee ? "Oui" : "Non",
+      s.vol1_effectue ? "Oui" : "Non",
+      s.vol1_temps_minutes || "",
+      s.vol1_prix || "",
+      s.bia_resultat || "",
+      s.vol2_autorise ? "Oui" : "Non",
+      s.vol2_effectue ? "Oui" : "Non",
+      s.vol2_temps_minutes || "",
+      s.vol2_prix || "",
+      s.commentaires || "",
+    ].map(v => `"${String(v).replace(/"/g, '""')}"`));
+    const csv = [headers.join(";"), ...rows.map(r => r.join(";"))].join("\n");
+    const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `eleves_bia_${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  async function doDelete(id: string) {
+    const { error } = await supabase.from("eleves").delete().eq("id", id);
+    if (error) { toast.error("Erreur lors de la suppression"); return; }
+    await logActivity("delete", id, { nom: selected?.nom, prenom: selected?.prenom });
+    toast.success("Élève supprimé");
     setSelected(null);
     load();
+  }
+
+  function handleDelete(id: string) {
+    const s = selected;
+    setConfirmAction({
+      title: "Supprimer l'élève",
+      message: `Supprimer définitivement ${s?.prenom ?? ""} ${s?.nom ?? ""} ?\nCette action est irréversible.`,
+      variant: "danger",
+      onConfirm: () => doDelete(id),
+    });
   }
 
   // ══════════════════════════════════════════════════
@@ -470,6 +583,33 @@ export default function ElevesPage() {
                   setForm({ ...form, lieu_naissance: e.target.value })
                 }
                 className="input"
+              />
+            </div>
+            <div className="sm:col-span-3">
+              <label className="label">Adresse (rue)</label>
+              <input
+                value={form.adresse_rue}
+                onChange={(e) => setForm({ ...form, adresse_rue: e.target.value })}
+                className="input"
+                placeholder="16 rue de Tournon"
+              />
+            </div>
+            <div>
+              <label className="label">Code postal</label>
+              <input
+                value={form.adresse_cp}
+                onChange={(e) => setForm({ ...form, adresse_cp: e.target.value })}
+                className="input"
+                placeholder="33260"
+              />
+            </div>
+            <div>
+              <label className="label">Ville</label>
+              <input
+                value={form.adresse_ville}
+                onChange={(e) => setForm({ ...form, adresse_ville: e.target.value })}
+                className="input"
+                placeholder="La Teste-de-Buch"
               />
             </div>
             <div>
@@ -658,7 +798,7 @@ export default function ElevesPage() {
                             .from("attestations")
                             .upload(fileName, file);
                           if (error) {
-                            alert(`Erreur upload: ${error.message}`);
+                            toast.error(`Erreur upload: ${error.message}`);
                             return;
                           }
                           setForm((f) => ({
@@ -677,7 +817,7 @@ export default function ElevesPage() {
                         <button
                           type="button"
                           onClick={async () => {
-                            if (confirm("Supprimer ce document ?")) {
+                            {
                               await supabase.storage
                                 .from("attestations")
                                 .remove([form.attestation_url_manual]);
@@ -687,6 +827,7 @@ export default function ElevesPage() {
                                   .update({ attestation_url: null })
                                   .eq("id", editingId);
                               }
+                              toast.success("Document supprimé");
                               setForm((f) => ({
                                 ...f,
                                 attestation_url_manual: "",
@@ -827,6 +968,17 @@ export default function ElevesPage() {
                       placeholder="Nom du pilote"
                     />
                   </div>
+                  <div className="mb-2">
+                    <label className="label">N° Aerogest</label>
+                    <input
+                      value={form.vol1_numero_aerogest}
+                      onChange={(e) =>
+                        setForm({ ...form, vol1_numero_aerogest: e.target.value })
+                      }
+                      className="input"
+                      placeholder="Ex: 24-0123"
+                    />
+                  </div>
                   <div className="p-2.5 rounded-lg bg-emerald-50 border border-emerald-200">
                     <p className="text-xs text-emerald-600 font-medium">
                       Prix calcule
@@ -915,6 +1067,17 @@ export default function ElevesPage() {
                         setForm({ ...form, vol2_pilote_nom: e.target.value })
                       }
                       className="input"
+                    />
+                  </div>
+                  <div className="mb-2">
+                    <label className="label">N° Aerogest</label>
+                    <input
+                      value={form.vol2_numero_aerogest}
+                      onChange={(e) =>
+                        setForm({ ...form, vol2_numero_aerogest: e.target.value })
+                      }
+                      className="input"
+                      placeholder="Ex: 24-0124"
                     />
                   </div>
                   <div className="p-2.5 rounded-lg bg-emerald-50 border border-emerald-200">
@@ -1031,6 +1194,7 @@ export default function ElevesPage() {
                 value={new Date(s.date_naissance).toLocaleDateString("fr-FR")}
               />
               <InfoRow label="Lieu" value={s.lieu_naissance} />
+              {s.adresse && <InfoRow label="Adresse" value={s.adresse} />}
               <InfoRow label="Classe" value={s.classe} />
               <InfoRow
                 label="Etablissement"
@@ -1038,26 +1202,41 @@ export default function ElevesPage() {
               />
             </Section>
             <Section title="Responsable legal">
-              <InfoRow
-                label="Nom"
-                value={`${s.parent_prenom} ${s.parent_nom}`}
-              />
-              <InfoRow label="Email" value={s.parent_email} />
-              <InfoRow label="Telephone" value={s.parent_telephone} />
+              {(() => {
+                const profile = parentProfiles[s.parent_email?.toLowerCase()];
+                const profileNom = profile ? `${profile.prenom ?? ""} ${profile.nom ?? ""}`.trim() : "";
+                const elevNom = `${s.parent_prenom ?? ""} ${s.parent_nom ?? ""}`.trim();
+                const nom = profileNom || elevNom;
+                const tel = profile?.telephone || s.parent_telephone;
+                return (<>
+                  <InfoRow label="Nom" value={nom} />
+                  {profile && profileNom && profileNom !== elevNom && (
+                    <p className="text-[11px] text-gray-400 -mt-1 mb-1 px-1">Mis à jour via le profil parent</p>
+                  )}
+                  <InfoRow label="Email" value={s.parent_email} />
+                  <InfoRow label="Telephone" value={tel} />
+                </>);
+              })()}
               <div className="mt-2">
                 <button
-                  onClick={async () => {
-                    const { error } = await supabase.auth.resetPasswordForEmail(
-                      s.parent_email,
-                      {
-                        redirectTo: `${window.location.origin}/auth/connexion`,
+                  onClick={() => {
+                    setConfirmAction({
+                      title: "Envoyer l'invitation",
+                      message: `Envoyer un email d'invitation/accès à ${s.parent_email} ?`,
+                      variant: "primary",
+                      onConfirm: async () => {
+                        const tid = toast.loading("Envoi de l'invitation…");
+                        const res = await fetch("/api/invite", {
+                          method: "POST",
+                          headers: { "Content-Type": "application/json" },
+                          body: JSON.stringify({ email: s.parent_email, nom: s.parent_nom, prenom: s.parent_prenom }),
+                        });
+                        const json = await res.json();
+                        toast.dismiss(tid);
+                        if (res.ok) toast.success(`Invitation envoyée à ${s.parent_email}`);
+                        else toast.error(`Erreur: ${json.error}`);
                       },
-                    );
-                    alert(
-                      error
-                        ? `Erreur: ${error.message}`
-                        : `Email envoye a ${s.parent_email}`,
-                    );
+                    });
                   }}
                   className="btn-secondary btn-sm"
                 >
@@ -1143,6 +1322,42 @@ export default function ElevesPage() {
                 />
               )}
             </Section>
+            {s.paiement_effectue && s.attestation_signee && s.parent_email && (
+              <Section title="">
+                <button
+                  onClick={() => {
+                    setConfirmAction({
+                      title: "Notifier le parent",
+                      message: `Envoyer l'email "vol disponible" à ${s.parent_email} ?\n${s.prenom} ${s.nom} pourra réserver son vol.`,
+                      variant: "primary",
+                      onConfirm: async () => {
+                        const etab = etablissements.find((e: any) => e.id === s.etablissement_id);
+                        const tid = toast.loading("Envoi de l'email…");
+                        const res = await fetch("/api/email", {
+                          method: "POST",
+                          headers: { "Content-Type": "application/json" },
+                          body: JSON.stringify({
+                            type: "attestation_ready",
+                            parent_email: s.parent_email,
+                            parent_prenom: s.parent_prenom || "",
+                            eleve_prenom: s.prenom,
+                            eleve_nom: s.nom,
+                            etablissement: etab?.nom || "",
+                            eleve_id: s.id,
+                          }),
+                        });
+                        toast.dismiss(tid);
+                        if (res.ok) toast.success(`Email envoyé à ${s.parent_email}`);
+                        else toast.error("Erreur lors de l'envoi");
+                      },
+                    });
+                  }}
+                  className="btn-primary btn-sm w-full justify-center"
+                >
+                  <Mail className="w-3.5 h-3.5" /> Notifier le parent (vol disponible)
+                </button>
+              </Section>
+            )}
             <Section title="Vol 1">
               {s.vol1_effectue ? (
                 <>
@@ -1165,6 +1380,9 @@ export default function ElevesPage() {
                   )}
                   {s.vol1_pilote_nom && (
                     <InfoRow label="Pilote" value={s.vol1_pilote_nom} />
+                  )}
+                  {s.vol1_numero_aerogest && (
+                    <InfoRow label="N° Aerogest" value={s.vol1_numero_aerogest} />
                   )}
                   {s.vol1_prix && (
                     <InfoRow
@@ -1227,6 +1445,9 @@ export default function ElevesPage() {
                   {s.vol2_pilote_nom && (
                     <InfoRow label="Pilote" value={s.vol2_pilote_nom} />
                   )}
+                  {s.vol2_numero_aerogest && (
+                    <InfoRow label="N° Aerogest" value={s.vol2_numero_aerogest} />
+                  )}
                   {s.vol2_prix && (
                     <InfoRow
                       label="Prix vol"
@@ -1259,6 +1480,80 @@ export default function ElevesPage() {
             </Section>
           </div>
         </div>
+
+        {/* Prev / Next navigation */}
+        {/* EMAIL LOGS */}
+        {s.parent_email && (
+          <Section title="Emails envoyés">
+            {emailLogsLoading ? (
+              <div className="flex justify-center py-4">
+                <Loader2 className="w-4 h-4 animate-spin text-gray-300" />
+              </div>
+            ) : emailLogs.length === 0 ? (
+              <p className="text-sm text-gray-400">Aucun email enregistré</p>
+            ) : (
+              <div className="space-y-1.5">
+                {emailLogs.map((log) => {
+                  const statusMap: Record<string, { label: string; cls: string }> = {
+                    envoye: { label: "Envoyé", cls: "bg-blue-50 text-blue-600" },
+                    delivre: { label: "Délivré", cls: "bg-emerald-50 text-emerald-600" },
+                    ouvert: { label: "Ouvert", cls: "bg-green-50 text-green-700" },
+                    clique: { label: "Cliqué", cls: "bg-green-100 text-green-800" },
+                    retarde: { label: "Retardé", cls: "bg-amber-50 text-amber-600" },
+                    rebondi: { label: "Rebondi", cls: "bg-red-50 text-red-600" },
+                    spam: { label: "Spam", cls: "bg-red-100 text-red-700" },
+                    erreur: { label: "Erreur", cls: "bg-red-50 text-red-500" },
+                    supprime: { label: "Supprimé", cls: "bg-gray-100 text-gray-500" },
+                  };
+                  const st = statusMap[log.statut] ?? { label: log.statut, cls: "bg-gray-100 text-gray-500" };
+                  const typeMap: Record<string, string> = {
+                    attestation_ready: "Vol disponible",
+                    booking_confirm: "Réservation confirmée",
+                    booking_cancel: "Annulation réservation",
+                    slot_modified: "Créneau modifié",
+                    slot_cancelled: "Créneau annulé",
+                    invite: "Invitation compte",
+                  };
+                  return (
+                    <div key={log.id} className="flex items-center justify-between gap-2 text-xs py-1.5 border-b border-gray-50 last:border-0">
+                      <div className="flex-1 min-w-0">
+                        <p className="font-medium text-gray-800 truncate">{typeMap[log.type] ?? log.type}</p>
+                        <p className="text-gray-400">{new Date(log.created_at).toLocaleString("fr-FR", { day: "2-digit", month: "2-digit", year: "2-digit", hour: "2-digit", minute: "2-digit" })}</p>
+                      </div>
+                      <span className={`shrink-0 px-2 py-0.5 rounded-full text-[10px] font-bold ${st.cls}`}>{st.label}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </Section>
+        )}
+
+        {(() => {
+          const idx = filtered.findIndex(e => e.id === s.id);
+          const prev = idx > 0 ? filtered[idx - 1] : null;
+          const next = idx < filtered.length - 1 ? filtered[idx + 1] : null;
+          if (!prev && !next) return null;
+          return (
+            <div className="flex items-center justify-between mt-6 pt-4 border-t border-gray-100">
+              {prev ? (
+                <button onClick={() => setSelected(prev)} className="flex items-center gap-2 text-sm font-semibold text-brand-500 hover:text-brand-700">
+                  <ChevronLeft className="w-4 h-4" />
+                  <span className="hidden sm:inline">{prev.prenom} {prev.nom}</span>
+                  <span className="sm:hidden">Précédent</span>
+                </button>
+              ) : <div />}
+              <span className="text-xs text-gray-400">{idx + 1} / {filtered.length}</span>
+              {next ? (
+                <button onClick={() => setSelected(next)} className="flex items-center gap-2 text-sm font-semibold text-brand-500 hover:text-brand-700">
+                  <span className="hidden sm:inline">{next.prenom} {next.nom}</span>
+                  <span className="sm:hidden">Suivant</span>
+                  <ChevronRight className="w-4 h-4" />
+                </button>
+              ) : <div />}
+            </div>
+          );
+        })()}
       </div>
     );
   }
@@ -1278,7 +1573,7 @@ export default function ElevesPage() {
           </p>
         </div>
         <div className="flex gap-2">
-          <button className="btn-secondary btn-sm">
+          <button onClick={handleExport} className="btn-secondary btn-sm">
             <Download className="w-3.5 h-3.5" /> Export
           </button>
           <button onClick={openCreate} className="btn-primary btn-sm">
@@ -1294,7 +1589,8 @@ export default function ElevesPage() {
             value={searchQ}
             onChange={(e) => setSearchQ(e.target.value)}
             placeholder="Rechercher..."
-            className="input pl-9"
+            className="input"
+            style={{ paddingLeft: "2.25rem" }}
           />
         </div>
         <button
@@ -1505,6 +1801,22 @@ export default function ElevesPage() {
           </table>
         </div>
       )}
+
+      <ConfirmModal
+        open={!!confirmAction}
+        title={confirmAction?.title ?? ""}
+        message={confirmAction?.message ?? ""}
+        variant={confirmAction?.variant}
+        loading={confirmLoading}
+        onCancel={() => setConfirmAction(null)}
+        onConfirm={async () => {
+          if (!confirmAction) return;
+          setConfirmLoading(true);
+          await confirmAction.onConfirm();
+          setConfirmLoading(false);
+          setConfirmAction(null);
+        }}
+      />
     </div>
   );
 }

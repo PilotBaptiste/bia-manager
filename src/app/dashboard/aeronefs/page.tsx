@@ -11,7 +11,7 @@ export default function AeronefsPage() {
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState<Aeronef | null>(null);
-  const [form, setForm] = useState({ immatriculation: "", type_aeronef: "", nb_places_eleves: "2", prix_heure: "" });
+  const [form, setForm] = useState({ immatriculation: "", type_aeronef: "", nb_places_eleves: "2", prix_heure: "", actif: true });
   const [saving, setSaving] = useState(false);
 
   async function load() {
@@ -23,19 +23,19 @@ export default function AeronefsPage() {
 
   function openCreate() {
     setEditing(null);
-    setForm({ immatriculation: "", type_aeronef: "", nb_places_eleves: "2", prix_heure: "" });
+    setForm({ immatriculation: "", type_aeronef: "", nb_places_eleves: "2", prix_heure: "", actif: true });
     setShowForm(true);
   }
   function openEdit(a: Aeronef) {
     setEditing(a);
-    setForm({ immatriculation: a.immatriculation, type_aeronef: a.type_aeronef, nb_places_eleves: String(a.nb_places_eleves), prix_heure: String(a.prix_heure) });
+    setForm({ immatriculation: a.immatriculation, type_aeronef: a.type_aeronef, nb_places_eleves: String(a.nb_places_eleves), prix_heure: String(a.prix_heure), actif: a.actif });
     setShowForm(true);
   }
 
   async function handleSave() {
     if (!form.immatriculation.trim() || !form.type_aeronef.trim() || !form.prix_heure) return;
     setSaving(true);
-    const payload = { ...form, nb_places_eleves: parseInt(form.nb_places_eleves), prix_heure: parseFloat(form.prix_heure) };
+    const payload = { ...form, nb_places_eleves: parseInt(form.nb_places_eleves), prix_heure: parseFloat(form.prix_heure), actif: form.actif };
     if (editing) {
       await supabase.from("aeronefs").update(payload).eq("id", editing.id);
     } else {
@@ -74,6 +74,19 @@ export default function AeronefsPage() {
               <div className="grid grid-cols-2 gap-3">
                 <div><label className="label">Places élèves</label><input type="number" value={form.nb_places_eleves} onChange={(e) => setForm({ ...form, nb_places_eleves: e.target.value })} className="input" min="1" max="10" /></div>
                 <div><label className="label">Prix / heure (€) *</label><input type="number" value={form.prix_heure} onChange={(e) => setForm({ ...form, prix_heure: e.target.value })} className="input" placeholder="160" step="0.01" /></div>
+              </div>
+              <div className="flex items-center justify-between p-3 rounded-lg bg-gray-50 border border-gray-200">
+                <div>
+                  <p className="text-sm font-medium text-gray-700">Statut</p>
+                  <p className="text-xs text-gray-500">{form.actif ? "Disponible pour les créneaux" : "Retiré de la flotte active"}</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setForm({ ...form, actif: !form.actif })}
+                  className={`relative w-11 h-6 rounded-full transition-colors duration-200 ${form.actif ? "bg-emerald-500" : "bg-gray-300"}`}
+                >
+                  <span className={`absolute top-1 left-1 w-4 h-4 bg-white rounded-full shadow transition-transform duration-200 ${form.actif ? "translate-x-5" : "translate-x-0"}`} />
+                </button>
               </div>
             </div>
             <div className="flex justify-end gap-2 mt-5 pt-4 border-t border-gray-100">

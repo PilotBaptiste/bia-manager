@@ -1,6 +1,7 @@
 "use client";
 import { useState, useEffect } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { toast } from "sonner";
 import {
   CalendarPlus,
   Plane,
@@ -12,6 +13,7 @@ import {
   User,
   AlertCircle,
 } from "lucide-react";
+import ConfirmModal from "@/components/ConfirmModal";
 
 export default function ReservationPage() {
   const supabase = createClient();
@@ -26,12 +28,20 @@ export default function ReservationPage() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const [confirmCancelId, setConfirmCancelId] = useState<string | null>(null);
+  const [confirmCancelLoading, setConfirmCancelLoading] = useState(false);
 
   async function load() {
     const {
       data: { user },
     } = await supabase.auth.getUser();
     if (!user) return;
+    // Auto-link any unlinked children (handles multi-child families and late additions)
+    fetch("/api/link-parent", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ userId: user.id, email: user.email }),
+    }).catch(() => {});
     const [eR, cR] = await Promise.all([
       supabase
         .from("eleves")
@@ -43,7 +53,7 @@ export default function ReservationPage() {
       supabase
         .from("creneaux")
         .select(
-          "*, pilote:profiles!pilote_id(nom, prenom, email, telephone), aeronef:aeronefs(type_aeronef, immatriculation), etablissement:etablissements(nom), reservations(id)",
+          "*, pilote:profiles!pilote_id(nom, prenom, email, telephone), aeronef:aeronefs(type_aeronef, immatriculation, nb_places_eleves), etablissement:etablissements(nom), reservations(id, statut)",
         )
         .in("statut", ["ouvert", "confirme"])
         .order("date_vol"),
@@ -68,16 +78,42 @@ export default function ReservationPage() {
     return { allowed: true };
   }
 
-  async function handleCancel(id: string) {
-    if (!confirm("Annuler cette reservation ?")) return;
+  function handleCancel(id: string) {
+    setConfirmCancelId(id);
+  }
+
+  async function doCancel(id: string) {
     setSaving(true);
-    await supabase
-      .from("reservations")
-      .update({ statut: "annule" })
-      .eq("id", id);
+    // Find the reservation details before cancelling (for the email)
+    let cancelledRes: any = null;
+    for (const e of enfants) {
+      const r = (e.reservations || []).find((r: any) => r.id === id);
+      if (r) { cancelledRes = { ...r, eleve: e }; break; }
+    }
+    await supabase.from("reservations").update({ statut: "annule" }).eq("id", id);
     setSaving(false);
-    setSuccess("Reservation annulee.");
-    setTimeout(() => setSuccess(null), 3000);
+    toast.success("Réservation annulée");
+    // Send cancellation emails (fire-and-forget)
+    if (cancelledRes) {
+      const { data: { user } } = await supabase.auth.getUser();
+      fetch("/api/email", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          type: "booking_cancel",
+          eleve_id: cancelledRes.eleve?.id ?? null,
+          parent_email: user?.email,
+          parent_prenom: cancelledRes.eleve?.parent_prenom || "",
+          eleve_prenom: cancelledRes.eleve?.prenom,
+          eleve_nom: cancelledRes.eleve?.nom,
+          type_vol: cancelledRes.type_vol,
+          date_vol: cancelledRes.creneau?.date_vol,
+          heure_debut: cancelledRes.creneau?.heure_debut,
+          pilote_email: cancelledRes.creneau?.pilote?.email,
+          pilote_nom: cancelledRes.creneau?.pilote ? `${cancelledRes.creneau.pilote.prenom} ${cancelledRes.creneau.pilote.nom}` : "",
+        }),
+      }).catch(() => {});
+    }
     load();
   }
 
@@ -97,13 +133,28 @@ export default function ReservationPage() {
       }
     }
     setSaving(true);
-    const { error: err } = await supabase
+    // Upsert: reactivate a cancelled reservation if one exists (avoids unique constraint violation)
+    const { data: cancelled } = await supabase
       .from("reservations")
-      .insert({
-        creneau_id: booking.creneauId,
-        eleve_id: booking.eleveId,
-        type_vol: booking.typeVol,
-      });
+      .select("id")
+      .eq("creneau_id", booking.creneauId)
+      .eq("eleve_id", booking.eleveId)
+      .eq("statut", "annule")
+      .maybeSingle();
+
+    let err: any = null;
+    if (cancelled) {
+      const { error: e } = await supabase
+        .from("reservations")
+        .update({ statut: "reserve", type_vol: booking.typeVol })
+        .eq("id", cancelled.id);
+      err = e;
+    } else {
+      const { error: e } = await supabase
+        .from("reservations")
+        .insert({ creneau_id: booking.creneauId, eleve_id: booking.eleveId, type_vol: booking.typeVol });
+      err = e;
+    }
     setSaving(false);
     if (err) {
       setError(err.message);
@@ -112,20 +163,56 @@ export default function ReservationPage() {
     setSuccess("Reservation confirmee !");
     setBooking(null);
     setTimeout(() => setSuccess(null), 3000);
+    // Send booking confirmation emails (fire-and-forget)
+    const { data: { user } } = await supabase.auth.getUser();
+    const creneau = creneaux.find((c) => c.id === booking.creneauId);
+    const bookedEnfant = enfants.find((e) => e.id === booking.eleveId);
+    if (creneau && bookedEnfant) {
+      fetch("/api/email", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          type: "booking_confirm",
+          eleve_id: bookedEnfant.id ?? null,
+          parent_email: user?.email,
+          parent_prenom: bookedEnfant.parent_prenom || "",
+          eleve_prenom: bookedEnfant.prenom,
+          eleve_nom: bookedEnfant.nom,
+          type_vol: booking.typeVol,
+          date_vol: creneau.date_vol,
+          heure_debut: creneau.heure_debut,
+          heure_fin: creneau.heure_fin,
+          aeronef: creneau.aeronef ? `${creneau.aeronef.type_aeronef} (${creneau.aeronef.immatriculation})` : "",
+          pilote_nom: creneau.pilote ? `${creneau.pilote.prenom} ${creneau.pilote.nom}` : "",
+          pilote_email: creneau.pilote?.email || "",
+          pilote_telephone: creneau.pilote?.telephone || "",
+          etablissement: creneau.etablissement?.nom || "",
+        }),
+      }).catch(() => {});
+    }
     load();
   }
 
-  // Filter creneaux by student's etablissement
+  // Filter creneaux by student's etablissement and eleves_autorises
   function getCreneauxForEleve(enfant: any) {
     return creneaux.filter((c) => {
-      if ((c.reservations?.length || 0) >= c.places_disponibles) return false;
-      // Show creneaux for this student's etablissement OR creneaux open to all (no etablissement set)
+      // Use live aeronef capacity, not the stale stored places_disponibles
+      const capacity = c.aeronef?.nb_places_eleves ?? c.places_disponibles ?? 1;
+      const activeBookings = (c.reservations || []).filter(
+        (r: any) => r.statut !== "annule",
+      ).length;
+      if (activeBookings >= capacity) return false;
+      // Show creneaux for this student's etablissement OR creneaux open to all
       if (
         c.etablissement_id &&
         enfant.etablissement_id &&
         c.etablissement_id !== enfant.etablissement_id
       )
         return false;
+      // If the slot restricts to specific students, check inclusion
+      if (c.eleves_autorises && c.eleves_autorises.length > 0) {
+        if (!c.eleves_autorises.includes(enfant.id)) return false;
+      }
       return true;
     });
   }
@@ -139,7 +226,7 @@ export default function ReservationPage() {
 
   const bookableEnfants = enfants.filter((e) => {
     const activeRes = (e.reservations || []).filter(
-      (r: any) => r.statut !== "annule",
+      (r: any) => r.statut !== "annule" && r.creneau?.statut !== "annule",
     );
     const hasActiveVol1 = activeRes.some(
       (r: any) => r.type_vol === 1 && r.statut !== "effectue",
@@ -176,7 +263,7 @@ export default function ReservationPage() {
       {/* Active reservations */}
       {enfants.some(
         (e) =>
-          e.reservations?.filter((r: any) => r.statut !== "annule").length > 0,
+          e.reservations?.filter((r: any) => r.statut !== "annule" && r.creneau?.statut !== "annule").length > 0,
       ) && (
         <div className="card mb-4">
           <h2 className="text-sm font-semibold text-gray-900 mb-3">
@@ -184,7 +271,7 @@ export default function ReservationPage() {
           </h2>
           {enfants.map((e) =>
             e.reservations
-              ?.filter((r: any) => r.statut !== "annule")
+              ?.filter((r: any) => r.statut !== "annule" && r.creneau?.statut !== "annule")
               .map((r: any) => {
                 const ci = canCancel(r);
                 return (
@@ -440,6 +527,23 @@ export default function ReservationPage() {
           })}
         </div>
       )}
+
+      <ConfirmModal
+        open={!!confirmCancelId}
+        title="Annuler la réservation"
+        message={"Confirmer l'annulation de cette réservation ?\nUn email de confirmation sera envoyé."}
+        confirmLabel="Annuler la réservation"
+        variant="danger"
+        loading={confirmCancelLoading}
+        onCancel={() => setConfirmCancelId(null)}
+        onConfirm={async () => {
+          if (!confirmCancelId) return;
+          setConfirmCancelLoading(true);
+          await doCancel(confirmCancelId);
+          setConfirmCancelLoading(false);
+          setConfirmCancelId(null);
+        }}
+      />
     </div>
   );
 }

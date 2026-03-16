@@ -8,6 +8,7 @@ export interface Profile {
   telephone: string | null;
   roles: UserRole[];
   etablissement_id: string | null;
+  etablissement_ids: string[];
   actif: boolean;
   created_at: string;
   updated_at: string;
@@ -22,6 +23,8 @@ export interface Etablissement {
   code_postal: string | null;
   telephone: string | null;
   email: string | null;
+  contact_nom: string | null;
+  contact_prenom: string | null;
   actif: boolean;
   created_at: string;
 }
@@ -73,6 +76,9 @@ export interface Eleve {
   vol2_autorise: boolean;
   vol2_effectue: boolean;
   vol2_temps_minutes: number | null;
+  adresse: string | null;
+  vol1_numero_aerogest: string | null;
+  vol2_numero_aerogest: string | null;
   commentaires: string | null;
   archive: boolean;
   archived_at: string | null;
