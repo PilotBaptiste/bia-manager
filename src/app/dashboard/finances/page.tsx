@@ -60,29 +60,38 @@ export default function FinancesPage() {
   useEffect(() => { load(); }, []);
 
   // ---------- Calculations ----------
-  const totalPaye = eleves.filter(e => e.paiement_effectue).length;
-  const totalBia = eleves.filter(e => e.bia_resultat && e.bia_resultat !== "Non admis").length;
-  const totalVol1 = eleves.filter(e => e.vol1_effectue).length;
-  const totalVol2 = eleves.filter(e => e.vol2_effectue).length;
-  const recettesInscriptions = totalPaye * prixInscription;
-  const recettesFede = totalBia * subFede;
-  const recettesManuelles = manualOps.filter(o => o.sens === "recette").reduce((a, o) => a + parseFloat(o.montant || 0), 0);
-  const depensesManuelles = manualOps.filter(o => o.sens === "depense").reduce((a, o) => a + parseFloat(o.montant || 0), 0);
-  const totalRecettes = recettesInscriptions + recettesFede + recettesManuelles;
-  const coutVolsClotures = vols.reduce((acc, v) => acc + (parseFloat(v.prix_total) || 0), 0);
-  const coutVolsTotal = coutVolsClotures;
-  const margeNonUtil = (totalBia - totalVol2) * subFede;
-  const solde = totalRecettes - coutVolsTotal - depensesManuelles;
-
-  // Aerogest numbers already covered by vols_effectues (to avoid double-counting eleve manual fields)
+  // Aerogest dedup needed first for cost calculations
   const aerogestInVols = new Set<string>(vols.map((v: any) => v.numero_aerogest).filter(Boolean));
-  // Global aerogest count across all sources (for ×N price division)
   const aerogestCountAll: Record<string, number> = {};
   vols.forEach(v => { if (v.numero_aerogest) aerogestCountAll[v.numero_aerogest] = (aerogestCountAll[v.numero_aerogest] || 0) + 1; });
   eleves.forEach(e => {
     if (e.vol1_effectue && e.vol1_numero_aerogest && !aerogestInVols.has(e.vol1_numero_aerogest)) aerogestCountAll[e.vol1_numero_aerogest] = (aerogestCountAll[e.vol1_numero_aerogest] || 0) + 1;
     if (e.vol2_effectue && e.vol2_numero_aerogest && !aerogestInVols.has(e.vol2_numero_aerogest)) aerogestCountAll[e.vol2_numero_aerogest] = (aerogestCountAll[e.vol2_numero_aerogest] || 0) + 1;
   });
+
+  const totalPaye = eleves.filter(e => e.paiement_effectue).length;
+  const totalBia = eleves.filter(e => e.bia_resultat && e.bia_resultat !== "Non admis").length;
+  const totalVol1 = eleves.filter(e => e.vol1_effectue).length;
+  const totalVol2 = eleves.filter(e => e.vol2_effectue).length;
+  // Use each élève's actual paiement_montant (falls back to default prix_inscription)
+  const recettesInscriptions = eleves.filter(e => e.paiement_effectue).reduce((a, e) => a + (parseFloat(e.paiement_montant) || prixInscription), 0);
+  const recettesFede = totalBia * subFede;
+  const recettesManuelles = manualOps.filter(o => o.sens === "recette").reduce((a, o) => a + parseFloat(o.montant || 0), 0);
+  const depensesManuelles = manualOps.filter(o => o.sens === "depense").reduce((a, o) => a + parseFloat(o.montant || 0), 0);
+  const totalRecettes = recettesInscriptions + recettesFede + recettesManuelles;
+  const coutVolsClotures = vols.reduce((acc, v) => acc + (parseFloat(v.prix_total) || 0), 0);
+  // Cost of manually-entered eleve vols (price divided by ×N shared-flight)
+  const coutVolsManuels = eleves.reduce((acc, e) => {
+    let c = 0;
+    if (e.vol1_effectue && e.vol1_numero_aerogest && !aerogestInVols.has(e.vol1_numero_aerogest))
+      c += e.vol1_prix ? parseFloat(e.vol1_prix) / (aerogestCountAll[e.vol1_numero_aerogest] || 1) : 0;
+    if (e.vol2_effectue && e.vol2_numero_aerogest && !aerogestInVols.has(e.vol2_numero_aerogest))
+      c += e.vol2_prix ? parseFloat(e.vol2_prix) / (aerogestCountAll[e.vol2_numero_aerogest] || 1) : 0;
+    return acc + c;
+  }, 0);
+  const coutVolsTotal = coutVolsClotures + coutVolsManuels;
+  const margeNonUtil = (totalBia - totalVol2) * subFede;
+  const solde = totalRecettes - coutVolsTotal - depensesManuelles;
 
   const piloteStats: Record<string, { nom: string; nbVols: number; heures: number; cout: number }> = {};
   vols.forEach(v => {
@@ -113,8 +122,15 @@ export default function FinancesPage() {
     const etPaye = etEleves.filter(e => e.paiement_effectue).length;
     const etBia = etEleves.filter(e => e.bia_resultat && e.bia_resultat !== "Non admis").length;
     const etVol2 = etEleves.filter(e => e.vol2_effectue).length;
-    const etCout = etEleves.reduce((a, e) => a + (parseFloat(e.vol1_prix) || 0) + (parseFloat(e.vol2_prix) || 0), 0);
-    const ins = etPaye * prixInscription;
+    const etCout = etEleves.reduce((a, e) => {
+      let c = 0;
+      if (e.vol1_effectue && e.vol1_numero_aerogest) c += e.vol1_prix ? parseFloat(e.vol1_prix) / (aerogestCountAll[e.vol1_numero_aerogest] || 1) : 0;
+      else if (e.vol1_effectue) c += parseFloat(e.vol1_prix) || 0;
+      if (e.vol2_effectue && e.vol2_numero_aerogest) c += e.vol2_prix ? parseFloat(e.vol2_prix) / (aerogestCountAll[e.vol2_numero_aerogest] || 1) : 0;
+      else if (e.vol2_effectue) c += parseFloat(e.vol2_prix) || 0;
+      return a + c;
+    }, 0);
+    const ins = etEleves.filter(e => e.paiement_effectue).reduce((a, e) => a + (parseFloat(e.paiement_montant) || prixInscription), 0);
     const fed = etBia * subFede;
     return { nom: et.nom, eleves: etEleves.length, payes: etPaye, ins, bia: etBia, fed, couts: etCout, solde: ins + fed - etCout };
   });
@@ -240,7 +256,7 @@ export default function FinancesPage() {
       {tab === "overview" && (
         <div>
           <div className="flex gap-3 flex-wrap mb-6">
-            <div className="card flex-1 min-w-[160px]"><p className="text-xs text-gray-500 mb-1">Inscriptions</p><p className="text-2xl font-bold text-emerald-600">{recettesInscriptions}€</p><p className="text-[11px] text-gray-400">{totalPaye} x {prixInscription}€</p></div>
+            <div className="card flex-1 min-w-[160px]"><p className="text-xs text-gray-500 mb-1">Inscriptions</p><p className="text-2xl font-bold text-emerald-600">{recettesInscriptions.toFixed(2)}€</p><p className="text-[11px] text-gray-400">{totalPaye} élève{totalPaye > 1 ? "s" : ""} payé{totalPaye > 1 ? "s" : ""}</p></div>
             <div className="card flex-1 min-w-[160px]"><p className="text-xs text-gray-500 mb-1">Subventions fede</p><p className="text-2xl font-bold text-emerald-600">{recettesFede}€</p><p className="text-[11px] text-gray-400">{totalBia} x {subFede}€</p></div>
             <div className="card flex-1 min-w-[160px]"><p className="text-xs text-gray-500 mb-1">Cout vols</p><p className="text-2xl font-bold text-red-600">{coutVolsTotal.toFixed(2)}€</p><p className="text-[11px] text-gray-400">{totalVol1 + totalVol2} vols</p></div>
             <div className="card flex-1 min-w-[160px]"><p className="text-xs text-gray-500 mb-1">Solde</p><p className={`text-2xl font-bold ${solde >= 0 ? "text-emerald-600" : "text-red-600"}`}>{solde >= 0 ? "+" : ""}{solde.toFixed(2)}€</p></div>
