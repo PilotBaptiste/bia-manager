@@ -1357,7 +1357,7 @@ export default function VolsPage() {
             {[
               { k: "list", l: "Liste", i: List },
               { k: "calendar", l: "Calendrier", i: Calendar },
-              ...(isSA
+              ...((isSA || isPilote)
                 ? [{ k: "historique", l: "Historique", i: History }]
                 : []),
             ].map(({ k, l, i: I }: any) => (
@@ -1622,7 +1622,7 @@ export default function VolsPage() {
       )}
 
       {/* HISTORIQUE */}
-      {mode === "historique" && isSA && (() => {
+      {mode === "historique" && (isSA || isPilote) && (() => {
         // Aerogest numbers already covered by vols_effectues
         const aerogestInVols = new Set<string>(volsHisto.map((v: any) => v.numero_aerogest).filter(Boolean));
 
@@ -1663,21 +1663,26 @@ export default function VolsPage() {
           return true;
         });
 
-        // Count occurrences of each numero_aerogest in filteredHisto (for ×N detection)
+        // For non-SA pilots: restrict to their own flights only
+        const myPiloteNom = isPilote && !isSA ? `${profile.prenom} ${profile.nom}` : null;
+        const histoToShow = myPiloteNom ? filteredHisto.filter((v: any) => v.creneau?.pilote_id === profile?.id) : filteredHisto;
+        const manualToShow = myPiloteNom ? filteredManual.filter(g => g.pilote === myPiloteNom) : filteredManual;
+
+        // Count occurrences of each numero_aerogest in histoToShow (for ×N detection)
         const aerogestCount: Record<string, number> = {};
-        for (const v of filteredHisto) {
+        for (const v of histoToShow) {
           if (v.numero_aerogest) aerogestCount[v.numero_aerogest] = (aerogestCount[v.numero_aerogest] || 0) + 1;
         }
 
-        const sharedCountVol = filteredHisto.filter((v: any) => v.nb_eleves && v.nb_eleves > 1).length;
-        const sharedCountManual = filteredManual.filter(g => g.ids.length > 1).length;
+        const sharedCountVol = histoToShow.filter((v: any) => v.nb_eleves && v.nb_eleves > 1).length;
+        const sharedCountManual = manualToShow.filter(g => g.ids.length > 1).length;
         const totalShared = sharedCountVol + sharedCountManual;
-        const totalRows = filteredHisto.length + filteredManual.length;
+        const totalRows = histoToShow.length + manualToShow.length;
 
         function exportComptaCSV() {
           const headers = ["Date", "Pilote", "Aeronef", "Eleves", "N Aerogest", "Nb partages", "Prix vol total (€)", "Prix par élève (€)", "Temps (min)", "Source"];
           const rows: any[][] = [];
-          filteredHisto.forEach((v) => {
+          histoToShow.forEach((v) => {
             const n = v.nb_eleves && v.nb_eleves > 1 ? v.nb_eleves : 1;
             const prixEleve = v.prix_total ? (parseFloat(v.prix_total) / n).toFixed(2) : "";
             rows.push([
@@ -1693,7 +1698,7 @@ export default function VolsPage() {
               "planning",
             ]);
           });
-          filteredManual.forEach((g) => {
+          manualToShow.forEach((g) => {
             const n = g.ids.length;
             const prixEleve = n > 0 ? (g.prix_total / n).toFixed(2) : "";
             rows.push(["", g.pilote, g.aeronef_label, g.noms.join(", "), g.numero_aerogest, n, g.prix_total.toFixed(2), prixEleve, g.temps || "", "manuel"]);
@@ -1715,9 +1720,9 @@ export default function VolsPage() {
                 </span>
               )}
             </p>
-            <button onClick={exportComptaCSV} className="btn-secondary btn-sm flex items-center gap-1.5">
+            {isSA && <button onClick={exportComptaCSV} className="btn-secondary btn-sm flex items-center gap-1.5">
               <Download className="w-3.5 h-3.5" /> Export compta CSV
-            </button>
+            </button>}
           </div>
           <div className="card p-0 overflow-auto">
           <table className="w-full text-sm min-w-[900px]">
@@ -1735,7 +1740,7 @@ export default function VolsPage() {
                 </tr>
               ) : (
                 <>
-                  {filteredHisto.map((v) => {
+                  {histoToShow.map((v) => {
                     const n = v.nb_eleves && v.nb_eleves > 1 ? v.nb_eleves : 1;
                     const prixEleve = v.prix_total ? parseFloat(v.prix_total) / n : null;
                     const isShared = n > 1;
@@ -1758,12 +1763,12 @@ export default function VolsPage() {
                         </td>
                         <td className="px-3 py-2.5 text-gray-400 text-xs">{v.notes || "—"}</td>
                         <td className="px-3 py-2.5">
-                          <button onClick={() => setEditHisto({ ...v })} className="btn-secondary btn-sm"><Edit className="w-3 h-3" /></button>
+                          {isSA && <button onClick={() => setEditHisto({ ...v })} className="btn-secondary btn-sm"><Edit className="w-3 h-3" /></button>}
                         </td>
                       </tr>
                     );
                   })}
-                  {filteredManual.map((g) => {
+                  {manualToShow.map((g) => {
                     const n = g.ids.length;
                     const isShared = n > 1;
                     const prixEleve = n > 0 && g.prix_total > 0 ? g.prix_total / n : null;
