@@ -1,6 +1,8 @@
 "use client";
 
 import { Loader2 } from "lucide-react";
+import { createPortal } from "react-dom";
+import { useEffect, useState } from "react";
 
 interface ConfirmModalProps {
   open: boolean;
@@ -25,17 +27,20 @@ export default function ConfirmModal({
   onConfirm,
   onCancel,
 }: ConfirmModalProps) {
-  if (!open) return null;
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
+
+  if (!open || !mounted) return null;
 
   const confirmCls =
     variant === "danger"
       ? "bg-red-600 hover:bg-red-700 text-white"
       : "bg-[#1b3a5c] hover:bg-[#15304e] text-white";
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center">
-      <div className="absolute inset-0 bg-black/40" onClick={() => !loading && onCancel()} />
-      <div className="relative bg-white rounded-xl shadow-xl p-6 w-full max-w-sm mx-4">
+  return createPortal(
+    <div className="fixed inset-0 flex items-center justify-center" style={{ zIndex: 9999 }}>
+      <div className="absolute inset-0 bg-black/50" onClick={() => !loading && onCancel()} />
+      <div className="relative bg-white rounded-xl shadow-2xl p-6 w-full max-w-sm mx-4">
         <h3 className="text-base font-bold text-gray-900 mb-2">{title}</h3>
         <p className="text-sm text-gray-600 mb-6 whitespace-pre-line">{message}</p>
         <div className="flex gap-2 justify-end">
@@ -56,6 +61,7 @@ export default function ConfirmModal({
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }

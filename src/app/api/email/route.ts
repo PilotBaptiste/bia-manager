@@ -3,9 +3,10 @@ import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
 function adminSupabase() {
+  if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) return null;
   return createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!,
+    process.env.NEXT_PUBLIC_SUPABASE_URL,
+    process.env.SUPABASE_SERVICE_ROLE_KEY,
   );
 }
 
@@ -332,6 +333,7 @@ export async function POST(req: Request) {
 
       // Log to email_logs (best-effort, don't fail the request if logging fails)
       try {
+        if (!supabase) throw new Error("no supabase");
         await supabase.from("email_logs").insert({
           type,
           to_email: e.to,
