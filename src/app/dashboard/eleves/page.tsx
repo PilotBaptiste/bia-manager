@@ -416,34 +416,6 @@ export default function ElevesPage() {
       setFormError(`Erreur: ${result.error.message}`);
       return;
     }
-    // Send attestation_ready email if paiement + attestation just became complete
-    if (
-      editingId &&
-      form.paiement_effectue &&
-      form.attestation_signee &&
-      form.parent_email
-    ) {
-      const prevEleve = eleves.find((e) => e.id === editingId);
-      const wasAlreadyReady =
-        prevEleve?.paiement_effectue && prevEleve?.attestation_signee;
-      if (!wasAlreadyReady) {
-        const etab = etablissements.find(
-          (e: any) => e.id === form.etablissement_id,
-        );
-        fetch("/api/email", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            type: "attestation_ready",
-            parent_email: form.parent_email,
-            parent_prenom: form.parent_prenom || "",
-            eleve_prenom: form.prenom,
-            eleve_nom: form.nom,
-            etablissement: etab?.nom || "",
-          }),
-        }).catch(() => {});
-      }
-    }
     setShowForm(false);
     // Reload the selected student if editing from fiche
     if (selected && editingId) {
@@ -1308,6 +1280,34 @@ export default function ElevesPage() {
                 />
               )}
             </Section>
+            {s.paiement_effectue && s.attestation_signee && s.parent_email && (
+              <Section title="">
+                <button
+                  onClick={async () => {
+                    const etab = etablissements.find((e: any) => e.id === s.etablissement_id);
+                    const tid = toast.loading("Envoi de l'email…");
+                    const res = await fetch("/api/email", {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({
+                        type: "attestation_ready",
+                        parent_email: s.parent_email,
+                        parent_prenom: s.parent_prenom || "",
+                        eleve_prenom: s.prenom,
+                        eleve_nom: s.nom,
+                        etablissement: etab?.nom || "",
+                      }),
+                    });
+                    toast.dismiss(tid);
+                    if (res.ok) toast.success(`Email envoyé à ${s.parent_email}`);
+                    else toast.error("Erreur lors de l'envoi");
+                  }}
+                  className="btn-primary btn-sm w-full justify-center"
+                >
+                  <Mail className="w-3.5 h-3.5" /> Notifier le parent (vol disponible)
+                </button>
+              </Section>
+            )}
             <Section title="Vol 1">
               {s.vol1_effectue ? (
                 <>
