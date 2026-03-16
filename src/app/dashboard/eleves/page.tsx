@@ -442,16 +442,16 @@ export default function ElevesPage() {
       return;
     }
     setShowForm(false);
-    // Reload the selected student if editing from fiche
     if (selected && editingId) {
-      const { data: updated } = await supabase
+      // Update fiche immediately with saved payload, then re-fetch in background for joins
+      const etab = etablissements.find((e: any) => e.id === payload.etablissement_id) ?? selected.etablissement;
+      setSelected({ ...selected, ...payload, etablissement: etab ?? selected.etablissement });
+      supabase
         .from("eleves")
-        .select(
-          "*, etablissement:etablissements(*), vol1_aeronef:aeronefs!vol1_aeronef_id(type_aeronef,immatriculation,prix_heure), vol2_aeronef:aeronefs!vol2_aeronef_id(type_aeronef,immatriculation,prix_heure)",
-        )
+        .select("*, etablissement:etablissements(*), vol1_aeronef:aeronefs!vol1_aeronef_id(type_aeronef,immatriculation,prix_heure), vol2_aeronef:aeronefs!vol2_aeronef_id(type_aeronef,immatriculation,prix_heure)")
         .eq("id", editingId)
-        .single();
-      if (updated) setSelected(updated);
+        .single()
+        .then(({ data }) => { if (data) setSelected(data); });
     } else {
       setSelected(null);
     }
@@ -1152,6 +1152,7 @@ export default function ElevesPage() {
     const totalPrix =
       (parseFloat(s.vol1_prix) || 0) + (parseFloat(s.vol2_prix) || 0);
     return (
+      <>
       <div>
         {formModal}
         <div className="flex items-center gap-3 mb-5 flex-wrap">
@@ -1555,6 +1556,22 @@ export default function ElevesPage() {
           );
         })()}
       </div>
+      <ConfirmModal
+        open={!!confirmAction}
+        title={confirmAction?.title ?? ""}
+        message={confirmAction?.message ?? ""}
+        variant={confirmAction?.variant}
+        loading={confirmLoading}
+        onCancel={() => setConfirmAction(null)}
+        onConfirm={async () => {
+          if (!confirmAction) return;
+          setConfirmLoading(true);
+          await confirmAction.onConfirm();
+          setConfirmLoading(false);
+          setConfirmAction(null);
+        }}
+      />
+      </>
     );
   }
 
