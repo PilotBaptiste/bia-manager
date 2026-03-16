@@ -1634,7 +1634,7 @@ export default function VolsPage() {
             const g = manualByAerogest[e.vol1_numero_aerogest];
             g.ids.push(`${e.id}_vol1`);
             g.noms.push(`${e.prenom} ${e.nom}`);
-            g.prix_total += e.vol1_prix ? parseFloat(e.vol1_prix) : 0;
+            if (!g.prix_total) g.prix_total = e.vol1_prix ? parseFloat(e.vol1_prix) : 0;
             if (e.etablissement_id && !g.etab_ids.includes(e.etablissement_id)) g.etab_ids.push(e.etablissement_id);
           }
           if (e.vol2_effectue && e.vol2_numero_aerogest && !aerogestInVols.has(e.vol2_numero_aerogest)) {
@@ -1642,7 +1642,7 @@ export default function VolsPage() {
             const g = manualByAerogest[e.vol2_numero_aerogest];
             g.ids.push(`${e.id}_vol2`);
             g.noms.push(`${e.prenom} ${e.nom}`);
-            g.prix_total += e.vol2_prix ? parseFloat(e.vol2_prix) : 0;
+            if (!g.prix_total) g.prix_total = e.vol2_prix ? parseFloat(e.vol2_prix) : 0;
             if (e.etablissement_id && !g.etab_ids.includes(e.etablissement_id)) g.etab_ids.push(e.etablissement_id);
           }
         }
@@ -1663,7 +1663,7 @@ export default function VolsPage() {
           if (v.numero_aerogest) aerogestCount[v.numero_aerogest] = (aerogestCount[v.numero_aerogest] || 0) + 1;
         }
 
-        const sharedCountVol = Object.values(aerogestCount).filter((c) => c > 1).length;
+        const sharedCountVol = filteredHisto.filter((v: any) => v.nb_eleves && v.nb_eleves > 1).length;
         const sharedCountManual = filteredManual.filter(g => g.ids.length > 1).length;
         const totalShared = sharedCountVol + sharedCountManual;
         const totalRows = filteredHisto.length + filteredManual.length;
@@ -1672,7 +1672,7 @@ export default function VolsPage() {
           const headers = ["Date", "Pilote", "Aeronef", "Eleves", "N Aerogest", "Nb partages", "Prix vol total (€)", "Prix par élève (€)", "Temps (min)", "Source"];
           const rows: any[][] = [];
           filteredHisto.forEach((v) => {
-            const n = v.numero_aerogest ? (aerogestCount[v.numero_aerogest] || 1) : 1;
+            const n = v.nb_eleves && v.nb_eleves > 1 ? v.nb_eleves : 1;
             const prixEleve = v.prix_total ? (parseFloat(v.prix_total) / n).toFixed(2) : "";
             rows.push([
               v.creneau?.date_vol ? new Date(v.creneau.date_vol).toLocaleDateString("fr-FR") : "",
@@ -1730,7 +1730,7 @@ export default function VolsPage() {
               ) : (
                 <>
                   {filteredHisto.map((v) => {
-                    const n = v.numero_aerogest ? (aerogestCount[v.numero_aerogest] || 1) : 1;
+                    const n = v.nb_eleves && v.nb_eleves > 1 ? v.nb_eleves : 1;
                     const prixEleve = v.prix_total ? parseFloat(v.prix_total) / n : null;
                     const isShared = n > 1;
                     return (
