@@ -1512,20 +1512,20 @@ export default function ElevesPage() {
             ) : emailLogs.length === 0 ? (
               <p className="text-sm text-gray-400">Aucun email enregistré</p>
             ) : (
-              <div className="space-y-1.5">
+              <div className="space-y-1">
                 {emailLogs.map((log) => {
-                  const statusMap: Record<string, { label: string; cls: string }> = {
-                    envoye: { label: "Envoyé", cls: "bg-blue-50 text-blue-600" },
-                    delivre: { label: "Délivré", cls: "bg-emerald-50 text-emerald-600" },
-                    ouvert: { label: "Ouvert", cls: "bg-green-50 text-green-700" },
-                    clique: { label: "Cliqué", cls: "bg-green-100 text-green-800" },
-                    retarde: { label: "Retardé", cls: "bg-amber-50 text-amber-600" },
-                    rebondi: { label: "Rebondi", cls: "bg-red-50 text-red-600" },
-                    spam: { label: "Spam", cls: "bg-red-100 text-red-700" },
-                    erreur: { label: "Erreur", cls: "bg-red-50 text-red-500" },
-                    supprime: { label: "Supprimé", cls: "bg-gray-100 text-gray-500" },
+                  const statusMap: Record<string, { label: string; dot: string }> = {
+                    envoye:   { label: "Envoyé",   dot: "bg-blue-400" },
+                    delivre:  { label: "Délivré",  dot: "bg-emerald-400" },
+                    ouvert:   { label: "Ouvert",   dot: "bg-green-500" },
+                    clique:   { label: "Cliqué",   dot: "bg-green-600" },
+                    retarde:  { label: "Retardé",  dot: "bg-amber-400" },
+                    rebondi:  { label: "Rebondi",  dot: "bg-red-400" },
+                    spam:     { label: "Spam",     dot: "bg-red-500" },
+                    erreur:   { label: "Erreur",   dot: "bg-red-400" },
+                    supprime: { label: "Supprimé", dot: "bg-gray-300" },
                   };
-                  const st = statusMap[log.statut] ?? { label: log.statut, cls: "bg-gray-100 text-gray-500" };
+                  const st = statusMap[log.statut] ?? { label: log.statut, dot: "bg-gray-300" };
                   const typeMap: Record<string, string> = {
                     attestation_ready: "Vol disponible",
                     booking_confirm: "Réservation confirmée",
@@ -1535,12 +1535,13 @@ export default function ElevesPage() {
                     invite: "Invitation compte",
                   };
                   return (
-                    <div key={log.id} className="flex items-center justify-between gap-2 text-xs py-1.5 border-b border-gray-50 last:border-0">
+                    <div key={log.id} className="flex items-center gap-3 py-2 border-b border-gray-50 last:border-0">
+                      <span className={`w-2 h-2 rounded-full shrink-0 ${st.dot}`} />
                       <div className="flex-1 min-w-0">
-                        <p className="font-medium text-gray-800 truncate">{typeMap[log.type] ?? log.type}</p>
-                        <p className="text-gray-400">{new Date(log.created_at).toLocaleString("fr-FR", { day: "2-digit", month: "2-digit", year: "2-digit", hour: "2-digit", minute: "2-digit" })}</p>
+                        <p className="text-xs font-medium text-gray-800">{typeMap[log.type] ?? log.type}</p>
+                        <p className="text-[11px] text-gray-400">{new Date(log.created_at).toLocaleString("fr-FR", { day: "2-digit", month: "2-digit", year: "2-digit", hour: "2-digit", minute: "2-digit" })}</p>
                       </div>
-                      <span className={`shrink-0 px-2 py-0.5 rounded-full text-xs font-semibold ${st.cls}`}>{st.label}</span>
+                      <span className="shrink-0 text-[11px] font-medium text-gray-500">{st.label}</span>
                     </div>
                   );
                 })}
