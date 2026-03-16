@@ -107,7 +107,7 @@ export default function VolsPage() {
           .select("pilote_id, etablissement_id"),
         supabase
           .from("eleves")
-          .select("id, nom, prenom, etablissement_id")
+          .select("id, nom, prenom, etablissement_id, vol1_effectue, vol1_numero_aerogest, vol1_prix, vol1_temps_minutes, vol1_pilote_nom, vol2_effectue, vol2_numero_aerogest, vol2_prix, vol2_temps_minutes, vol2_pilote_nom")
           .eq("archive", false)
           .order("nom"),
       ]);
@@ -1623,28 +1623,70 @@ export default function VolsPage() {
 
       {/* HISTORIQUE */}
       {mode === "historique" && isSA && (() => {
-        // Count occurrences of each numero_aerogest across all filtered rows
+        // Aerogest numbers already covered by vols_effectues
+        const aerogestInVols = new Set<string>(volsHisto.map((v: any) => v.numero_aerogest).filter(Boolean));
+
+        // Build manual groups from eleve vol1/vol2 fields (grouped by numero_aerogest, excluding those already in vols_effectues)
+        const manualByAerogest: Record<string, { ids: string[]; noms: string[]; numero_aerogest: string; prix_total: number; temps: number | null; pilote: string; etab_ids: string[] }> = {};
+        for (const e of eleves) {
+          if (e.vol1_effectue && e.vol1_numero_aerogest && !aerogestInVols.has(e.vol1_numero_aerogest)) {
+            if (!manualByAerogest[e.vol1_numero_aerogest]) manualByAerogest[e.vol1_numero_aerogest] = { ids: [], noms: [], numero_aerogest: e.vol1_numero_aerogest, prix_total: 0, temps: e.vol1_temps_minutes || null, pilote: e.vol1_pilote_nom || "", etab_ids: [] };
+            const g = manualByAerogest[e.vol1_numero_aerogest];
+            g.ids.push(`${e.id}_vol1`);
+            g.noms.push(`${e.prenom} ${e.nom}`);
+            g.prix_total += e.vol1_prix ? parseFloat(e.vol1_prix) : 0;
+            if (e.etablissement_id && !g.etab_ids.includes(e.etablissement_id)) g.etab_ids.push(e.etablissement_id);
+          }
+          if (e.vol2_effectue && e.vol2_numero_aerogest && !aerogestInVols.has(e.vol2_numero_aerogest)) {
+            if (!manualByAerogest[e.vol2_numero_aerogest]) manualByAerogest[e.vol2_numero_aerogest] = { ids: [], noms: [], numero_aerogest: e.vol2_numero_aerogest, prix_total: 0, temps: e.vol2_temps_minutes || null, pilote: e.vol2_pilote_nom || "", etab_ids: [] };
+            const g = manualByAerogest[e.vol2_numero_aerogest];
+            g.ids.push(`${e.id}_vol2`);
+            g.noms.push(`${e.prenom} ${e.nom}`);
+            g.prix_total += e.vol2_prix ? parseFloat(e.vol2_prix) : 0;
+            if (e.etablissement_id && !g.etab_ids.includes(e.etablissement_id)) g.etab_ids.push(e.etablissement_id);
+          }
+        }
+
+        // Apply etab filter to manual groups
+        const filteredManual = Object.values(manualByAerogest).filter(g => {
+          if (filterEtab && !g.etab_ids.includes(filterEtab)) return false;
+          return true;
+        });
+
+        // Count occurrences of each numero_aerogest in filteredHisto (for ×N detection)
         const aerogestCount: Record<string, number> = {};
         for (const v of filteredHisto) {
           if (v.numero_aerogest) aerogestCount[v.numero_aerogest] = (aerogestCount[v.numero_aerogest] || 0) + 1;
         }
 
+        const sharedCountVol = Object.values(aerogestCount).filter((c) => c > 1).length;
+        const sharedCountManual = filteredManual.filter(g => g.ids.length > 1).length;
+        const totalShared = sharedCountVol + sharedCountManual;
+        const totalRows = filteredHisto.length + filteredManual.length;
+
         function exportComptaCSV() {
-          const headers = ["Date", "Pilote", "Aeronef", "N Aerogest", "Nb partages", "Prix vol total (€)", "Prix par élève (€)", "Temps (min)", "Notes"];
-          const rows = filteredHisto.map((v) => {
+          const headers = ["Date", "Pilote", "Aeronef", "Eleves", "N Aerogest", "Nb partages", "Prix vol total (€)", "Prix par élève (€)", "Temps (min)", "Source"];
+          const rows: any[][] = [];
+          filteredHisto.forEach((v) => {
             const n = v.numero_aerogest ? (aerogestCount[v.numero_aerogest] || 1) : 1;
             const prixEleve = v.prix_total ? (parseFloat(v.prix_total) / n).toFixed(2) : "";
-            return [
+            rows.push([
               v.creneau?.date_vol ? new Date(v.creneau.date_vol).toLocaleDateString("fr-FR") : "",
               v.creneau?.pilote ? `${v.creneau.pilote.prenom} ${v.creneau.pilote.nom}` : "",
               v.creneau?.aeronef?.type_aeronef || "",
+              v.creneau?.reservations?.map((r: any) => `${r.eleve?.prenom} ${r.eleve?.nom}`).join(", ") || "",
               v.numero_aerogest || "",
               n,
               v.prix_total || "",
               prixEleve,
               v.temps_vol_minutes || "",
-              v.notes || "",
-            ];
+              "planning",
+            ]);
+          });
+          filteredManual.forEach((g) => {
+            const n = g.ids.length;
+            const prixEleve = n > 0 ? (g.prix_total / n).toFixed(2) : "";
+            rows.push(["", g.pilote, "", g.noms.join(", "), g.numero_aerogest, n, g.prix_total.toFixed(2), prixEleve, g.temps || "", "manuel"]);
           });
           const csv = [headers, ...rows].map((r) => r.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(";")).join("\n");
           const url = URL.createObjectURL(new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8;" }));
@@ -1657,9 +1699,9 @@ export default function VolsPage() {
         <div className="space-y-3">
           <div className="flex items-center justify-between">
             <p className="text-xs text-gray-500">
-              {filteredHisto.filter((v) => v.numero_aerogest && aerogestCount[v.numero_aerogest] > 1).length > 0 && (
+              {totalShared > 0 && (
                 <span className="inline-flex items-center gap-1 bg-amber-50 text-amber-700 px-2 py-0.5 rounded-full text-[11px] font-medium">
-                  ⚠ {Object.values(aerogestCount).filter((c) => c > 1).length} N° Aérogest partagé(s) — prix divisé par élève
+                  ⚠ {totalShared} N° Aérogest partagé(s) — prix divisé par élève
                 </span>
               )}
             </p>
@@ -1671,77 +1713,73 @@ export default function VolsPage() {
           <table className="w-full text-sm min-w-[900px]">
             <thead>
               <tr className="bg-gray-50">
-                {[
-                  "Date",
-                  "Pilote",
-                  "Aeronef",
-                  "Eleves",
-                  "N Aerogest",
-                  "Temps",
-                  "Prix vol",
-                  "Prix/élève",
-                  "Notes",
-                  "",
-                ].map((h) => (
-                  <th
-                    key={h}
-                    className="px-3 py-2.5 text-left text-[10px] font-semibold uppercase text-gray-400"
-                  >
-                    {h}
-                  </th>
+                {["Date", "Pilote", "Aeronef", "Eleves", "N Aerogest", "Temps", "Prix vol", "Prix/élève", "Notes", ""].map((h) => (
+                  <th key={h} className="px-3 py-2.5 text-left text-[10px] font-semibold uppercase text-gray-400">{h}</th>
                 ))}
               </tr>
             </thead>
             <tbody>
-              {filteredHisto.length === 0 ? (
+              {totalRows === 0 ? (
                 <tr>
                   <td colSpan={10} className="px-3 py-12 text-center text-gray-400">Aucun vol</td>
                 </tr>
               ) : (
-                filteredHisto.map((v) => {
-                  const n = v.numero_aerogest ? (aerogestCount[v.numero_aerogest] || 1) : 1;
-                  const prixEleve = v.prix_total ? parseFloat(v.prix_total) / n : null;
-                  const isShared = n > 1;
-                  return (
-                  <tr key={v.id} className={`border-t border-gray-100 hover:bg-gray-50 ${isShared ? "bg-amber-50/30" : ""}`}>
-                    <td className="px-3 py-2.5 font-medium">
-                      {v.creneau?.date_vol && new Date(v.creneau.date_vol).toLocaleDateString("fr-FR")}
-                    </td>
-                    <td className="px-3 py-2.5">
-                      {v.creneau?.pilote?.prenom} {v.creneau?.pilote?.nom}
-                    </td>
-                    <td className="px-3 py-2.5 text-gray-500">
-                      {v.creneau?.aeronef?.type_aeronef}
-                    </td>
-                    <td className="px-3 py-2.5 text-gray-500 text-xs">
-                      {v.creneau?.reservations?.map((r: any) => `${r.eleve?.prenom} ${r.eleve?.nom}`).join(", ") || "—"}
-                    </td>
-                    <td className="px-3 py-2.5 font-mono text-xs">
-                      <span>{v.numero_aerogest}</span>
-                      {isShared && (
-                        <span className="ml-1.5 inline-flex items-center bg-amber-100 text-amber-700 text-[10px] font-bold px-1.5 py-0.5 rounded-full">×{n}</span>
-                      )}
-                    </td>
-                    <td className="px-3 py-2.5">{v.temps_vol_minutes}min</td>
-                    <td className="px-3 py-2.5 text-gray-500">
-                      {v.prix_total}€
-                    </td>
-                    <td className="px-3 py-2.5 font-semibold text-emerald-700">
-                      {prixEleve !== null ? (
-                        <span>
-                          {prixEleve % 1 === 0 ? prixEleve : prixEleve.toFixed(2)}€
-                          {isShared && <span className="text-[10px] font-normal text-amber-600 ml-1">÷{n}</span>}
-                        </span>
-                      ) : "—"}
-                    </td>
-                    <td className="px-3 py-2.5 text-gray-400 text-xs">{v.notes || "—"}</td>
-                    <td className="px-3 py-2.5">
-                      <button onClick={() => setEditHisto({ ...v })} className="btn-secondary btn-sm">
-                        <Edit className="w-3 h-3" />
-                      </button>
-                    </td>
-                  </tr>
-                )})
+                <>
+                  {filteredHisto.map((v) => {
+                    const n = v.numero_aerogest ? (aerogestCount[v.numero_aerogest] || 1) : 1;
+                    const prixEleve = v.prix_total ? parseFloat(v.prix_total) / n : null;
+                    const isShared = n > 1;
+                    return (
+                      <tr key={v.id} className={`border-t border-gray-100 hover:bg-gray-50 ${isShared ? "bg-amber-50/30" : ""}`}>
+                        <td className="px-3 py-2.5 font-medium">{v.creneau?.date_vol && new Date(v.creneau.date_vol).toLocaleDateString("fr-FR")}</td>
+                        <td className="px-3 py-2.5">{v.creneau?.pilote?.prenom} {v.creneau?.pilote?.nom}</td>
+                        <td className="px-3 py-2.5 text-gray-500">{v.creneau?.aeronef?.type_aeronef}</td>
+                        <td className="px-3 py-2.5 text-gray-500 text-xs">{v.creneau?.reservations?.map((r: any) => `${r.eleve?.prenom} ${r.eleve?.nom}`).join(", ") || "—"}</td>
+                        <td className="px-3 py-2.5 font-mono text-xs">
+                          <span>{v.numero_aerogest}</span>
+                          {isShared && <span className="ml-1.5 inline-flex items-center bg-amber-100 text-amber-700 text-[10px] font-bold px-1.5 py-0.5 rounded-full">×{n}</span>}
+                        </td>
+                        <td className="px-3 py-2.5">{v.temps_vol_minutes}min</td>
+                        <td className="px-3 py-2.5 text-gray-500">{v.prix_total}€</td>
+                        <td className="px-3 py-2.5 font-semibold text-emerald-700">
+                          {prixEleve !== null ? (
+                            <span>{prixEleve % 1 === 0 ? prixEleve : prixEleve.toFixed(2)}€{isShared && <span className="text-[10px] font-normal text-amber-600 ml-1">÷{n}</span>}</span>
+                          ) : "—"}
+                        </td>
+                        <td className="px-3 py-2.5 text-gray-400 text-xs">{v.notes || "—"}</td>
+                        <td className="px-3 py-2.5">
+                          <button onClick={() => setEditHisto({ ...v })} className="btn-secondary btn-sm"><Edit className="w-3 h-3" /></button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                  {filteredManual.map((g) => {
+                    const n = g.ids.length;
+                    const isShared = n > 1;
+                    const prixEleve = n > 0 && g.prix_total > 0 ? g.prix_total / n : null;
+                    return (
+                      <tr key={g.numero_aerogest} className={`border-t border-gray-100 hover:bg-gray-50 bg-blue-50/20 ${isShared ? "bg-amber-50/30" : ""}`}>
+                        <td className="px-3 py-2.5 text-gray-400 text-[10px] italic">manuel</td>
+                        <td className="px-3 py-2.5">{g.pilote || "—"}</td>
+                        <td className="px-3 py-2.5 text-gray-400">—</td>
+                        <td className="px-3 py-2.5 text-gray-500 text-xs">{g.noms.join(", ")}</td>
+                        <td className="px-3 py-2.5 font-mono text-xs">
+                          <span>{g.numero_aerogest}</span>
+                          {isShared && <span className="ml-1.5 inline-flex items-center bg-amber-100 text-amber-700 text-[10px] font-bold px-1.5 py-0.5 rounded-full">×{n}</span>}
+                        </td>
+                        <td className="px-3 py-2.5">{g.temps ? `${g.temps}min` : "—"}</td>
+                        <td className="px-3 py-2.5 text-gray-500">{g.prix_total > 0 ? `${g.prix_total.toFixed(2)}€` : "—"}</td>
+                        <td className="px-3 py-2.5 font-semibold text-emerald-700">
+                          {prixEleve !== null ? (
+                            <span>{prixEleve % 1 === 0 ? prixEleve : prixEleve.toFixed(2)}€{isShared && <span className="text-[10px] font-normal text-amber-600 ml-1">÷{n}</span>}</span>
+                          ) : "—"}
+                        </td>
+                        <td className="px-3 py-2.5 text-gray-400 text-xs">—</td>
+                        <td className="px-3 py-2.5"></td>
+                      </tr>
+                    );
+                  })}
+                </>
               )}
             </tbody>
           </table>

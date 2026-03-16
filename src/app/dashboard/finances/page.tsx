@@ -74,6 +74,16 @@ export default function FinancesPage() {
   const margeNonUtil = (totalBia - totalVol2) * subFede;
   const solde = totalRecettes - coutVolsTotal - depensesManuelles;
 
+  // Aerogest numbers already covered by vols_effectues (to avoid double-counting eleve manual fields)
+  const aerogestInVols = new Set<string>(vols.map((v: any) => v.numero_aerogest).filter(Boolean));
+  // Global aerogest count across all sources (for ×N price division)
+  const aerogestCountAll: Record<string, number> = {};
+  vols.forEach(v => { if (v.numero_aerogest) aerogestCountAll[v.numero_aerogest] = (aerogestCountAll[v.numero_aerogest] || 0) + 1; });
+  eleves.forEach(e => {
+    if (e.vol1_effectue && e.vol1_numero_aerogest && !aerogestInVols.has(e.vol1_numero_aerogest)) aerogestCountAll[e.vol1_numero_aerogest] = (aerogestCountAll[e.vol1_numero_aerogest] || 0) + 1;
+    if (e.vol2_effectue && e.vol2_numero_aerogest && !aerogestInVols.has(e.vol2_numero_aerogest)) aerogestCountAll[e.vol2_numero_aerogest] = (aerogestCountAll[e.vol2_numero_aerogest] || 0) + 1;
+  });
+
   const piloteStats: Record<string, { nom: string; nbVols: number; heures: number; cout: number }> = {};
   vols.forEach(v => {
     const pName = v.creneau?.pilote ? `${v.creneau.pilote.prenom} ${v.creneau.pilote.nom}` : "Inconnu";
@@ -81,6 +91,21 @@ export default function FinancesPage() {
     piloteStats[pName].nbVols++;
     piloteStats[pName].heures += (v.temps_vol_minutes || 0) / 60;
     piloteStats[pName].cout += parseFloat(v.prix_total) || 0;
+  });
+  // Add manual eleve vols to pilote stats
+  eleves.forEach(e => {
+    if (e.vol1_effectue && e.vol1_pilote_nom && e.vol1_numero_aerogest && !aerogestInVols.has(e.vol1_numero_aerogest)) {
+      if (!piloteStats[e.vol1_pilote_nom]) piloteStats[e.vol1_pilote_nom] = { nom: e.vol1_pilote_nom, nbVols: 0, heures: 0, cout: 0 };
+      piloteStats[e.vol1_pilote_nom].nbVols++;
+      piloteStats[e.vol1_pilote_nom].heures += (e.vol1_temps_minutes || 0) / 60;
+      piloteStats[e.vol1_pilote_nom].cout += e.vol1_prix ? parseFloat(e.vol1_prix) : 0;
+    }
+    if (e.vol2_effectue && e.vol2_pilote_nom && e.vol2_numero_aerogest && !aerogestInVols.has(e.vol2_numero_aerogest)) {
+      if (!piloteStats[e.vol2_pilote_nom]) piloteStats[e.vol2_pilote_nom] = { nom: e.vol2_pilote_nom, nbVols: 0, heures: 0, cout: 0 };
+      piloteStats[e.vol2_pilote_nom].nbVols++;
+      piloteStats[e.vol2_pilote_nom].heures += (e.vol2_temps_minutes || 0) / 60;
+      piloteStats[e.vol2_pilote_nom].cout += e.vol2_prix ? parseFloat(e.vol2_prix) : 0;
+    }
   });
 
   const etabStats = etabs.map(et => {
@@ -105,6 +130,17 @@ export default function FinancesPage() {
   });
   manualOps.forEach(op => {
     operations.push({ id: op.id, source: "manuel", date: op.date, type: op.type, sens: op.sens, montant: parseFloat(op.montant), description: op.description, etablissement: op.etablissement, mode: op.mode });
+  });
+  // Add manual eleve vols (not already covered by vols_effectues)
+  eleves.forEach(e => {
+    if (e.vol1_effectue && e.vol1_numero_aerogest && !aerogestInVols.has(e.vol1_numero_aerogest)) {
+      const n = aerogestCountAll[e.vol1_numero_aerogest] || 1;
+      operations.push({ id: `${e.id}_vol1`, source: "vol_manuel", date: e.updated_at, type: "Vol", sens: "depense", montant: e.vol1_prix ? parseFloat(e.vol1_prix) : null, description: `${e.prenom} ${e.nom} — Vol 1 (${e.vol1_numero_aerogest}${n > 1 ? ` ×${n}` : ""})`, etablissement: e.etablissement?.nom, pilote: e.vol1_pilote_nom || "", aeronef: e.vol1_aeronef?.type_aeronef || "", temps: e.vol1_temps_minutes });
+    }
+    if (e.vol2_effectue && e.vol2_numero_aerogest && !aerogestInVols.has(e.vol2_numero_aerogest)) {
+      const n = aerogestCountAll[e.vol2_numero_aerogest] || 1;
+      operations.push({ id: `${e.id}_vol2`, source: "vol_manuel", date: e.updated_at, type: "Vol", sens: "depense", montant: e.vol2_prix ? parseFloat(e.vol2_prix) : null, description: `${e.prenom} ${e.nom} — Vol 2 (${e.vol2_numero_aerogest}${n > 1 ? ` ×${n}` : ""})`, etablissement: e.etablissement?.nom, pilote: e.vol2_pilote_nom || "", aeronef: e.vol2_aeronef?.type_aeronef || "", temps: e.vol2_temps_minutes });
+    }
   });
   operations.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 
@@ -265,10 +301,12 @@ export default function FinancesPage() {
                   <td className="px-3 py-2.5 text-gray-500 text-xs">{op.pilote || "—"}</td>
                   <td className="px-3 py-2.5 text-gray-500 text-xs">{op.temps ? `${op.temps}min` : "—"}</td>
                   <td className="px-3 py-2.5">
-                    <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                      <button onClick={() => openEdit(op)} className="p-1 rounded hover:bg-gray-200 text-gray-400 hover:text-gray-700" title="Modifier"><Edit className="w-3.5 h-3.5" /></button>
-                      <button onClick={() => setConfirmDelete(op)} className="p-1 rounded hover:bg-red-50 text-gray-400 hover:text-red-600" title="Supprimer"><Trash2 className="w-3.5 h-3.5" /></button>
-                    </div>
+                    {op.source !== "vol_manuel" && (
+                      <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <button onClick={() => openEdit(op)} className="p-1 rounded hover:bg-gray-200 text-gray-400 hover:text-gray-700" title="Modifier"><Edit className="w-3.5 h-3.5" /></button>
+                        <button onClick={() => setConfirmDelete(op)} className="p-1 rounded hover:bg-red-50 text-gray-400 hover:text-red-600" title="Supprimer"><Trash2 className="w-3.5 h-3.5" /></button>
+                      </div>
+                    )}
                   </td>
                 </tr>
               ))}
