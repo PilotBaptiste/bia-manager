@@ -1512,39 +1512,54 @@ export default function ElevesPage() {
             ) : emailLogs.length === 0 ? (
               <p className="text-sm text-gray-400">Aucun email enregistré</p>
             ) : (
-              <div className="space-y-1">
-                {emailLogs.map((log) => {
-                  const statusMap: Record<string, { label: string; dot: string }> = {
-                    envoye:   { label: "Envoyé",   dot: "bg-blue-400" },
-                    delivre:  { label: "Délivré",  dot: "bg-emerald-400" },
-                    ouvert:   { label: "Ouvert",   dot: "bg-green-500" },
-                    clique:   { label: "Cliqué",   dot: "bg-green-600" },
-                    retarde:  { label: "Retardé",  dot: "bg-amber-400" },
-                    rebondi:  { label: "Rebondi",  dot: "bg-red-400" },
-                    spam:     { label: "Spam",     dot: "bg-red-500" },
-                    erreur:   { label: "Erreur",   dot: "bg-red-400" },
-                    supprime: { label: "Supprimé", dot: "bg-gray-300" },
-                  };
-                  const st = statusMap[log.statut] ?? { label: log.statut, dot: "bg-gray-300" };
-                  const typeMap: Record<string, string> = {
-                    attestation_ready: "Vol disponible",
-                    booking_confirm: "Réservation confirmée",
-                    booking_cancel: "Annulation réservation",
-                    slot_modified: "Créneau modifié",
-                    slot_cancelled: "Créneau annulé",
-                    invite: "Invitation compte",
-                  };
-                  return (
-                    <div key={log.id} className="flex items-center gap-3 py-2 border-b border-gray-50 last:border-0">
-                      <span className={`w-2 h-2 rounded-full shrink-0 ${st.dot}`} />
-                      <div className="flex-1 min-w-0">
-                        <p className="text-xs font-medium text-gray-800">{typeMap[log.type] ?? log.type}</p>
-                        <p className="text-[11px] text-gray-400">{new Date(log.created_at).toLocaleString("fr-FR", { day: "2-digit", month: "2-digit", year: "2-digit", hour: "2-digit", minute: "2-digit" })}</p>
-                      </div>
-                      <span className="shrink-0 text-[11px] font-medium text-gray-500">{st.label}</span>
-                    </div>
-                  );
-                })}
+              <div className="rounded-lg border border-gray-100 overflow-hidden">
+                <div className="max-h-44 overflow-y-auto">
+                  <table className="w-full text-xs">
+                    <thead className="sticky top-0 bg-gray-50 z-10">
+                      <tr>
+                        <th className="px-3 py-2 text-left text-[10px] font-semibold uppercase tracking-wider text-gray-400">Type</th>
+                        <th className="px-3 py-2 text-left text-[10px] font-semibold uppercase tracking-wider text-gray-400">Date</th>
+                        <th className="px-3 py-2 text-right text-[10px] font-semibold uppercase tracking-wider text-gray-400">Statut</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {emailLogs.map((log) => {
+                        const statusMap: Record<string, { label: string; dot: string }> = {
+                          envoye:   { label: "Envoyé",   dot: "bg-blue-400" },
+                          delivre:  { label: "Délivré",  dot: "bg-emerald-400" },
+                          ouvert:   { label: "Ouvert",   dot: "bg-green-500" },
+                          clique:   { label: "Cliqué",   dot: "bg-green-600" },
+                          retarde:  { label: "Retardé",  dot: "bg-amber-400" },
+                          rebondi:  { label: "Rebondi",  dot: "bg-red-400" },
+                          spam:     { label: "Spam",     dot: "bg-red-500" },
+                          erreur:   { label: "Erreur",   dot: "bg-red-400" },
+                          supprime: { label: "Supprimé", dot: "bg-gray-300" },
+                        };
+                        const st = statusMap[log.statut] ?? { label: log.statut, dot: "bg-gray-300" };
+                        const typeMap: Record<string, string> = {
+                          attestation_ready: "Vol disponible",
+                          booking_confirm: "Réservation confirmée",
+                          booking_cancel: "Annulation réservation",
+                          slot_modified: "Créneau modifié",
+                          slot_cancelled: "Créneau annulé",
+                          invite: "Invitation compte",
+                        };
+                        return (
+                          <tr key={log.id} className="border-t border-gray-50 hover:bg-gray-50/60">
+                            <td className="px-3 py-2 font-medium text-gray-800">{typeMap[log.type] ?? log.type}</td>
+                            <td className="px-3 py-2 text-gray-400">{new Date(log.created_at).toLocaleString("fr-FR", { day: "2-digit", month: "2-digit", year: "2-digit", hour: "2-digit", minute: "2-digit" })}</td>
+                            <td className="px-3 py-2 text-right">
+                              <span className="inline-flex items-center gap-1.5 justify-end">
+                                <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${st.dot}`} />
+                                <span className="text-gray-600 font-medium">{st.label}</span>
+                              </span>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
               </div>
             )}
           </Section>
