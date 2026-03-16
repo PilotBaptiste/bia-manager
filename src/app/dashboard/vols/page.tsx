@@ -1480,7 +1480,7 @@ export default function VolsPage() {
               </button>
             )}
           </div>
-          {hasFilters && (
+          {hasFilters && mode !== "historique" && (
             <p className="text-xs text-brand-500 mt-2 flex items-center gap-1">
               <Filter className="w-3 h-3" /> {filteredDisplayed.length} résultat{filteredDisplayed.length !== 1 ? "s" : ""} sur {displayed.length}
             </p>
@@ -1647,9 +1647,13 @@ export default function VolsPage() {
           }
         }
 
-        // Apply etab filter to manual groups
+        // Resolve pilote filter to a name (manual groups store pilote as a string name, not UUID)
+        const filterPiloteNom = filterPilote ? (() => { const p = pilotes.find((x: any) => x.id === filterPilote); return p ? `${p.prenom} ${p.nom}` : null; })() : null;
+
+        // Apply filters to manual groups
         const filteredManual = Object.values(manualByAerogest).filter(g => {
           if (filterEtab && !g.etab_ids.includes(filterEtab)) return false;
+          if (filterPiloteNom && g.pilote !== filterPiloteNom) return false;
           return true;
         });
 
