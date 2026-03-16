@@ -15,6 +15,7 @@ import {
   Edit,
   Trash2,
   ChevronLeft,
+  ChevronRight,
   Loader2,
   Save,
   AlertCircle,
@@ -66,7 +67,9 @@ const emptyForm = {
   prenom: "",
   date_naissance: "",
   lieu_naissance: "",
-  adresse: "",
+  adresse_rue: "",
+  adresse_ville: "",
+  adresse_cp: "",
   etablissement_id: "",
   classe: "",
   parent_nom: "",
@@ -264,7 +267,9 @@ export default function ElevesPage() {
       prenom: s.prenom,
       date_naissance: s.date_naissance,
       lieu_naissance: s.lieu_naissance || "",
-      adresse: s.adresse || "",
+      adresse_rue: s.adresse || "",
+      adresse_ville: "",
+      adresse_cp: "",
       etablissement_id: s.etablissement_id || "",
       classe: s.classe || "",
       parent_nom: s.parent_nom,
@@ -331,7 +336,7 @@ export default function ElevesPage() {
       prenom: form.prenom,
       date_naissance: form.date_naissance,
       lieu_naissance: form.lieu_naissance || "—",
-      adresse: form.adresse || null,
+      adresse: [form.adresse_rue, [form.adresse_cp, form.adresse_ville].filter(Boolean).join(" ")].filter(Boolean).join(", ") || null,
       etablissement_id: form.etablissement_id || null,
       classe: form.classe || "—",
       annee_id: anneeId,
@@ -456,6 +461,40 @@ export default function ElevesPage() {
     load();
   }
 
+  function handleExport() {
+    const headers = ["Nom","Prenom","Date naissance","Lieu naissance","Adresse","Etablissement","Classe","Parent nom","Parent prenom","Email parent","Tel parent","Paiement","Montant","Mode paiement","Attestation","Vol 1","Temps vol 1 (min)","Prix vol 1","BIA resultat","Vol 2 autorise","Vol 2","Temps vol 2 (min)","Prix vol 2","Commentaires"];
+    const rows = filtered.map(s => [
+      s.nom, s.prenom,
+      s.date_naissance ? new Date(s.date_naissance).toLocaleDateString("fr-FR") : "",
+      s.lieu_naissance || "",
+      s.adresse || "",
+      s.etablissement?.nom || "",
+      s.classe || "",
+      s.parent_nom || "", s.parent_prenom || "", s.parent_email || "", s.parent_telephone || "",
+      s.paiement_effectue ? "Oui" : "Non",
+      s.paiement_montant || "",
+      s.paiement_mode || "",
+      s.attestation_signee ? "Oui" : "Non",
+      s.vol1_effectue ? "Oui" : "Non",
+      s.vol1_temps_minutes || "",
+      s.vol1_prix || "",
+      s.bia_resultat || "",
+      s.vol2_autorise ? "Oui" : "Non",
+      s.vol2_effectue ? "Oui" : "Non",
+      s.vol2_temps_minutes || "",
+      s.vol2_prix || "",
+      s.commentaires || "",
+    ].map(v => `"${String(v).replace(/"/g, '""')}"`));
+    const csv = [headers.join(";"), ...rows.map(r => r.join(";"))].join("\n");
+    const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `eleves_bia_${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
   async function handleDelete(id: string) {
     const { error } = await supabase.from("eleves").delete().eq("id", id);
     if (error) { toast.error("Erreur lors de la suppression"); return; }
@@ -540,12 +579,30 @@ export default function ElevesPage() {
               />
             </div>
             <div className="sm:col-span-3">
-              <label className="label">Adresse postale</label>
+              <label className="label">Adresse (rue)</label>
               <input
-                value={form.adresse}
-                onChange={(e) => setForm({ ...form, adresse: e.target.value })}
+                value={form.adresse_rue}
+                onChange={(e) => setForm({ ...form, adresse_rue: e.target.value })}
                 className="input"
-                placeholder="16 rue de Tournon, 33260 La Teste"
+                placeholder="16 rue de Tournon"
+              />
+            </div>
+            <div>
+              <label className="label">Code postal</label>
+              <input
+                value={form.adresse_cp}
+                onChange={(e) => setForm({ ...form, adresse_cp: e.target.value })}
+                className="input"
+                placeholder="33260"
+              />
+            </div>
+            <div>
+              <label className="label">Ville</label>
+              <input
+                value={form.adresse_ville}
+                onChange={(e) => setForm({ ...form, adresse_ville: e.target.value })}
+                className="input"
+                placeholder="La Teste-de-Buch"
               />
             </div>
             <div>
@@ -1373,6 +1430,33 @@ export default function ElevesPage() {
             </Section>
           </div>
         </div>
+
+        {/* Prev / Next navigation */}
+        {(() => {
+          const idx = filtered.findIndex(e => e.id === s.id);
+          const prev = idx > 0 ? filtered[idx - 1] : null;
+          const next = idx < filtered.length - 1 ? filtered[idx + 1] : null;
+          if (!prev && !next) return null;
+          return (
+            <div className="flex items-center justify-between mt-6 pt-4 border-t border-gray-100">
+              {prev ? (
+                <button onClick={() => setSelected(prev)} className="flex items-center gap-2 text-sm font-semibold text-brand-500 hover:text-brand-700">
+                  <ChevronLeft className="w-4 h-4" />
+                  <span className="hidden sm:inline">{prev.prenom} {prev.nom}</span>
+                  <span className="sm:hidden">Précédent</span>
+                </button>
+              ) : <div />}
+              <span className="text-xs text-gray-400">{idx + 1} / {filtered.length}</span>
+              {next ? (
+                <button onClick={() => setSelected(next)} className="flex items-center gap-2 text-sm font-semibold text-brand-500 hover:text-brand-700">
+                  <span className="hidden sm:inline">{next.prenom} {next.nom}</span>
+                  <span className="sm:hidden">Suivant</span>
+                  <ChevronRight className="w-4 h-4" />
+                </button>
+              ) : <div />}
+            </div>
+          );
+        })()}
       </div>
     );
   }
@@ -1392,7 +1476,7 @@ export default function ElevesPage() {
           </p>
         </div>
         <div className="flex gap-2">
-          <button className="btn-secondary btn-sm">
+          <button onClick={handleExport} className="btn-secondary btn-sm">
             <Download className="w-3.5 h-3.5" /> Export
           </button>
           <button onClick={openCreate} className="btn-primary btn-sm">
