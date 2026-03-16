@@ -21,6 +21,7 @@ import {
   AlertCircle,
   Mail,
 } from "lucide-react";
+import ConfirmModal from "@/components/ConfirmModal";
 
 function Dot({ ok }: { ok: boolean }) {
   return <span className={ok ? "dot-success" : "dot-danger"} />;
@@ -128,6 +129,8 @@ export default function ElevesPage() {
   const [fBia, setFBia] = useState("all");
   const [showFilters, setShowFilters] = useState(false);
   const [parentProfiles, setParentProfiles] = useState<Record<string, any>>({});
+  const [confirmAction, setConfirmAction] = useState<{ title: string; message: string; variant?: "danger" | "primary"; onConfirm: () => void } | null>(null);
+  const [confirmLoading, setConfirmLoading] = useState(false);
 
   async function load() {
     const {
@@ -489,13 +492,23 @@ export default function ElevesPage() {
     URL.revokeObjectURL(url);
   }
 
-  async function handleDelete(id: string) {
+  async function doDelete(id: string) {
     const { error } = await supabase.from("eleves").delete().eq("id", id);
     if (error) { toast.error("Erreur lors de la suppression"); return; }
     await logActivity("delete", id, { nom: selected?.nom, prenom: selected?.prenom });
     toast.success("Élève supprimé");
     setSelected(null);
     load();
+  }
+
+  function handleDelete(id: string) {
+    const s = selected;
+    setConfirmAction({
+      title: "Supprimer l'élève",
+      message: `Supprimer définitivement ${s?.prenom ?? ""} ${s?.nom ?? ""} ?\nCette action est irréversible.`,
+      variant: "danger",
+      onConfirm: () => doDelete(id),
+    });
   }
 
   // ══════════════════════════════════════════════════
@@ -1206,17 +1219,24 @@ export default function ElevesPage() {
               })()}
               <div className="mt-2">
                 <button
-                  onClick={async () => {
-                    const tid = toast.loading("Envoi de l'invitation…");
-                    const res = await fetch("/api/invite", {
-                      method: "POST",
-                      headers: { "Content-Type": "application/json" },
-                      body: JSON.stringify({ email: s.parent_email, nom: s.parent_nom, prenom: s.parent_prenom }),
+                  onClick={() => {
+                    setConfirmAction({
+                      title: "Envoyer l'invitation",
+                      message: `Envoyer un email d'invitation/accès à ${s.parent_email} ?`,
+                      variant: "primary",
+                      onConfirm: async () => {
+                        const tid = toast.loading("Envoi de l'invitation…");
+                        const res = await fetch("/api/invite", {
+                          method: "POST",
+                          headers: { "Content-Type": "application/json" },
+                          body: JSON.stringify({ email: s.parent_email, nom: s.parent_nom, prenom: s.parent_prenom }),
+                        });
+                        const json = await res.json();
+                        toast.dismiss(tid);
+                        if (res.ok) toast.success(`Invitation envoyée à ${s.parent_email}`);
+                        else toast.error(`Erreur: ${json.error}`);
+                      },
                     });
-                    const json = await res.json();
-                    toast.dismiss(tid);
-                    if (res.ok) toast.success(`Invitation envoyée à ${s.parent_email}`);
-                    else toast.error(`Erreur: ${json.error}`);
                   }}
                   className="btn-secondary btn-sm"
                 >
@@ -1305,25 +1325,32 @@ export default function ElevesPage() {
             {s.paiement_effectue && s.attestation_signee && s.parent_email && (
               <Section title="">
                 <button
-                  onClick={async () => {
-                    const etab = etablissements.find((e: any) => e.id === s.etablissement_id);
-                    const tid = toast.loading("Envoi de l'email…");
-                    const res = await fetch("/api/email", {
-                      method: "POST",
-                      headers: { "Content-Type": "application/json" },
-                      body: JSON.stringify({
-                        type: "attestation_ready",
-                        parent_email: s.parent_email,
-                        parent_prenom: s.parent_prenom || "",
-                        eleve_prenom: s.prenom,
-                        eleve_nom: s.nom,
-                        etablissement: etab?.nom || "",
-                        eleve_id: s.id,
-                      }),
+                  onClick={() => {
+                    setConfirmAction({
+                      title: "Notifier le parent",
+                      message: `Envoyer l'email "vol disponible" à ${s.parent_email} ?\n${s.prenom} ${s.nom} pourra réserver son vol.`,
+                      variant: "primary",
+                      onConfirm: async () => {
+                        const etab = etablissements.find((e: any) => e.id === s.etablissement_id);
+                        const tid = toast.loading("Envoi de l'email…");
+                        const res = await fetch("/api/email", {
+                          method: "POST",
+                          headers: { "Content-Type": "application/json" },
+                          body: JSON.stringify({
+                            type: "attestation_ready",
+                            parent_email: s.parent_email,
+                            parent_prenom: s.parent_prenom || "",
+                            eleve_prenom: s.prenom,
+                            eleve_nom: s.nom,
+                            etablissement: etab?.nom || "",
+                            eleve_id: s.id,
+                          }),
+                        });
+                        toast.dismiss(tid);
+                        if (res.ok) toast.success(`Email envoyé à ${s.parent_email}`);
+                        else toast.error("Erreur lors de l'envoi");
+                      },
                     });
-                    toast.dismiss(tid);
-                    if (res.ok) toast.success(`Email envoyé à ${s.parent_email}`);
-                    else toast.error("Erreur lors de l'envoi");
                   }}
                   className="btn-primary btn-sm w-full justify-center"
                 >
@@ -1774,6 +1801,22 @@ export default function ElevesPage() {
           </table>
         </div>
       )}
+
+      <ConfirmModal
+        open={!!confirmAction}
+        title={confirmAction?.title ?? ""}
+        message={confirmAction?.message ?? ""}
+        variant={confirmAction?.variant}
+        loading={confirmLoading}
+        onCancel={() => setConfirmAction(null)}
+        onConfirm={async () => {
+          if (!confirmAction) return;
+          setConfirmLoading(true);
+          await confirmAction.onConfirm();
+          setConfirmLoading(false);
+          setConfirmAction(null);
+        }}
+      />
     </div>
   );
 }

@@ -20,6 +20,7 @@ import {
   Save,
   Filter,
 } from "lucide-react";
+import ConfirmModal from "@/components/ConfirmModal";
 
 export default function VolsPage() {
   const supabase = createClient();
@@ -43,6 +44,8 @@ export default function VolsPage() {
   const [editHisto, setEditHisto] = useState<any>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [confirmAction, setConfirmAction] = useState<{ title: string; message: string; variant?: "danger" | "primary"; onConfirm: () => void } | null>(null);
+  const [confirmLoading, setConfirmLoading] = useState(false);
   const [filterPilote, setFilterPilote] = useState("");
   const [filterAeronef, setFilterAeronef] = useState("");
   const [filterEtab, setFilterEtab] = useState("");
@@ -246,7 +249,7 @@ export default function VolsPage() {
     load();
   }
 
-  async function handleCloseFlight() {
+  function handleCloseFlight() {
     setError(null);
     if (
       !closeForm.numero_aerogest ||
@@ -256,6 +259,16 @@ export default function VolsPage() {
       setError("Champs obligatoires manquants.");
       return;
     }
+    const nbEleves = (showClose?.reservations || []).filter((r: any) => r.statut !== "annule").length;
+    setConfirmAction({
+      title: "Clôturer le vol",
+      message: `Confirmer la clôture du vol du ${showClose?.date_vol ?? ""} ?\n${nbEleves} élève(s) seront enregistrés comme ayant effectué leur vol.`,
+      variant: "primary",
+      onConfirm: () => doCloseFlight(),
+    });
+  }
+
+  async function doCloseFlight() {
     setSaving(true);
     await supabase
       .from("vols_effectues")
@@ -337,19 +350,16 @@ export default function VolsPage() {
         prenom: r.eleve.parent_prenom || "",
         eleve_prenom: r.eleve.prenom,
         eleve_nom: r.eleve.nom,
+        eleve_id: r.eleve.id,
       }));
   }
 
-  async function handleDeleteSlot(id: string) {
-    // Collect affected parents BEFORE deleting
-    const parents = getAffectedParents(showDetail);
-    const pilotNom = showDetail?.pilote
-      ? `${showDetail.pilote.prenom} ${showDetail.pilote.nom}`
-      : "";
+  async function doDeleteSlot(id: string, slot: any) {
+    const parents = getAffectedParents(slot);
+    const pilotNom = slot?.pilote ? `${slot.pilote.prenom} ${slot.pilote.nom}` : "";
     await supabase.from("creneaux").delete().eq("id", id);
     toast.success("Créneau supprimé");
     setShowDetail(null);
-    // Notify affected parents
     if (parents.length > 0) {
       fetch("/api/email", {
         method: "POST",
@@ -357,8 +367,8 @@ export default function VolsPage() {
         body: JSON.stringify({
           type: "slot_cancelled",
           parents,
-          date_vol: showDetail?.date_vol,
-          heure_debut: showDetail?.heure_debut,
+          date_vol: slot?.date_vol,
+          heure_debut: slot?.heure_debut,
           pilote_nom: pilotNom,
         }),
       }).catch(() => {});
@@ -366,24 +376,24 @@ export default function VolsPage() {
     load();
   }
 
-  async function handleCancelSlot(id: string) {
-    // Collect affected parents BEFORE cancelling
-    const parents = getAffectedParents(showDetail);
-    const pilotNom = showDetail?.pilote
-      ? `${showDetail.pilote.prenom} ${showDetail.pilote.nom}`
-      : "";
-    const slotDate = showDetail?.date_vol;
-    const slotHeure = showDetail?.heure_debut;
+  function handleDeleteSlot(id: string) {
+    const slot = showDetail;
+    const affected = getAffectedParents(slot);
+    setConfirmAction({
+      title: "Supprimer le créneau",
+      message: `Le créneau du ${slot?.date_vol ?? ""} sera définitivement supprimé.${affected.length > 0 ? `\n${affected.length} parent(s) seront notifiés par email.` : ""}`,
+      variant: "danger",
+      onConfirm: () => doDeleteSlot(id, slot),
+    });
+  }
+
+  async function doCancelSlot(id: string, slot: any) {
+    const parents = getAffectedParents(slot);
+    const pilotNom = slot?.pilote ? `${slot.pilote.prenom} ${slot.pilote.nom}` : "";
     await supabase.from("creneaux").update({ statut: "annule" }).eq("id", id);
-    // Also cancel all active reservations on this slot so parents see the cancellation
-    await supabase
-      .from("reservations")
-      .update({ statut: "annule" })
-      .eq("creneau_id", id)
-      .neq("statut", "annule");
+    await supabase.from("reservations").update({ statut: "annule" }).eq("creneau_id", id).neq("statut", "annule");
     toast.success("Créneau annulé");
     setShowDetail(null);
-    // Notify affected parents
     if (parents.length > 0) {
       fetch("/api/email", {
         method: "POST",
@@ -391,13 +401,24 @@ export default function VolsPage() {
         body: JSON.stringify({
           type: "slot_cancelled",
           parents,
-          date_vol: slotDate,
-          heure_debut: slotHeure,
+          date_vol: slot?.date_vol,
+          heure_debut: slot?.heure_debut,
           pilote_nom: pilotNom,
         }),
       }).catch(() => {});
     }
     load();
+  }
+
+  function handleCancelSlot(id: string) {
+    const slot = showDetail;
+    const affected = getAffectedParents(slot);
+    setConfirmAction({
+      title: "Annuler le créneau",
+      message: `Le créneau du ${slot?.date_vol ?? ""} sera marqué comme annulé.${affected.length > 0 ? `\n${affected.length} parent(s) seront notifiés par email.` : ""}`,
+      variant: "danger",
+      onConfirm: () => doCancelSlot(id, slot),
+    });
   }
 
   async function handleEditSlot(updated: any) {
@@ -451,6 +472,7 @@ export default function VolsPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           type: "booking_cancel",
+          eleve_id: removedRes.eleve.id ?? null,
           parent_email: removedRes.eleve.parent_email,
           parent_prenom: removedRes.eleve.parent_prenom || "",
           eleve_prenom: removedRes.eleve.prenom,
@@ -1682,6 +1704,21 @@ export default function VolsPage() {
           </table>
         </div>
       )}
+      <ConfirmModal
+        open={!!confirmAction}
+        title={confirmAction?.title ?? ""}
+        message={confirmAction?.message ?? ""}
+        variant={confirmAction?.variant}
+        loading={confirmLoading}
+        onCancel={() => setConfirmAction(null)}
+        onConfirm={async () => {
+          if (!confirmAction) return;
+          setConfirmLoading(true);
+          await confirmAction.onConfirm();
+          setConfirmLoading(false);
+          setConfirmAction(null);
+        }}
+      />
     </div>
   );
 }

@@ -57,13 +57,16 @@ export async function POST(req: Request) {
   // Send via Resend — no rate limit issues
   if (process.env.RESEND_API_KEY) {
     const resend = new Resend(process.env.RESEND_API_KEY);
-    await resend.emails.send({
-      from:
-        process.env.RESEND_FROM ??
-        "BIA Manager <noreply@bia-manager-acba.vercel.app>",
-      to: email,
-      subject: "Accès BIA Manager — Définissez votre mot de passe",
-      html: `
+    let resendId: string | null = null;
+    let statut = "envoye";
+    try {
+      const result = await resend.emails.send({
+        from:
+          process.env.RESEND_FROM ??
+          "BIA Manager <noreply@bia-manager-acba.vercel.app>",
+        to: email,
+        subject: "Accès BIA Manager — Définissez votre mot de passe",
+        html: `
         <div style="font-family:system-ui,sans-serif;max-width:520px;margin:0 auto;padding:32px 24px;background:#fff">
           <div style="margin-bottom:24px">
             <span style="background:#1b3a5c;color:#fff;padding:6px 14px;border-radius:8px;font-weight:700;font-size:14px">BIA Manager</span>
@@ -79,12 +82,36 @@ export async function POST(req: Request) {
           <p style="color:#aaa;font-size:12px;margin-top:24px">Ce lien est valable 24 heures. Si vous n'avez pas demandé cet accès, ignorez cet email.</p>
         </div>
       `,
-    });
+      });
+      resendId = (result.data as any)?.id ?? null;
+    } catch (err: any) {
+      statut = "erreur";
+    }
+    try {
+      await supabase.from("email_logs").insert({
+        type: "invite",
+        to_email: email,
+        subject: "Accès BIA Manager — Définissez votre mot de passe",
+        eleve_id: null,
+        resend_id: resendId,
+        statut,
+      });
+    } catch { /* ignore logging errors */ }
   } else {
     // Fallback: let Supabase send it (dev without Resend configured)
     await supabase.auth.resetPasswordForEmail(email, {
       redirectTo: `${appUrl}/auth/callback?next=/auth/set-password`,
     });
+    try {
+      await supabase.from("email_logs").insert({
+        type: "invite",
+        to_email: email,
+        subject: "Accès BIA Manager — Définissez votre mot de passe",
+        eleve_id: null,
+        resend_id: null,
+        statut: "envoye",
+      });
+    } catch { /* ignore logging errors */ }
   }
 
   return NextResponse.json({ success: true });

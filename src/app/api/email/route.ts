@@ -77,7 +77,7 @@ export async function POST(req: Request) {
     const body = await req.json();
     const { type } = body;
 
-    const emails: { to: string; subject: string; html: string }[] = [];
+    const emails: { to: string; subject: string; html: string; eleve_id?: string | null }[] = [];
 
     // ─────────────────────────────────────────────────
     // BOOKING CONFIRMED — parent reserves a slot
@@ -215,6 +215,7 @@ export async function POST(req: Request) {
       for (const p of parents || []) {
         emails.push({
           to: p.email,
+          eleve_id: p.eleve_id ?? null,
           subject: `⚠️ Modification de votre créneau — ${fmt(date_vol)}`,
           html: wrap(`
             <h2 style="margin:0 0 4px;font-size:20px;color:#0f172a">Créneau modifié</h2>
@@ -243,6 +244,7 @@ export async function POST(req: Request) {
       for (const p of parents || []) {
         emails.push({
           to: p.email,
+          eleve_id: p.eleve_id ?? null,
           subject: `❌ Créneau annulé — Vol du ${fmt(date_vol)}`,
           html: wrap(`
             <h2 style="margin:0 0 4px;font-size:20px;color:#ef4444">Créneau annulé</h2>
@@ -334,7 +336,7 @@ export async function POST(req: Request) {
           type,
           to_email: e.to,
           subject: e.subject,
-          eleve_id: body.eleve_id ?? null,
+          eleve_id: e.eleve_id !== undefined ? e.eleve_id : (body.eleve_id ?? null),
           resend_id: resendId,
           statut,
         });

@@ -13,6 +13,7 @@ import {
   User,
   AlertCircle,
 } from "lucide-react";
+import ConfirmModal from "@/components/ConfirmModal";
 
 export default function ReservationPage() {
   const supabase = createClient();
@@ -27,6 +28,8 @@ export default function ReservationPage() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const [confirmCancelId, setConfirmCancelId] = useState<string | null>(null);
+  const [confirmCancelLoading, setConfirmCancelLoading] = useState(false);
 
   async function load() {
     const {
@@ -75,7 +78,11 @@ export default function ReservationPage() {
     return { allowed: true };
   }
 
-  async function handleCancel(id: string) {
+  function handleCancel(id: string) {
+    setConfirmCancelId(id);
+  }
+
+  async function doCancel(id: string) {
     setSaving(true);
     // Find the reservation details before cancelling (for the email)
     let cancelledRes: any = null;
@@ -94,6 +101,7 @@ export default function ReservationPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           type: "booking_cancel",
+          eleve_id: cancelledRes.eleve?.id ?? null,
           parent_email: user?.email,
           parent_prenom: cancelledRes.eleve?.parent_prenom || "",
           eleve_prenom: cancelledRes.eleve?.prenom,
@@ -165,6 +173,7 @@ export default function ReservationPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           type: "booking_confirm",
+          eleve_id: bookedEnfant.id ?? null,
           parent_email: user?.email,
           parent_prenom: bookedEnfant.parent_prenom || "",
           eleve_prenom: bookedEnfant.prenom,
@@ -518,6 +527,23 @@ export default function ReservationPage() {
           })}
         </div>
       )}
+
+      <ConfirmModal
+        open={!!confirmCancelId}
+        title="Annuler la réservation"
+        message={"Confirmer l'annulation de cette réservation ?\nUn email de confirmation sera envoyé."}
+        confirmLabel="Annuler la réservation"
+        variant="danger"
+        loading={confirmCancelLoading}
+        onCancel={() => setConfirmCancelId(null)}
+        onConfirm={async () => {
+          if (!confirmCancelId) return;
+          setConfirmCancelLoading(true);
+          await doCancel(confirmCancelId);
+          setConfirmCancelLoading(false);
+          setConfirmCancelId(null);
+        }}
+      />
     </div>
   );
 }

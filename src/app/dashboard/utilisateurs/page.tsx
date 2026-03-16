@@ -15,6 +15,7 @@ import {
   AlertCircle,
   Trash2,
 } from "lucide-react";
+import ConfirmModal from "@/components/ConfirmModal";
 
 const ALL_ROLES = [
   {
@@ -87,6 +88,8 @@ export default function UtilisateursPage() {
   const [bulkProgress, setBulkProgress] = useState(0);
   const [bulkTotal, setBulkTotal] = useState(0);
   const [bulkDone, setBulkDone] = useState(false);
+  const [confirmInvite, setConfirmInvite] = useState<any | null>(null);
+  const [confirmInviteLoading, setConfirmInviteLoading] = useState(false);
 
   async function load() {
     const { data: { user } } = await supabase.auth.getUser();
@@ -266,7 +269,11 @@ export default function UtilisateursPage() {
     load();
   }
 
-  async function handleSendInvite(user: any) {
+  function handleSendInvite(user: any) {
+    setConfirmInvite(user);
+  }
+
+  async function doSendInvite(user: any) {
     setSendingInvite(user.id);
     const tid = toast.loading("Envoi de l'invitation…");
     const res = await fetch("/api/invite", {
@@ -872,6 +879,23 @@ export default function UtilisateursPage() {
           </tbody>
         </table>
       </div>
+
+      <ConfirmModal
+        open={!!confirmInvite}
+        title="Envoyer l'invitation"
+        message={`Envoyer un email d'invitation/accès à ${confirmInvite?.email ?? ""} ?`}
+        confirmLabel="Envoyer"
+        variant="primary"
+        loading={confirmInviteLoading}
+        onCancel={() => setConfirmInvite(null)}
+        onConfirm={async () => {
+          if (!confirmInvite) return;
+          setConfirmInviteLoading(true);
+          await doSendInvite(confirmInvite);
+          setConfirmInviteLoading(false);
+          setConfirmInvite(null);
+        }}
+      />
     </div>
   );
 }
