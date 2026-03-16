@@ -216,6 +216,10 @@ export default function VolsPage() {
       setError("Selectionnez un etablissement.");
       return;
     }
+    if (form.heure_debut && form.heure_fin && form.heure_debut >= form.heure_fin) {
+      setError("L'heure de fin doit être après l'heure de début.");
+      return;
+    }
     const piloteId = isSA && form.pilote_id ? form.pilote_id : profile.id;
     const aeronef = aeronefs.find((a) => a.id === form.aeronef_id);
     setSaving(true);
@@ -423,6 +427,10 @@ export default function VolsPage() {
   }
 
   async function handleEditSlot(updated: any) {
+    if (updated.heure_debut && updated.heure_fin && updated.heure_debut >= updated.heure_fin) {
+      toast.error("L'heure de fin doit être après l'heure de début");
+      return;
+    }
     // Collect affected parents from original slot BEFORE updating
     const parents = getAffectedParents(showEditSlot);
     setSaving(true);

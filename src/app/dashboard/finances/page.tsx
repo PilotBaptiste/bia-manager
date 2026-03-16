@@ -74,7 +74,7 @@ export default function FinancesPage() {
   const totalVol1 = eleves.filter(e => e.vol1_effectue).length;
   const totalVol2 = eleves.filter(e => e.vol2_effectue).length;
   // Use each élève's actual paiement_montant (falls back to default prix_inscription)
-  const recettesInscriptions = eleves.filter(e => e.paiement_effectue).reduce((a, e) => a + (parseFloat(e.paiement_montant) || prixInscription), 0);
+  const recettesInscriptions = eleves.filter(e => e.paiement_effectue).reduce((a, e) => a + (e.paiement_montant != null ? parseFloat(e.paiement_montant) : prixInscription), 0);
   const recettesFede = totalBia * subFede;
   const recettesManuelles = manualOps.filter(o => o.sens === "recette").reduce((a, o) => a + parseFloat(o.montant || 0), 0);
   const depensesManuelles = manualOps.filter(o => o.sens === "depense").reduce((a, o) => a + parseFloat(o.montant || 0), 0);
@@ -130,7 +130,7 @@ export default function FinancesPage() {
       else if (e.vol2_effectue) c += parseFloat(e.vol2_prix) || 0;
       return a + c;
     }, 0);
-    const ins = etEleves.filter(e => e.paiement_effectue).reduce((a, e) => a + (parseFloat(e.paiement_montant) || prixInscription), 0);
+    const ins = etEleves.filter(e => e.paiement_effectue).reduce((a, e) => a + (e.paiement_montant != null ? parseFloat(e.paiement_montant) : prixInscription), 0);
     const fed = etBia * subFede;
     return { nom: et.nom, eleves: etEleves.length, payes: etPaye, ins, bia: etBia, fed, couts: etCout, solde: ins + fed - etCout };
   });
@@ -138,7 +138,7 @@ export default function FinancesPage() {
   // ---------- Operations list (with source tracking) ----------
   const operations: any[] = [];
   eleves.forEach(e => {
-    if (e.paiement_effectue) operations.push({ id: e.id, source: "inscription", date: e.paiement_date || e.created_at, type: "Inscription", sens: "recette", montant: parseFloat(e.paiement_montant) || prixInscription, description: `${e.prenom} ${e.nom}`, etablissement: e.etablissement?.nom, mode: e.paiement_mode });
+    if (e.paiement_effectue) operations.push({ id: e.id, source: "inscription", date: e.paiement_date || e.created_at, type: "Inscription", sens: "recette", montant: e.paiement_montant != null ? parseFloat(e.paiement_montant) : prixInscription, description: `${e.prenom} ${e.nom}`, etablissement: e.etablissement?.nom, mode: e.paiement_mode });
     if (e.bia_resultat && e.bia_resultat !== "Non admis") operations.push({ id: e.id, source: "bia", date: e.bia_date || e.updated_at, type: "Subvention BIA", sens: "recette", montant: subFede, description: `${e.prenom} ${e.nom} — ${e.bia_resultat}`, etablissement: e.etablissement?.nom });
   });
   vols.forEach(v => {
@@ -182,7 +182,10 @@ export default function FinancesPage() {
     } else if (editingOp.source === "bia") {
       await supabase.from("eleves").update({ bia_date: editForm.date || null }).eq("id", editingOp.id);
     } else if (editingOp.source === "vol") {
-      await supabase.from("vols_effectues").update({ prix_total: parseFloat(editForm.montant) || 0, temps_vol_minutes: parseInt(editForm.temps) || null }).eq("id", editingOp.id);
+      const newTemps = editForm.temps !== "" ? parseInt(editForm.temps) : null;
+      const newPrix = editForm.montant !== "" ? parseFloat(editForm.montant) : 0;
+      if (editForm.montant !== "" && isNaN(newPrix)) { setSaving(false); toast.error("Montant invalide"); return; }
+      await supabase.from("vols_effectues").update({ prix_total: newPrix, temps_vol_minutes: (!isNaN(newTemps!) && newTemps !== null) ? newTemps : null }).eq("id", editingOp.id);
     } else {
       await supabase.from("operations_manuelles").update({ type: editForm.type, sens: editForm.sens, date: editForm.date, montant: parseFloat(editForm.montant) || 0, description: editForm.description, etablissement: editForm.etablissement, mode: editForm.mode }).eq("id", editingOp.id);
     }

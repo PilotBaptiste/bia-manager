@@ -294,19 +294,26 @@ export default function UtilisateursPage() {
     setBulkProgress(0);
     setBulkTotal(parentEmails.length);
     setBulkDone(false);
+    let failures = 0;
     for (let i = 0; i < parentEmails.length; i++) {
       const p = parentEmails[i];
-      await fetch("/api/invite", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: p.email, nom: p.nom, prenom: p.prenom }),
-      }).catch(() => {});
+      try {
+        const res = await fetch("/api/invite", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email: p.email, nom: p.nom, prenom: p.prenom }),
+        });
+        if (!res.ok) failures++;
+      } catch {
+        failures++;
+      }
       setBulkProgress(i + 1);
       // Small delay to avoid Resend rate limits
       await new Promise((r) => setTimeout(r, 300));
     }
     setBulkSending(false);
     setBulkDone(true);
+    if (failures > 0) toast.error(`${failures} invitation(s) n'ont pas pu être envoyées`);
   }
 
   const roleColor = (r: string) =>
