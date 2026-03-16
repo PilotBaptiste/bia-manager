@@ -19,6 +19,7 @@ import {
   Edit,
   Save,
   Filter,
+  Download,
 } from "lucide-react";
 import ConfirmModal from "@/components/ConfirmModal";
 
@@ -1621,8 +1622,52 @@ export default function VolsPage() {
       )}
 
       {/* HISTORIQUE */}
-      {mode === "historique" && isSA && (
-        <div className="card p-0 overflow-auto">
+      {mode === "historique" && isSA && (() => {
+        // Count occurrences of each numero_aerogest across all filtered rows
+        const aerogestCount: Record<string, number> = {};
+        for (const v of filteredHisto) {
+          if (v.numero_aerogest) aerogestCount[v.numero_aerogest] = (aerogestCount[v.numero_aerogest] || 0) + 1;
+        }
+
+        function exportComptaCSV() {
+          const headers = ["Date", "Pilote", "Aeronef", "N Aerogest", "Nb partages", "Prix vol total (€)", "Prix par élève (€)", "Temps (min)", "Notes"];
+          const rows = filteredHisto.map((v) => {
+            const n = v.numero_aerogest ? (aerogestCount[v.numero_aerogest] || 1) : 1;
+            const prixEleve = v.prix_total ? (parseFloat(v.prix_total) / n).toFixed(2) : "";
+            return [
+              v.creneau?.date_vol ? new Date(v.creneau.date_vol).toLocaleDateString("fr-FR") : "",
+              v.creneau?.pilote ? `${v.creneau.pilote.prenom} ${v.creneau.pilote.nom}` : "",
+              v.creneau?.aeronef?.type_aeronef || "",
+              v.numero_aerogest || "",
+              n,
+              v.prix_total || "",
+              prixEleve,
+              v.temps_vol_minutes || "",
+              v.notes || "",
+            ];
+          });
+          const csv = [headers, ...rows].map((r) => r.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(";")).join("\n");
+          const url = URL.createObjectURL(new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8;" }));
+          const a = document.createElement("a"); a.href = url;
+          a.download = `compta_vols_${new Date().toISOString().slice(0,10)}.csv`;
+          a.click(); URL.revokeObjectURL(url);
+        }
+
+        return (
+        <div className="space-y-3">
+          <div className="flex items-center justify-between">
+            <p className="text-xs text-gray-500">
+              {filteredHisto.filter((v) => v.numero_aerogest && aerogestCount[v.numero_aerogest] > 1).length > 0 && (
+                <span className="inline-flex items-center gap-1 bg-amber-50 text-amber-700 px-2 py-0.5 rounded-full text-[11px] font-medium">
+                  ⚠ {Object.values(aerogestCount).filter((c) => c > 1).length} N° Aérogest partagé(s) — prix divisé par élève
+                </span>
+              )}
+            </p>
+            <button onClick={exportComptaCSV} className="btn-secondary btn-sm flex items-center gap-1.5">
+              <Download className="w-3.5 h-3.5" /> Export compta CSV
+            </button>
+          </div>
+          <div className="card p-0 overflow-auto">
           <table className="w-full text-sm min-w-[900px]">
             <thead>
               <tr className="bg-gray-50">
@@ -1633,7 +1678,8 @@ export default function VolsPage() {
                   "Eleves",
                   "N Aerogest",
                   "Temps",
-                  "Prix",
+                  "Prix vol",
+                  "Prix/élève",
                   "Notes",
                   "",
                 ].map((h) => (
@@ -1649,24 +1695,17 @@ export default function VolsPage() {
             <tbody>
               {filteredHisto.length === 0 ? (
                 <tr>
-                  <td
-                    colSpan={9}
-                    className="px-3 py-12 text-center text-gray-400"
-                  >
-                    Aucun vol
-                  </td>
+                  <td colSpan={10} className="px-3 py-12 text-center text-gray-400">Aucun vol</td>
                 </tr>
               ) : (
-                filteredHisto.map((v) => (
-                  <tr
-                    key={v.id}
-                    className="border-t border-gray-100 hover:bg-gray-50"
-                  >
+                filteredHisto.map((v) => {
+                  const n = v.numero_aerogest ? (aerogestCount[v.numero_aerogest] || 1) : 1;
+                  const prixEleve = v.prix_total ? parseFloat(v.prix_total) / n : null;
+                  const isShared = n > 1;
+                  return (
+                  <tr key={v.id} className={`border-t border-gray-100 hover:bg-gray-50 ${isShared ? "bg-amber-50/30" : ""}`}>
                     <td className="px-3 py-2.5 font-medium">
-                      {v.creneau?.date_vol &&
-                        new Date(v.creneau.date_vol).toLocaleDateString(
-                          "fr-FR",
-                        )}
+                      {v.creneau?.date_vol && new Date(v.creneau.date_vol).toLocaleDateString("fr-FR")}
                     </td>
                     <td className="px-3 py-2.5">
                       {v.creneau?.pilote?.prenom} {v.creneau?.pilote?.nom}
@@ -1675,35 +1714,41 @@ export default function VolsPage() {
                       {v.creneau?.aeronef?.type_aeronef}
                     </td>
                     <td className="px-3 py-2.5 text-gray-500 text-xs">
-                      {v.creneau?.reservations
-                        ?.map((r: any) => `${r.eleve?.prenom} ${r.eleve?.nom}`)
-                        .join(", ") || "—"}
+                      {v.creneau?.reservations?.map((r: any) => `${r.eleve?.prenom} ${r.eleve?.nom}`).join(", ") || "—"}
                     </td>
                     <td className="px-3 py-2.5 font-mono text-xs">
-                      {v.numero_aerogest}
+                      <span>{v.numero_aerogest}</span>
+                      {isShared && (
+                        <span className="ml-1.5 inline-flex items-center bg-amber-100 text-amber-700 text-[10px] font-bold px-1.5 py-0.5 rounded-full">×{n}</span>
+                      )}
                     </td>
                     <td className="px-3 py-2.5">{v.temps_vol_minutes}min</td>
-                    <td className="px-3 py-2.5 font-semibold">
-                      {v.prix_total}E
+                    <td className="px-3 py-2.5 text-gray-500">
+                      {v.prix_total}€
                     </td>
-                    <td className="px-3 py-2.5 text-gray-400 text-xs">
-                      {v.notes || "—"}
+                    <td className="px-3 py-2.5 font-semibold text-emerald-700">
+                      {prixEleve !== null ? (
+                        <span>
+                          {prixEleve % 1 === 0 ? prixEleve : prixEleve.toFixed(2)}€
+                          {isShared && <span className="text-[10px] font-normal text-amber-600 ml-1">÷{n}</span>}
+                        </span>
+                      ) : "—"}
                     </td>
+                    <td className="px-3 py-2.5 text-gray-400 text-xs">{v.notes || "—"}</td>
                     <td className="px-3 py-2.5">
-                      <button
-                        onClick={() => setEditHisto({ ...v })}
-                        className="btn-secondary btn-sm"
-                      >
+                      <button onClick={() => setEditHisto({ ...v })} className="btn-secondary btn-sm">
                         <Edit className="w-3 h-3" />
                       </button>
                     </td>
                   </tr>
-                ))
+                )})
               )}
             </tbody>
           </table>
+          </div>
         </div>
-      )}
+        );
+      })()}
       <ConfirmModal
         open={!!confirmAction}
         title={confirmAction?.title ?? ""}
