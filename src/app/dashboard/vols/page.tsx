@@ -18,6 +18,7 @@ import {
   History,
   Edit,
   Save,
+  Filter,
 } from "lucide-react";
 
 export default function VolsPage() {
@@ -42,6 +43,12 @@ export default function VolsPage() {
   const [editHisto, setEditHisto] = useState<any>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [filterPilote, setFilterPilote] = useState("");
+  const [filterAeronef, setFilterAeronef] = useState("");
+  const [filterEtab, setFilterEtab] = useState("");
+  const [filterStatut, setFilterStatut] = useState("");
+  const [filterDateFrom, setFilterDateFrom] = useState("");
+  const [filterDateTo, setFilterDateTo] = useState("");
   const [form, setForm] = useState({
     date_vol: "",
     heure_debut: "09:00",
@@ -141,6 +148,17 @@ export default function VolsPage() {
         : isPilote
           ? creneaux.filter((c) => c.pilote_id === profile?.id)
           : creneaux;
+
+  const filteredDisplayed = displayed.filter((c) => {
+    if (filterPilote && c.pilote_id !== filterPilote) return false;
+    if (filterAeronef && c.aeronef_id !== filterAeronef) return false;
+    if (filterEtab && c.etablissement_id !== filterEtab) return false;
+    if (filterStatut && c.statut !== filterStatut) return false;
+    if (filterDateFrom && c.date_vol < filterDateFrom) return false;
+    if (filterDateTo && c.date_vol > filterDateTo) return false;
+    return true;
+  });
+  const hasFilters = !!(filterPilote || filterAeronef || filterEtab || filterStatut || filterDateFrom || filterDateTo);
 
   // Get qualified aeronefs for a pilot — returns [] if no qualifications set
   function getQualifiedAeronefs(pid: string) {
@@ -499,7 +517,7 @@ export default function VolsPage() {
   for (let i = 0; i < fD; i++) cD.push(null);
   for (let d = 1; d <= dIM; d++) cD.push(d);
   const fBD: Record<number, any[]> = {};
-  displayed.forEach((c) => {
+  filteredDisplayed.forEach((c) => {
     const d = new Date(c.date_vol);
     if (d.getMonth() === calMonth && d.getFullYear() === cY) {
       const day = d.getDate();
@@ -1296,7 +1314,10 @@ export default function VolsPage() {
             {isPilote && !isSA ? "Mes creneaux" : "Planning des vols"}
           </h1>
           <p className="text-sm text-gray-500 mt-0.5">
-            {displayed.length} creneau{displayed.length > 1 ? "x" : ""}
+            {filteredDisplayed.length} creneau{filteredDisplayed.length > 1 ? "x" : ""}
+            {hasFilters && displayed.length !== filteredDisplayed.length && (
+              <span className="text-gray-400"> / {displayed.length} total</span>
+            )}
           </p>
         </div>
         <div className="flex gap-2 flex-wrap">
@@ -1332,10 +1353,113 @@ export default function VolsPage() {
         </div>
       </div>
 
+      {/* FILTERS — visible to SA/coordinateur/gérant */}
+      {(isSA || isCoord || isGerant) && (
+        <div className="mb-4 p-3 bg-gray-50 rounded-xl border border-gray-200">
+          <div className="flex flex-wrap gap-2 items-end">
+            {(isSA || isCoord) && (
+              <div className="flex flex-col gap-1 min-w-[140px]">
+                <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Pilote</label>
+                <select
+                  value={filterPilote}
+                  onChange={(e) => setFilterPilote(e.target.value)}
+                  className="select text-sm py-1.5"
+                >
+                  <option value="">Tous</option>
+                  {pilotes.map((p) => (
+                    <option key={p.id} value={p.id}>{p.prenom} {p.nom}</option>
+                  ))}
+                </select>
+              </div>
+            )}
+            <div className="flex flex-col gap-1 min-w-[140px]">
+              <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Aéronef</label>
+              <select
+                value={filterAeronef}
+                onChange={(e) => setFilterAeronef(e.target.value)}
+                className="select text-sm py-1.5"
+              >
+                <option value="">Tous</option>
+                {aeronefs.map((a) => (
+                  <option key={a.id} value={a.id}>{a.type_aeronef} ({a.immatriculation})</option>
+                ))}
+              </select>
+            </div>
+            {(isSA || isCoord) && (
+              <div className="flex flex-col gap-1 min-w-[160px]">
+                <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Établissement</label>
+                <select
+                  value={filterEtab}
+                  onChange={(e) => setFilterEtab(e.target.value)}
+                  className="select text-sm py-1.5"
+                >
+                  <option value="">Tous</option>
+                  {etabs.map((e) => (
+                    <option key={e.id} value={e.id}>{e.nom}</option>
+                  ))}
+                </select>
+              </div>
+            )}
+            <div className="flex flex-col gap-1 min-w-[120px]">
+              <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Statut</label>
+              <select
+                value={filterStatut}
+                onChange={(e) => setFilterStatut(e.target.value)}
+                className="select text-sm py-1.5"
+              >
+                <option value="">Tous</option>
+                <option value="planifie">Planifié</option>
+                <option value="confirme">Confirmé</option>
+                <option value="termine">Terminé</option>
+                <option value="annule">Annulé</option>
+              </select>
+            </div>
+            <div className="flex flex-col gap-1 min-w-[130px]">
+              <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Du</label>
+              <input
+                type="date"
+                value={filterDateFrom}
+                onChange={(e) => setFilterDateFrom(e.target.value)}
+                className="input text-sm py-1.5"
+              />
+            </div>
+            <div className="flex flex-col gap-1 min-w-[130px]">
+              <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Au</label>
+              <input
+                type="date"
+                value={filterDateTo}
+                onChange={(e) => setFilterDateTo(e.target.value)}
+                className="input text-sm py-1.5"
+              />
+            </div>
+            {hasFilters && (
+              <button
+                onClick={() => {
+                  setFilterPilote("");
+                  setFilterAeronef("");
+                  setFilterEtab("");
+                  setFilterStatut("");
+                  setFilterDateFrom("");
+                  setFilterDateTo("");
+                }}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-red-500 hover:text-red-700 hover:bg-red-50 rounded-lg transition-colors self-end"
+              >
+                <X className="w-3.5 h-3.5" /> Réinitialiser
+              </button>
+            )}
+          </div>
+          {hasFilters && (
+            <p className="text-xs text-brand-500 mt-2 flex items-center gap-1">
+              <Filter className="w-3 h-3" /> {filteredDisplayed.length} résultat{filteredDisplayed.length !== 1 ? "s" : ""} sur {displayed.length}
+            </p>
+          )}
+        </div>
+      )}
+
       {/* LIST */}
       {mode === "list" && (() => {
-        const activeSlots = displayed.filter((c) => !["termine", "annule"].includes(c.statut));
-        const pastSlots = displayed.filter((c) => ["termine", "annule"].includes(c.statut));
+        const activeSlots = filteredDisplayed.filter((c) => !["termine", "annule"].includes(c.statut));
+        const pastSlots = filteredDisplayed.filter((c) => ["termine", "annule"].includes(c.statut));
         const SlotCard = ({ c }: { c: any }) => (
           <div
             key={c.id}
