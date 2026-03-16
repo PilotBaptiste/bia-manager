@@ -285,16 +285,32 @@ export default function ElevesPage() {
     setShowForm(true);
   }
 
+  function parseAdresse(adresse: string | null | undefined) {
+    if (!adresse) return { rue: "", cp: "", ville: "" };
+    // Format saved: "rue, CP ville"  e.g. "5 Rue Jean Pierre, 33260 La Teste"
+    const commaIdx = adresse.indexOf(", ");
+    if (commaIdx === -1) {
+      // Maybe just "CP ville" or just "rue"
+      const m = adresse.match(/^(\d{5})\s+(.+)$/);
+      return m ? { rue: "", cp: m[1], ville: m[2] } : { rue: adresse, cp: "", ville: "" };
+    }
+    const rue = adresse.slice(0, commaIdx);
+    const rest = adresse.slice(commaIdx + 2);
+    const m = rest.match(/^(\d{5})\s+(.+)$/);
+    return m ? { rue, cp: m[1], ville: m[2] } : { rue, cp: "", ville: rest };
+  }
+
   function openEdit(s: any) {
     setEditingId(s.id);
+    const addr = parseAdresse(s.adresse);
     setForm({
       nom: s.nom,
       prenom: s.prenom,
       date_naissance: s.date_naissance,
       lieu_naissance: s.lieu_naissance || "",
-      adresse_rue: s.adresse || "",
-      adresse_ville: "",
-      adresse_cp: "",
+      adresse_rue: addr.rue,
+      adresse_cp: addr.cp,
+      adresse_ville: addr.ville,
       etablissement_id: s.etablissement_id || "",
       classe: s.classe || "",
       parent_nom: s.parent_nom,
@@ -586,12 +602,12 @@ export default function ElevesPage() {
               />
             </div>
             <div className="sm:col-span-3">
-              <label className="label">Adresse (rue)</label>
+              <label className="label">Adresse postale</label>
               <input
                 value={form.adresse_rue}
                 onChange={(e) => setForm({ ...form, adresse_rue: e.target.value })}
                 className="input"
-                placeholder="16 rue de Tournon"
+                placeholder="5 rue Jean Pierre"
               />
             </div>
             <div>
