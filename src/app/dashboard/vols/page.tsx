@@ -107,7 +107,7 @@ export default function VolsPage() {
           .select("pilote_id, etablissement_id"),
         supabase
           .from("eleves")
-          .select("id, nom, prenom, etablissement_id, vol1_effectue, vol1_numero_aerogest, vol1_prix, vol1_temps_minutes, vol1_pilote_nom, vol2_effectue, vol2_numero_aerogest, vol2_prix, vol2_temps_minutes, vol2_pilote_nom")
+          .select("id, nom, prenom, etablissement_id, vol1_effectue, vol1_numero_aerogest, vol1_prix, vol1_temps_minutes, vol1_pilote_nom, vol1_aeronef_id, vol2_effectue, vol2_numero_aerogest, vol2_prix, vol2_temps_minutes, vol2_pilote_nom, vol2_aeronef_id")
           .eq("archive", false)
           .order("nom"),
       ]);
@@ -1627,10 +1627,13 @@ export default function VolsPage() {
         const aerogestInVols = new Set<string>(volsHisto.map((v: any) => v.numero_aerogest).filter(Boolean));
 
         // Build manual groups from eleve vol1/vol2 fields (grouped by numero_aerogest, excluding those already in vols_effectues)
-        const manualByAerogest: Record<string, { ids: string[]; noms: string[]; numero_aerogest: string; prix_total: number; temps: number | null; pilote: string; etab_ids: string[] }> = {};
+        const manualByAerogest: Record<string, { ids: string[]; noms: string[]; numero_aerogest: string; prix_total: number; temps: number | null; pilote: string; aeronef_label: string; etab_ids: string[] }> = {};
         for (const e of eleves) {
           if (e.vol1_effectue && e.vol1_numero_aerogest && !aerogestInVols.has(e.vol1_numero_aerogest)) {
-            if (!manualByAerogest[e.vol1_numero_aerogest]) manualByAerogest[e.vol1_numero_aerogest] = { ids: [], noms: [], numero_aerogest: e.vol1_numero_aerogest, prix_total: 0, temps: e.vol1_temps_minutes || null, pilote: e.vol1_pilote_nom || "", etab_ids: [] };
+            if (!manualByAerogest[e.vol1_numero_aerogest]) {
+              const a = e.vol1_aeronef_id ? aeronefs.find((x: any) => x.id === e.vol1_aeronef_id) : null;
+              manualByAerogest[e.vol1_numero_aerogest] = { ids: [], noms: [], numero_aerogest: e.vol1_numero_aerogest, prix_total: 0, temps: e.vol1_temps_minutes || null, pilote: e.vol1_pilote_nom || "", aeronef_label: a ? `${a.type_aeronef} (${a.immatriculation})` : "", etab_ids: [] };
+            }
             const g = manualByAerogest[e.vol1_numero_aerogest];
             g.ids.push(`${e.id}_vol1`);
             g.noms.push(`${e.prenom} ${e.nom}`);
@@ -1638,7 +1641,10 @@ export default function VolsPage() {
             if (e.etablissement_id && !g.etab_ids.includes(e.etablissement_id)) g.etab_ids.push(e.etablissement_id);
           }
           if (e.vol2_effectue && e.vol2_numero_aerogest && !aerogestInVols.has(e.vol2_numero_aerogest)) {
-            if (!manualByAerogest[e.vol2_numero_aerogest]) manualByAerogest[e.vol2_numero_aerogest] = { ids: [], noms: [], numero_aerogest: e.vol2_numero_aerogest, prix_total: 0, temps: e.vol2_temps_minutes || null, pilote: e.vol2_pilote_nom || "", etab_ids: [] };
+            if (!manualByAerogest[e.vol2_numero_aerogest]) {
+              const a = e.vol2_aeronef_id ? aeronefs.find((x: any) => x.id === e.vol2_aeronef_id) : null;
+              manualByAerogest[e.vol2_numero_aerogest] = { ids: [], noms: [], numero_aerogest: e.vol2_numero_aerogest, prix_total: 0, temps: e.vol2_temps_minutes || null, pilote: e.vol2_pilote_nom || "", aeronef_label: a ? `${a.type_aeronef} (${a.immatriculation})` : "", etab_ids: [] };
+            }
             const g = manualByAerogest[e.vol2_numero_aerogest];
             g.ids.push(`${e.id}_vol2`);
             g.noms.push(`${e.prenom} ${e.nom}`);
@@ -1690,7 +1696,7 @@ export default function VolsPage() {
           filteredManual.forEach((g) => {
             const n = g.ids.length;
             const prixEleve = n > 0 ? (g.prix_total / n).toFixed(2) : "";
-            rows.push(["", g.pilote, "", g.noms.join(", "), g.numero_aerogest, n, g.prix_total.toFixed(2), prixEleve, g.temps || "", "manuel"]);
+            rows.push(["", g.pilote, g.aeronef_label, g.noms.join(", "), g.numero_aerogest, n, g.prix_total.toFixed(2), prixEleve, g.temps || "", "manuel"]);
           });
           const csv = [headers, ...rows].map((r) => r.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(";")).join("\n");
           const url = URL.createObjectURL(new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8;" }));
@@ -1765,7 +1771,7 @@ export default function VolsPage() {
                       <tr key={g.numero_aerogest} className={`border-t border-gray-100 hover:bg-gray-50 bg-blue-50/20 ${isShared ? "bg-amber-50/30" : ""}`}>
                         <td className="px-3 py-2.5 text-gray-400 text-[10px] italic">manuel</td>
                         <td className="px-3 py-2.5">{g.pilote || "—"}</td>
-                        <td className="px-3 py-2.5 text-gray-400">—</td>
+                        <td className="px-3 py-2.5 text-gray-500">{g.aeronef_label || "—"}</td>
                         <td className="px-3 py-2.5 text-gray-500 text-xs">{g.noms.join(", ")}</td>
                         <td className="px-3 py-2.5 font-mono text-xs">
                           <span>{g.numero_aerogest}</span>
