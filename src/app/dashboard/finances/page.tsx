@@ -20,6 +20,7 @@ export default function FinancesPage() {
   const [manualOps, setManualOps] = useState<any[]>([]);
   const [prixInscription, setPrixInscription] = useState(80);
   const [subFede, setSubFede] = useState(50);
+  const [nomClub, setNomClub] = useState("");
 
   // Edit state
   const [editingOp, setEditingOp] = useState<any>(null);
@@ -54,6 +55,8 @@ export default function FinancesPage() {
     const sf = params.find((p: any) => p.cle === "subvention_federation");
     if (pi) setPrixInscription(parseFloat(pi.valeur));
     if (sf) setSubFede(parseFloat(sf.valeur));
+    const nc = params.find((p: any) => p.cle === "nom_club");
+    if (nc) setNomClub(nc.valeur);
     setLoading(false);
   }
 
@@ -238,7 +241,7 @@ export default function FinancesPage() {
     <div>
       <div className="mb-6">
         <h1 className="text-xl font-bold text-gray-900">Finances — {new Date().getFullYear()}</h1>
-        <p className="text-sm text-gray-500 mt-0.5">Aero-Club du Bassin d&apos;Arcachon</p>
+        {nomClub && <p className="text-sm text-gray-500 mt-0.5">{nomClub}</p>}
       </div>
 
       {/* Tabs */}

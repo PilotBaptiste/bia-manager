@@ -20,6 +20,7 @@ import {
   Save,
   AlertCircle,
   Mail,
+  Check,
 } from "lucide-react";
 import ConfirmModal from "@/components/ConfirmModal";
 
@@ -123,14 +124,16 @@ export default function ElevesPage() {
   const [formError, setFormError] = useState<string | null>(null);
   const [searchQ, setSearchQ] = useState("");
   const [fEtab, setFEtab] = useState(() => searchParams.get("etablissement") || "all");
-  const [fPaiement, setFPaiement] = useState("all");
-  const [fAttest, setFAttest] = useState("all");
+  const [fPaiement, setFPaiement] = useState(() => searchParams.get("paiement") || "all");
+  const [fAttest, setFAttest] = useState(() => searchParams.get("attestation") || "all");
   const [fVol1, setFVol1] = useState("all");
   const [fBia, setFBia] = useState("all");
-  const [showFilters, setShowFilters] = useState(false);
+  const [showFilters, setShowFilters] = useState(() => !!(searchParams.get("paiement") || searchParams.get("attestation") || searchParams.get("etablissement")));
   const [parentProfiles, setParentProfiles] = useState<Record<string, any>>({});
   const [confirmAction, setConfirmAction] = useState<{ title: string; message: string; variant?: "danger" | "primary"; onConfirm: () => void } | null>(null);
   const [confirmLoading, setConfirmLoading] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [bulkBusy, setBulkBusy] = useState(false);
 
   async function load() {
     const {
@@ -1537,7 +1540,7 @@ export default function ElevesPage() {
                         <p className="font-medium text-gray-800 truncate">{typeMap[log.type] ?? log.type}</p>
                         <p className="text-gray-400">{new Date(log.created_at).toLocaleString("fr-FR", { day: "2-digit", month: "2-digit", year: "2-digit", hour: "2-digit", minute: "2-digit" })}</p>
                       </div>
-                      <span className={`shrink-0 px-2 py-0.5 rounded-full text-[10px] font-bold ${st.cls}`}>{st.label}</span>
+                      <span className={`shrink-0 px-2 py-0.5 rounded-full text-xs font-semibold ${st.cls}`}>{st.label}</span>
                     </div>
                   );
                 })}
@@ -1589,6 +1592,34 @@ export default function ElevesPage() {
       />
       </>
     );
+  }
+
+  async function handleBulkPaid() {
+    if (selectedIds.size === 0) return;
+    setBulkBusy(true);
+    const ids = Array.from(selectedIds);
+    await supabase.from("eleves").update({ paiement_effectue: true }).in("id", ids);
+    toast.success(`${ids.length} paiement${ids.length > 1 ? "s" : ""} validé${ids.length > 1 ? "s" : ""}`);
+    setSelectedIds(new Set());
+    setBulkBusy(false);
+    load();
+  }
+
+  async function handleBulkInvite() {
+    if (selectedIds.size === 0) return;
+    const targets = filtered.filter((e) => selectedIds.has(e.id) && e.parent_email);
+    if (targets.length === 0) { toast.error("Aucun élève sélectionné n'a d'email parent"); return; }
+    setBulkBusy(true);
+    const tid = toast.loading(`Envoi de ${targets.length} invitation${targets.length > 1 ? "s" : ""}…`);
+    let ok = 0;
+    for (const e of targets) {
+      const res = await fetch("/api/invite", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email: e.parent_email, nom: e.parent_nom, prenom: e.parent_prenom }) });
+      if (res.ok) ok++;
+    }
+    toast.dismiss(tid);
+    toast.success(`${ok} invitation${ok > 1 ? "s" : ""} envoyée${ok > 1 ? "s" : ""}`);
+    setSelectedIds(new Set());
+    setBulkBusy(false);
   }
 
   // ══════════════════════════════════════════════════
@@ -1723,6 +1754,19 @@ export default function ElevesPage() {
         </div>
       )}
 
+      {selectedIds.size > 0 && (
+        <div className="mb-3 flex items-center gap-3 p-3 rounded-lg bg-brand-50 border border-brand-200 flex-wrap">
+          <span className="text-sm font-semibold text-brand-700">{selectedIds.size} sélectionné{selectedIds.size > 1 ? "s" : ""}</span>
+          <button onClick={handleBulkPaid} disabled={bulkBusy} className="btn-primary btn-sm">
+            {bulkBusy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />} Marquer payé
+          </button>
+          <button onClick={handleBulkInvite} disabled={bulkBusy} className="btn-secondary btn-sm">
+            {bulkBusy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Mail className="w-3.5 h-3.5" />} Envoyer invitation
+          </button>
+          <button onClick={() => setSelectedIds(new Set())} className="text-xs text-gray-500 hover:text-gray-700 ml-auto">Désélectionner tout</button>
+        </div>
+      )}
+
       {loading ? (
         <div className="flex items-center justify-center h-48">
           <Loader2 className="w-6 h-6 animate-spin text-brand-400" />
@@ -1732,6 +1776,12 @@ export default function ElevesPage() {
           <table className="w-full text-sm min-w-[780px]">
             <thead>
               <tr className="bg-gray-50">
+                <th className="px-3 py-2.5 w-8">
+                  <input type="checkbox" className="rounded"
+                    checked={filtered.length > 0 && filtered.every((s) => selectedIds.has(s.id))}
+                    onChange={(e) => setSelectedIds(e.target.checked ? new Set(filtered.map((s) => s.id)) : new Set())}
+                  />
+                </th>
                 {[
                   "Nom",
                   "Prenom",
@@ -1757,7 +1807,7 @@ export default function ElevesPage() {
               {filtered.length === 0 ? (
                 <tr>
                   <td
-                    colSpan={10}
+                    colSpan={11}
                     className="px-3 py-12 text-center text-gray-400"
                   >
                     {eleves.length === 0 ? (
@@ -1781,8 +1831,18 @@ export default function ElevesPage() {
                   <tr
                     key={s.id}
                     onClick={() => setSelected(s)}
-                    className="border-t border-gray-100 hover:bg-gray-50 cursor-pointer"
+                    className={`border-t border-gray-100 hover:bg-gray-50 cursor-pointer ${selectedIds.has(s.id) ? "bg-brand-50/40" : ""}`}
                   >
+                    <td className="px-3 py-2.5 w-8" onClick={(e) => e.stopPropagation()}>
+                      <input type="checkbox" className="rounded"
+                        checked={selectedIds.has(s.id)}
+                        onChange={(e) => {
+                          const next = new Set(selectedIds);
+                          e.target.checked ? next.add(s.id) : next.delete(s.id);
+                          setSelectedIds(next);
+                        }}
+                      />
+                    </td>
                     <td className="px-3 py-2.5 font-semibold text-gray-900">
                       {s.nom}
                     </td>

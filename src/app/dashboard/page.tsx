@@ -53,16 +53,16 @@ async function DashboardSuperAdmin({ supabase }: { supabase: any }) {
           </div>
           <div className="space-y-2">
             {(nonPayes || 0) > 0 && (
-              <div className="flex items-center gap-2 p-2.5 rounded-lg bg-red-50 text-sm">
+              <Link href="/dashboard/eleves?paiement=non" className="flex items-center gap-2 p-2.5 rounded-lg bg-red-50 text-sm hover:bg-red-100 transition-colors">
                 <AlertCircle className="w-4 h-4 text-red-500 shrink-0" />
                 <span className="text-red-700">{nonPayes} élève{(nonPayes || 0) > 1 ? "s" : ""} — paiement en attente</span>
-              </div>
+              </Link>
             )}
             {(nonSignes || 0) > 0 && (
-              <div className="flex items-center gap-2 p-2.5 rounded-lg bg-amber-50 text-sm">
+              <Link href="/dashboard/eleves?attestation=non" className="flex items-center gap-2 p-2.5 rounded-lg bg-amber-50 text-sm hover:bg-amber-100 transition-colors">
                 <AlertCircle className="w-4 h-4 text-amber-500 shrink-0" />
                 <span className="text-amber-700">{nonSignes} attestation{(nonSignes || 0) > 1 ? "s" : ""} parentale{(nonSignes || 0) > 1 ? "s" : ""} non signée{(nonSignes || 0) > 1 ? "s" : ""}</span>
-              </div>
+              </Link>
             )}
             {(nonPayes || 0) === 0 && (nonSignes || 0) === 0 && (
               <p className="text-sm text-gray-400">Aucune action requise</p>

@@ -435,7 +435,11 @@ export default function ReservationPage() {
                     Aucun creneau disponible pour votre etablissement.
                   </p>
                 ) : (
-                  available.map((c) => (
+                  available.map((c) => {
+                    const capacity = c.aeronef?.nb_places_eleves ?? c.places_disponibles ?? 1;
+                    const activeBookings = (c.reservations || []).filter((r: any) => r.statut !== "annule").length;
+                    const remaining = capacity - activeBookings;
+                    return (
                     <div
                       key={c.id}
                       className="p-4 rounded-lg border border-gray-100 mb-2 hover:border-brand-200 transition-colors"
@@ -454,6 +458,9 @@ export default function ReservationPage() {
                             <p className="text-xs text-gray-500">
                               {c.aeronef?.type_aeronef} (
                               {c.aeronef?.immatriculation})
+                            </p>
+                            <p className={`text-xs font-medium mt-0.5 ${remaining === 1 ? "text-amber-600" : "text-emerald-600"}`}>
+                              {remaining === 1 ? "⚠ Dernière place" : `${remaining} place${remaining > 1 ? "s" : ""} disponible${remaining > 1 ? "s" : ""}`}
                             </p>
                           </div>
                         </div>
@@ -520,7 +527,8 @@ export default function ReservationPage() {
                         )}
                       </div>
                     </div>
-                  ))
+                    );
+                  })
                 )}
               </div>
             );
