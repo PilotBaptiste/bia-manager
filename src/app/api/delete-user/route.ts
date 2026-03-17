@@ -65,6 +65,14 @@ export async function POST(req: Request) {
   }
 
   // ── All clear: delete ────────────────────────────────────────────
+  // Delete related rows first to avoid FK constraint errors on auth.users
+  await supabase.from("email_logs").delete().eq("user_id", userId);
+  await supabase.from("activity_logs").delete().eq("user_id", userId);
+  await supabase.from("notifications").delete().eq("destinataire_id", userId);
+  await supabase.from("pilote_etablissements").delete().eq("pilote_id", userId);
+  await supabase.from("pilote_qualifications").delete().eq("pilote_id", userId);
+  await supabase.from("profiles").delete().eq("id", userId);
+
   const { error } = await supabase.auth.admin.deleteUser(userId);
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 400 });
