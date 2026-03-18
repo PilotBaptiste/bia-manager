@@ -21,6 +21,7 @@ import {
   CalendarPlus,
   UserCheck,
   Upload,
+  Mail,
 } from "lucide-react";
 
 const iconMap: Record<string, any> = {
@@ -38,6 +39,7 @@ const iconMap: Record<string, any> = {
   CalendarPlus,
   UserCheck,
   Upload,
+  Mail,
 };
 
 function getNav(roles: string[]) {
@@ -90,6 +92,7 @@ function getNav(roles: string[]) {
     "superadmin",
   ]);
   add("import", "Import CSV", "Upload", "/dashboard/import", ["superadmin"]);
+  add("messagerie", "Messagerie", "Mail", "/dashboard/messagerie", ["superadmin"]);
   add("archives", "Archives", "Archive", "/dashboard/archives", ["superadmin"]);
 
   // Parent specific

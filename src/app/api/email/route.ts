@@ -296,9 +296,54 @@ export async function POST(req: Request) {
           <div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:14px 16px;margin:16px 0">
             <p style="margin:0;color:#15803d;font-size:13px;font-weight:600">🛫 Prochaine étape : réserver le créneau de vol</p>
           </div>
+          <p style="color:#64748b;font-size:13px;margin:8px 0 20px">Si aucun créneau n'est disponible pour le moment, <strong>ne vous inquiétez pas</strong> — de nouveaux créneaux seront ouverts prochainement et vous recevrez une notification dès qu'ils seront disponibles.</p>
           ${ctaBtn("Réserver le vol maintenant", `${APP_URL}/dashboard/reservation`)}
         `),
       });
+    }
+
+    // ─────────────────────────────────────────────────
+    // NO SLOTS AVAILABLE — notify waiting parents
+    // ─────────────────────────────────────────────────
+    else if (type === "no_slots_available") {
+      const { parents } = body; // [{email, prenom, eleve_prenom, eleve_nom, eleve_id}]
+      for (const p of parents || []) {
+        emails.push({
+          to: p.email,
+          eleve_id: p.eleve_id ?? null,
+          subject: `ℹ️ Plus de créneaux disponibles pour le moment`,
+          html: wrap(`
+            <h2 style="margin:0 0 4px;font-size:20px;color:#0f172a">Plus de créneaux disponibles</h2>
+            <p style="color:#64748b;margin:0 0 20px;font-size:14px">Bonjour ${p.prenom},</p>
+            <p style="color:#374151;font-size:14px;margin:0 0 16px">
+              Tous les créneaux de vol de découverte pour <strong>${p.eleve_prenom} ${p.eleve_nom}</strong> sont actuellement complets.
+            </p>
+            <div style="background:#fefce8;border:1px solid #fde68a;border-radius:8px;padding:14px 16px;margin:16px 0">
+              <p style="margin:0;color:#92400e;font-size:13px;font-weight:600">⏳ Ne vous inquiétez pas !</p>
+              <p style="margin:6px 0 0;color:#78350f;font-size:13px">De nouveaux créneaux seront ouverts prochainement. Vous recevrez un email dès qu'une place sera disponible.</p>
+            </div>
+            <p style="color:#64748b;font-size:13px">Vous pouvez vous connecter à tout moment pour vérifier la disponibilité.</p>
+            ${ctaBtn("Vérifier les créneaux", `${APP_URL}/dashboard/reservation`)}
+          `),
+        });
+      }
+    }
+
+    // ─────────────────────────────────────────────────
+    // CUSTOM — superadmin free-form email
+    // ─────────────────────────────────────────────────
+    else if (type === "custom") {
+      const { recipients, subject: customSubject, body: customBody } = body;
+      for (const r of recipients || []) {
+        emails.push({
+          to: r.email,
+          eleve_id: r.eleve_id ?? null,
+          subject: customSubject,
+          html: wrap(`
+            <div style="color:#374151;font-size:14px;line-height:1.7">${customBody.replace(/\n/g, "<br>")}</div>
+          `),
+        });
+      }
     }
 
     // ─────────────────────────────────────────────────

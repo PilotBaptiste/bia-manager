@@ -189,6 +189,9 @@ export default function ReservationPage() {
           etablissement: creneau.etablissement?.nom || "",
         }),
       }).catch(() => {});
+
+      // After booking, check server-side if any slots remain — notify waiting parents if not (fire-and-forget)
+      fetch("/api/email/check-slots", { method: "POST" }).catch(() => {});
     }
     load();
   }
