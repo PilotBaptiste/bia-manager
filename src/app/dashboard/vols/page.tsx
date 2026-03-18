@@ -53,6 +53,9 @@ export default function VolsPage() {
   const [filterStatut, setFilterStatut] = useState("");
   const [filterDateFrom, setFilterDateFrom] = useState("");
   const [filterDateTo, setFilterDateTo] = useState("");
+  const [showAddEleve, setShowAddEleve] = useState(false);
+  const [addEleveSearch, setAddEleveSearch] = useState("");
+  const [addEleveTypeVol, setAddEleveTypeVol] = useState<1 | 2>(1);
   const [form, setForm] = useState({
     date_vol: "",
     heure_debut: "09:00",
@@ -504,6 +507,39 @@ export default function VolsPage() {
     if (data) setShowDetail(data);
     load();
   }
+  async function handleAddEleve(eleveId: string, typeVol: 1 | 2) {
+    if (!showDetail) return;
+    // Check if a cancelled reservation already exists (reactivate it)
+    const { data: existing } = await supabase
+      .from("reservations")
+      .select("id")
+      .eq("creneau_id", showDetail.id)
+      .eq("eleve_id", eleveId)
+      .eq("statut", "annule")
+      .maybeSingle();
+    let err: any = null;
+    if (existing) {
+      const { error } = await supabase.from("reservations").update({ statut: "reserve", type_vol: typeVol }).eq("id", existing.id);
+      err = error;
+    } else {
+      const { error } = await supabase.from("reservations").insert({ creneau_id: showDetail.id, eleve_id: eleveId, type_vol: typeVol, statut: "reserve" });
+      err = error;
+    }
+    if (err) { toast.error(err.message); return; }
+    const eleve = eleves.find((e: any) => e.id === eleveId);
+    toast.success(`${eleve?.prenom} ${eleve?.nom} ajouté au créneau`);
+    setShowAddEleve(false);
+    setAddEleveSearch("");
+    // Refresh detail
+    const { data } = await supabase
+      .from("creneaux")
+      .select("*, pilote:profiles!pilote_id(nom,prenom,id,email,telephone), aeronef:aeronefs(*), etablissement:etablissements(nom), reservations(*, eleve:eleves(id,nom,prenom,date_naissance,lieu_naissance,classe,commentaires,vol1_temps_minutes,parent_nom,parent_prenom,parent_email,parent_telephone,etablissement:etablissements(nom)))")
+      .eq("id", showDetail.id)
+      .single();
+    if (data) setShowDetail(data);
+    load();
+  }
+
   async function handleSaveHisto() {
     if (!editHisto) return;
     setSaving(true);
@@ -801,7 +837,7 @@ export default function VolsPage() {
       {showDetail && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center p-4"
-          onClick={() => setShowDetail(null)}
+          onClick={() => { setShowDetail(null); setShowAddEleve(false); }}
         >
           <div className="absolute inset-0 bg-black/40" />
           <div
@@ -814,7 +850,7 @@ export default function VolsPage() {
                 {new Date(showDetail.date_vol).toLocaleDateString("fr-FR")}
               </h3>
               <button
-                onClick={() => setShowDetail(null)}
+                onClick={() => { setShowDetail(null); setShowAddEleve(false); }}
                 className="p-1.5 rounded-lg hover:bg-gray-100"
               >
                 <X className="w-4 h-4" />
@@ -859,13 +895,19 @@ export default function VolsPage() {
               )}
             </div>
             <div className="border-t border-gray-100 pt-4 mb-4">
-              <p className="text-sm font-semibold text-gray-900 mb-3">
-                Eleves (
-                {showDetail.reservations?.filter(
-                  (r: any) => r.statut !== "annule",
-                ).length || 0}
-                )
-              </p>
+              <div className="flex items-center justify-between mb-3">
+                <p className="text-sm font-semibold text-gray-900">
+                  Elèves ({showDetail.reservations?.filter((r: any) => r.statut !== "annule").length || 0})
+                </p>
+                {showDetail.statut !== "termine" && showDetail.statut !== "annule" && canCreate && (
+                  <button
+                    onClick={() => { setShowAddEleve(v => !v); setAddEleveSearch(""); }}
+                    className={`flex items-center gap-1 text-xs font-medium px-2.5 py-1 rounded-lg border transition-all ${showAddEleve ? "bg-brand-50 border-brand-200 text-brand-600" : "border-gray-200 text-gray-500 hover:bg-gray-50"}`}
+                  >
+                    <Plus className="w-3.5 h-3.5" /> Ajouter un élève
+                  </button>
+                )}
+              </div>
               {showDetail.reservations
                 ?.filter((r: any) => r.statut !== "annule")
                 .map((r: any, i: number) => (
@@ -963,6 +1005,57 @@ export default function VolsPage() {
                 ).length === 0) && (
                 <p className="text-sm text-gray-400">Aucun eleve</p>
               )}
+
+              {/* ── Add élève panel (superadmin) ── */}
+              {showAddEleve && (() => {
+                const alreadyIn = new Set(
+                  (showDetail.reservations || [])
+                    .filter((r: any) => r.statut !== "annule")
+                    .map((r: any) => r.eleve_id)
+                );
+                const q = addEleveSearch.toLowerCase();
+                const available = eleves.filter((e: any) => {
+                  if (alreadyIn.has(e.id)) return false;
+                  if (showDetail.etablissement_id && e.etablissement_id !== showDetail.etablissement_id) return false;
+                  if (q && !`${e.prenom} ${e.nom}`.toLowerCase().includes(q)) return false;
+                  return true;
+                });
+                return (
+                  <div className="mt-2 p-3 bg-brand-50/40 border border-brand-100 rounded-lg space-y-2">
+                    <div className="flex gap-2">
+                      <input
+                        autoFocus
+                        value={addEleveSearch}
+                        onChange={e => setAddEleveSearch(e.target.value)}
+                        placeholder="Rechercher un élève..."
+                        className="flex-1 px-2.5 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-300 bg-white"
+                      />
+                      <select
+                        value={addEleveTypeVol}
+                        onChange={e => setAddEleveTypeVol(Number(e.target.value) as 1 | 2)}
+                        className="px-2 py-1.5 text-sm border border-gray-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-brand-300"
+                      >
+                        <option value={1}>Vol 1</option>
+                        <option value={2}>Vol 2</option>
+                      </select>
+                    </div>
+                    <div className="max-h-36 overflow-y-auto space-y-1">
+                      {available.length === 0 ? (
+                        <p className="text-xs text-gray-400 py-1">Aucun élève disponible</p>
+                      ) : available.map((e: any) => (
+                        <button
+                          key={e.id}
+                          onClick={() => handleAddEleve(e.id, addEleveTypeVol)}
+                          className="w-full flex items-center justify-between px-2.5 py-1.5 text-sm rounded-lg bg-white border border-gray-100 hover:border-brand-200 hover:bg-brand-50 transition-all text-left"
+                        >
+                          <span className="font-medium text-gray-900">{e.prenom} {e.nom}</span>
+                          <span className="text-xs text-brand-500 font-medium">+ Ajouter</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })()}
             </div>
             {showDetail.statut !== "termine" &&
               showDetail.statut !== "annule" &&
