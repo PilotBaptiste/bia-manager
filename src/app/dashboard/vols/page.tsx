@@ -1174,12 +1174,14 @@ export default function VolsPage() {
                   <input
                     type="number"
                     value={closeForm.temps_vol_minutes}
-                    onChange={(e) =>
-                      setCloseForm({
-                        ...closeForm,
-                        temps_vol_minutes: e.target.value,
-                      })
-                    }
+                    onChange={(e) => {
+                      const mins = e.target.value;
+                      const prixHeure = showClose?.aeronef?.prix_heure;
+                      const auto = prixHeure && mins
+                        ? String(Math.round((parseInt(mins) / 60) * prixHeure * 100) / 100)
+                        : closeForm.prix_total;
+                      setCloseForm({ ...closeForm, temps_vol_minutes: mins, prix_total: auto });
+                    }}
                     className="input"
                   />
                 </div>
@@ -1196,7 +1198,15 @@ export default function VolsPage() {
                 </div>
               </div>
               <div>
-                <label className="label">Prix total (E) *</label>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="label !mb-0">Prix total (€) *</label>
+                  {showClose?.aeronef?.prix_heure && (
+                    <span className="text-[11px] text-gray-400">
+                      Tarif : {showClose.aeronef.prix_heure}€/h
+                      {closeForm.temps_vol_minutes && ` · calculé automatiquement`}
+                    </span>
+                  )}
+                </div>
                 <input
                   type="number"
                   step="0.01"
