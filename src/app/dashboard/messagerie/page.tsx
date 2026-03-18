@@ -18,6 +18,7 @@ export default function MessageriePage() {
   const [selectedEtabs, setSelectedEtabs] = useState<string[]>([]);
   const [selectedEleves, setSelectedEleves] = useState<string[]>([]);
   const [search, setSearch] = useState("");
+  const [filterEtabEleve, setFilterEtabEleve] = useState<string>(""); // filter élèves list by étab
 
   // Step 2 — compose
   const [subject, setSubject] = useState("");
@@ -72,10 +73,12 @@ export default function MessageriePage() {
 
   const filteredEleves = useMemo(() => {
     const q = search.toLowerCase();
-    return eleves.filter(e =>
-      !q || `${e.prenom} ${e.nom} ${e.parent_email}`.toLowerCase().includes(q)
-    );
-  }, [eleves, search]);
+    return eleves.filter(e => {
+      if (filterEtabEleve && e.etablissement_id !== filterEtabEleve) return false;
+      if (q && !`${e.prenom} ${e.nom} ${e.parent_email}`.toLowerCase().includes(q)) return false;
+      return true;
+    });
+  }, [eleves, search, filterEtabEleve]);
 
   async function handleSend() {
     if (!subject.trim() || !body.trim() || recipients.length === 0) return;
@@ -200,14 +203,26 @@ export default function MessageriePage() {
 
           {mode === "eleve" && (
             <div className="space-y-2">
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" />
-                <input
-                  value={search}
-                  onChange={e => setSearch(e.target.value)}
-                  placeholder="Rechercher un élève ou email parent..."
-                  className="w-full pl-8 pr-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-300"
-                />
+              <div className="flex gap-2">
+                <div className="relative flex-1">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" />
+                  <input
+                    value={search}
+                    onChange={e => setSearch(e.target.value)}
+                    placeholder="Rechercher un élève ou email parent..."
+                    className="w-full pl-8 pr-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-300"
+                  />
+                </div>
+                <select
+                  value={filterEtabEleve}
+                  onChange={e => setFilterEtabEleve(e.target.value)}
+                  className="pl-3 pr-8 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-300 bg-white text-gray-700"
+                >
+                  <option value="">Tous les établissements</option>
+                  {etablissements.map(et => (
+                    <option key={et.id} value={et.id}>{et.nom}</option>
+                  ))}
+                </select>
               </div>
               <div className="space-y-1 max-h-60 overflow-y-auto">
                 {filteredEleves.map(e => {

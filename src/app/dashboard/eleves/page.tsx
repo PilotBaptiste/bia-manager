@@ -1625,10 +1625,12 @@ export default function ElevesPage() {
     if (selectedIds.size === 0) return;
     const targets = filtered.filter((e) => selectedIds.has(e.id) && e.parent_email);
     if (targets.length === 0) { toast.error("Aucun élève sélectionné n'a d'email parent"); return; }
+    // Deduplicate by parent_email — a parent with multiple children only gets one invite
+    const unique = Array.from(new Map(targets.map(e => [e.parent_email, e])).values());
     setBulkBusy(true);
-    const tid = toast.loading(`Envoi de ${targets.length} invitation${targets.length > 1 ? "s" : ""}…`);
+    const tid = toast.loading(`Envoi de ${unique.length} invitation${unique.length > 1 ? "s" : ""}…`);
     let ok = 0;
-    for (const e of targets) {
+    for (const e of unique) {
       const res = await fetch("/api/invite", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email: e.parent_email, nom: e.parent_nom, prenom: e.parent_prenom }) });
       if (res.ok) ok++;
     }
