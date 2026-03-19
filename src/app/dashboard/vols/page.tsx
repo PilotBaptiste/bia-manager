@@ -1457,10 +1457,16 @@ export default function VolsPage() {
             {isPilote && !isSA ? "Mes creneaux" : "Planning des vols"}
           </h1>
           <p className="text-sm text-gray-500 mt-0.5">
-            {filteredDisplayed.length} creneau{filteredDisplayed.length > 1 ? "x" : ""}
-            {hasFilters && displayed.length !== filteredDisplayed.length && (
-              <span className="text-gray-400"> / {displayed.length} total</span>
-            )}
+            {(() => {
+              const activeCount = filteredDisplayed.filter(c => c.statut !== "termine" && c.statut !== "annule").length;
+              const totalActive = displayed.filter(c => c.statut !== "termine" && c.statut !== "annule").length;
+              return <>
+                {activeCount} créneau{activeCount > 1 ? "x" : ""} actif{activeCount > 1 ? "s" : ""}
+                {hasFilters && totalActive !== activeCount && (
+                  <span className="text-gray-400"> / {totalActive} total</span>
+                )}
+              </>;
+            })()}
           </p>
         </div>
         <div className="flex gap-2 flex-wrap">
