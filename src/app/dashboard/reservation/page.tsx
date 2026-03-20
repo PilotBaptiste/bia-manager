@@ -190,8 +190,6 @@ export default function ReservationPage() {
         }),
       }).catch(() => {});
 
-      // After booking, check server-side if any slots remain — notify waiting parents if not (fire-and-forget)
-      fetch("/api/email/check-slots", { method: "POST" }).catch(() => {});
     }
     load();
   }
