@@ -90,6 +90,7 @@ export default function UtilisateursPage() {
   const [bulkDone, setBulkDone] = useState(false);
   const [confirmInvite, setConfirmInvite] = useState<any | null>(null);
   const [confirmInviteLoading, setConfirmInviteLoading] = useState(false);
+  const [authStatus, setAuthStatus] = useState<Record<string, { confirmed: boolean }>>({});
 
   async function load() {
     const { data: { user } } = await supabase.auth.getUser();
@@ -113,6 +114,8 @@ export default function UtilisateursPage() {
     setUsers(usersRes.data || []);
     setEtabs(etabsRes.data || []);
     setIsSA(profRes.data?.roles?.includes("superadmin") ?? false);
+    // Fetch auth confirmation status (superadmin only — best-effort)
+    fetch("/api/admin/users-status").then(r => r.json()).then(setAuthStatus).catch(() => {});
     // Build unique parent email list for bulk invite
     const seen = new Set<string>();
     const pList: { email: string; nom: string; prenom: string }[] = [];
@@ -843,7 +846,15 @@ export default function UtilisateursPage() {
                   </td>
                   <td className="px-3 py-2.5 text-gray-500 text-xs">{u.etablissement?.nom || "—"}</td>
                   <td className="px-3 py-2.5">
-                    <span className={u.actif ? "dot-success" : "dot-danger"} />
+                    {(() => {
+                      const confirmed = authStatus[u.id]?.confirmed;
+                      // If we have auth data: pending = not confirmed, active = confirmed+actif, disabled = confirmed+!actif
+                      if (authStatus[u.id] !== undefined) {
+                        if (!confirmed) return <span className="dot-pending" title="Invitation envoyée — mot de passe non défini" />;
+                        return <span className={u.actif ? "dot-success" : "dot-danger"} />;
+                      }
+                      return <span className={u.actif ? "dot-success" : "dot-danger"} />;
+                    })()}
                   </td>
                   <td className="px-3 py-2.5">
                     <button

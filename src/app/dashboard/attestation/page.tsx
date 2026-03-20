@@ -393,6 +393,23 @@ export default function AttestationPage() {
 
       setSaving(false);
       setSigning(null);
+      // If paiement is also validated → auto-send attestation_ready email (parent action, not admin)
+      if (enfant.paiement_effectue) {
+        const { data: { user } } = await supabase.auth.getUser();
+        fetch("/api/email", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            type: "attestation_ready",
+            eleve_id: enfant.id,
+            parent_email: user?.email,
+            parent_prenom: enfant.parent_prenom || "",
+            eleve_prenom: enfant.prenom,
+            eleve_nom: enfant.nom,
+            etablissement: enfant.etablissement?.nom || "",
+          }),
+        }).catch(() => {});
+      }
       window.location.reload();
     } catch (err: any) {
       setError(err.message || "Erreur lors de la signature");
