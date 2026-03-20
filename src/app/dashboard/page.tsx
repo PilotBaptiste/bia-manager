@@ -266,8 +266,9 @@ async function DashboardParent({ supabase, profile }: { supabase: any; profile: 
   ]);
   const enfants = mesEnfants || [];
   const params = Object.fromEntries((paramsData || []).map((p: any) => [p.cle, p.valeur]));
-  const contactEmail = params["contact_email"] || "contact@acba.fr";
-  const contactTel = params["contact_telephone"] || null;
+  const contactNom = params["nom_aeroclub"] || "Aéro-Club du Bassin d'Arcachon";
+  const contactEmail = params["email_aeroclub"] || "contact@acba.fr";
+  const contactTel = params["telephone_aeroclub"] || null;
 
   return (
     <div>
@@ -380,7 +381,7 @@ async function DashboardParent({ supabase, profile }: { supabase: any; profile: 
       {/* Contact */}
       <div className="card mt-4">
         <h2 className="text-sm font-semibold text-gray-900 mb-2">Contact</h2>
-        <p className="text-sm text-gray-500">Aéro-Club du Bassin d&apos;Arcachon</p>
+        <p className="text-sm text-gray-700 font-medium">{contactNom}</p>
         <p className="text-sm text-gray-500">{contactEmail}</p>
         {contactTel && <p className="text-sm text-gray-500">{contactTel}</p>}
       </div>

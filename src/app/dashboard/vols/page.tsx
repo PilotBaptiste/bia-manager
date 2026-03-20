@@ -244,6 +244,22 @@ export default function VolsPage() {
       return;
     }
     setShowCreate(false);
+    // Notify eligible parents that a new slot is available (fire-and-forget)
+    const pilote = pilotes.find((p: any) => p.id === piloteId) || (isSA ? null : profile);
+    const aeronefObj = aeronefs.find((a: any) => a.id === form.aeronef_id);
+    fetch("/api/email/notify-slot", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        etablissement_id: form.etablissement_id || null,
+        eleves_autorises: form.eleves_autorises.length > 0 ? form.eleves_autorises : null,
+        date_vol: form.date_vol,
+        heure_debut: form.heure_debut,
+        heure_fin: form.heure_fin,
+        pilote_nom: pilote ? `${pilote.prenom} ${pilote.nom}` : "",
+        aeronef: aeronefObj ? `${aeronefObj.type_aeronef} (${aeronefObj.immatriculation})` : "",
+      }),
+    }).catch(() => {});
     setForm({
       date_vol: "",
       heure_debut: "09:00",

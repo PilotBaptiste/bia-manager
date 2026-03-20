@@ -266,6 +266,38 @@ export async function POST(req: Request) {
     }
 
     // ─────────────────────────────────────────────────
+    // SLOT AVAILABLE — new créneau created, notify parents
+    // ─────────────────────────────────────────────────
+    else if (type === "slot_available") {
+      const { parents, date_vol, heure_debut, heure_fin, pilote_nom, aeronef } = body;
+      for (const p of parents || []) {
+        emails.push({
+          to: p.email,
+          eleve_id: p.eleve_id ?? null,
+          subject: `✈️ Un créneau de vol est disponible pour ${p.eleve_prenom} !`,
+          html: wrap(`
+            <h2 style="margin:0 0 4px;font-size:20px;color:#0f172a">Un créneau de vol est disponible !</h2>
+            <p style="color:#64748b;margin:0 0 20px;font-size:14px">Bonjour ${p.prenom},</p>
+            <p style="color:#374151;font-size:14px;margin:0 0 8px">
+              Un nouveau créneau de vol de découverte vient d'être ouvert pour <strong>${p.eleve_prenom} ${p.eleve_nom}</strong>. Vous pouvez dès maintenant réserver votre place !
+            </p>
+            ${infoBox([
+              { label: "📅 Date", value: date_vol },
+              { label: "⏰ Horaire", value: `${heure_debut} – ${heure_fin}` },
+              ...(aeronef ? [{ label: "✈️ Appareil", value: aeronef }] : []),
+              ...(pilote_nom ? [{ label: "👨‍✈️ Pilote", value: pilote_nom }] : []),
+            ])}
+            <div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;padding:14px 16px;margin:16px 0">
+              <p style="margin:0;color:#1e40af;font-size:13px;font-weight:600">💺 Il y a de la place pour tout le monde</p>
+              <p style="margin:6px 0 0;color:#1d4ed8;font-size:13px">Ne tardez pas à réserver, les créneaux se remplissent vite. Si celui-ci est déjà complet, d'autres seront ouverts prochainement.</p>
+            </div>
+            ${ctaBtn("Réserver ce créneau", `${APP_URL}/dashboard/reservation`)}
+          `),
+        });
+      }
+    }
+
+    // ─────────────────────────────────────────────────
     // ATTESTATION + PAIEMENT READY — parent can book
     // ─────────────────────────────────────────────────
     else if (type === "attestation_ready") {
@@ -296,7 +328,10 @@ export async function POST(req: Request) {
           <div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:14px 16px;margin:16px 0">
             <p style="margin:0;color:#15803d;font-size:13px;font-weight:600">🛫 Prochaine étape : réserver le créneau de vol</p>
           </div>
-          <p style="color:#64748b;font-size:13px;margin:8px 0 20px">Si aucun créneau n'est disponible pour le moment, <strong>ne vous inquiétez pas</strong> — de nouveaux créneaux seront ouverts prochainement et vous recevrez une notification dès qu'ils seront disponibles.</p>
+          <div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;padding:14px 16px;margin:16px 0">
+            <p style="margin:0;color:#1e40af;font-size:13px;font-weight:600">💺 Il y a de la place pour tout le monde !</p>
+            <p style="margin:6px 0 0;color:#1d4ed8;font-size:13px">Si aucun créneau n'est disponible pour le moment, <strong>ne vous inquiétez pas</strong> — de nouveaux créneaux seront ouverts prochainement et vous recevrez une notification dès qu'il y en aura un.</p>
+          </div>
           ${ctaBtn("Réserver le vol maintenant", `${APP_URL}/dashboard/reservation`)}
         `),
       });
