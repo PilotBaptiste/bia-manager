@@ -7,8 +7,12 @@ import { NextResponse } from "next/server";
  *
  * Eligibility: paiement_effectue + attestation_signee + no active vol1 reservation + not archived
  *
+ * Anti-spam: Only sends if there were NO other open slots for the same scope before this one.
+ * This prevents spamming parents every time a slot is added when slots already exist.
+ * Exception: eleves_autorises slots always notify (they are targeted to specific students).
+ *
  * Scoping:
- *   - eleves_autorises (array of eleve IDs) → only those specific students' parents
+ *   - eleves_autorises (array of eleve IDs) → only those specific students' parents (always notifies)
  *   - else etablissement_id → only parents of students in that etablissement
  *   - else → all eligible parents
  *
@@ -27,6 +31,25 @@ export async function POST(req: Request) {
   const body = await req.json();
   const { creneau_id, etablissement_id, eleves_autorises, date_vol, heure_debut, heure_fin, pilote_nom, aeronef } = body;
 
+  // Anti-spam: skip if slots already existed for this scope (unless targeting specific students)
+  const isTargeted = eleves_autorises && eleves_autorises.length > 0;
+  if (!isTargeted) {
+    let countQuery = supabase
+      .from("creneaux")
+      .select("id", { count: "exact", head: true })
+      .eq("statut", "ouvert");
+    if (creneau_id) countQuery = countQuery.neq("id", creneau_id);
+    if (etablissement_id) {
+      countQuery = countQuery.eq("etablissement_id", etablissement_id);
+    } else {
+      countQuery = countQuery.is("etablissement_id", null);
+    }
+    const { count: existingCount } = await countQuery;
+    if (existingCount && existingCount > 0) {
+      return NextResponse.json({ sent: 0, reason: "slots_already_available" });
+    }
+  }
+
   // Build eligible eleves query
   let query = supabase
     .from("eleves")
@@ -37,7 +60,7 @@ export async function POST(req: Request) {
     .eq("vol1_effectue", false)
     .not("parent_email", "is", null);
 
-  if (eleves_autorises && eleves_autorises.length > 0) {
+  if (isTargeted) {
     query = query.in("id", eleves_autorises);
   } else if (etablissement_id) {
     query = query.eq("etablissement_id", etablissement_id);
@@ -53,7 +76,23 @@ export async function POST(req: Request) {
     return !activeVol1 && e.parent_email;
   });
 
-  if (eligible.length === 0) {
+  // Deduplicate by email
+  const seen = new Set<string>();
+  const parents = eligible
+    .filter((e: any) => {
+      if (seen.has(e.parent_email)) return false;
+      seen.add(e.parent_email);
+      return true;
+    })
+    .map((e: any) => ({
+      email: e.parent_email,
+      prenom: e.parent_prenom || "",
+      eleve_prenom: e.prenom,
+      eleve_nom: e.nom,
+      eleve_id: e.id,
+    }));
+
+  if (parents.length === 0) {
     return NextResponse.json({ sent: 0 });
   }
 
@@ -64,14 +103,6 @@ export async function POST(req: Request) {
   const heureFormatted = heure_debut?.slice(0, 5) || "";
 
   const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "https://bia-manager-acba.vercel.app";
-
-  const parents = eligible.map((e: any) => ({
-    email: e.parent_email,
-    prenom: e.parent_prenom || "",
-    eleve_prenom: e.prenom,
-    eleve_nom: e.nom,
-    eleve_id: e.id,
-  }));
 
   const res = await fetch(`${appUrl}/api/email`, {
     method: "POST",
