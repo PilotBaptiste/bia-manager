@@ -478,8 +478,13 @@ export default function VolsPage() {
     if (err) { toast.error(err.message); return; }
     toast.success("Créneau modifié");
     setShowEditSlot(null);
-    // Notify affected parents about the modification
-    if (parents.length > 0) {
+    // Notify affected parents only if date/time/aeronef changed (not just notes)
+    const slotChanged =
+      updated.date_vol !== showEditSlot.date_vol ||
+      updated.heure_debut !== showEditSlot.heure_debut ||
+      updated.heure_fin !== showEditSlot.heure_fin ||
+      updated.aeronef_id !== showEditSlot.aeronef_id;
+    if (parents.length > 0 && slotChanged) {
       const aeronef = aeronefs.find((a: any) => a.id === updated.aeronef_id);
       const etab = etabs.find((e: any) => e.id === updated.etablissement_id);
       fetch("/api/email", {

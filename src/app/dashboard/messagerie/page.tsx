@@ -28,10 +28,13 @@ export default function MessageriePage() {
   const [sending, setSending] = useState(false);
   const [result, setResult] = useState<{ sent: number; errors?: string[] } | null>(null);
   const [sendError, setSendError] = useState<string | null>(null);
+  const [senderEmail, setSenderEmail] = useState<string>("");
 
   useEffect(() => {
     async function load() {
       setLoading(true);
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user?.email) setSenderEmail(user.email);
       const [{ data: etabs }, { data: elevesData }] = await Promise.all([
         supabase.from("etablissements").select("id, nom").order("nom"),
         supabase.from("eleves")
@@ -93,6 +96,7 @@ export default function MessageriePage() {
           recipients: recipients.map(r => ({ email: r.email, eleve_id: r.eleve_id })),
           subject,
           body,
+          sender_email: senderEmail,
         }),
       });
       const data = await res.json();

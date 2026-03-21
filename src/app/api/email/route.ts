@@ -368,7 +368,10 @@ export async function POST(req: Request) {
     // CUSTOM — superadmin free-form email
     // ─────────────────────────────────────────────────
     else if (type === "custom") {
-      const { recipients, subject: customSubject, body: customBody } = body;
+      const { recipients, subject: customSubject, body: customBody, sender_email } = body;
+      const replyLine = sender_email
+        ? `<p style="margin-top:20px;padding-top:16px;border-top:1px solid #f1f5f9;color:#64748b;font-size:13px">Si vous souhaitez nous répondre, merci de nous envoyer un mail à : <a href="mailto:${sender_email}" style="color:#1b3a5c;font-weight:600">${sender_email}</a></p>`
+        : "";
       for (const r of recipients || []) {
         emails.push({
           to: r.email,
@@ -376,6 +379,7 @@ export async function POST(req: Request) {
           subject: customSubject,
           html: wrap(`
             <div style="color:#374151;font-size:14px;line-height:1.7">${customBody.replace(/\n/g, "<br>")}</div>
+            ${replyLine}
           `),
         });
       }
