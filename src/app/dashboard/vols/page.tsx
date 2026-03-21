@@ -1317,41 +1317,72 @@ export default function VolsPage() {
                   {aeronefs.map((a) => <option key={a.id} value={a.id}>{a.type_aeronef} ({a.immatriculation}) — {a.prix_heure}E/h</option>)}
                 </select>
               </div>
+              {/* Établissement — single select, checkbox style */}
               <div>
                 <label className="label">Établissement</label>
-                <select value={showEditSlot.etablissement_id || ""} onChange={(e) => setShowEditSlot({ ...showEditSlot, etablissement_id: e.target.value })} className="select">
-                  <option value="">Tous</option>
-                  {etabs.map((e) => <option key={e.id} value={e.id}>{e.nom}</option>)}
-                </select>
-              </div>
-              {/* Student picker */}
-              {(() => {
-                const elevesDispo = eleves.filter((el) => showEditSlot.etablissement_id ? el.etablissement_id === showEditSlot.etablissement_id : true);
-                if (elevesDispo.length === 0) return null;
-                const allSelected = (showEditSlot.eleves_autorises || []).length === 0;
-                return (
-                  <div>
-                    <label className="label">Élèves autorisés <span className="normal-case font-normal text-gray-400">(vide = tous)</span></label>
-                    <div className="border border-gray-200 rounded-lg overflow-hidden">
-                      <button type="button" onClick={() => setShowEditSlot({ ...showEditSlot, eleves_autorises: [] })} className={`w-full flex items-center gap-2 px-3 py-2 text-sm border-b border-gray-100 transition-colors ${allSelected ? "bg-brand-50 text-brand-600 font-semibold" : "text-gray-500 hover:bg-gray-50"}`}>
-                        <span className={`w-4 h-4 rounded border-2 flex items-center justify-center shrink-0 ${allSelected ? "border-brand-500 bg-brand-500" : "border-gray-300"}`}>{allSelected && <Check className="w-2.5 h-2.5 text-white" />}</span>
-                        Tous les élèves
-                      </button>
-                      <div className="max-h-40 overflow-y-auto">
-                        {elevesDispo.map((el) => {
-                          const checked = (showEditSlot.eleves_autorises || []).includes(el.id);
-                          return (
-                            <button key={el.id} type="button" onClick={() => { const next = checked ? (showEditSlot.eleves_autorises || []).filter((x: string) => x !== el.id) : [...(showEditSlot.eleves_autorises || []), el.id]; setShowEditSlot({ ...showEditSlot, eleves_autorises: next }); }} className={`w-full flex items-center gap-2 px-3 py-2 text-sm border-b border-gray-50 last:border-0 transition-colors ${checked ? "bg-brand-50 text-brand-700" : "text-gray-700 hover:bg-gray-50"}`}>
-                              <span className={`w-4 h-4 rounded border-2 flex items-center justify-center shrink-0 ${checked ? "border-brand-500 bg-brand-500" : "border-gray-300"}`}>{checked && <Check className="w-2.5 h-2.5 text-white" />}</span>
-                              {el.prenom} {el.nom}
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </div>
+                <div className="border border-gray-200 rounded-lg overflow-hidden">
+                  <button
+                    type="button"
+                    onClick={() => setShowEditSlot({ ...showEditSlot, etablissement_id: "", eleves_autorises: [] })}
+                    className={`w-full flex items-center gap-2 px-3 py-2 text-sm border-b border-gray-100 transition-colors ${!showEditSlot.etablissement_id ? "bg-brand-50 text-brand-600 font-semibold" : "text-gray-500 hover:bg-gray-50"}`}
+                  >
+                    <span className={`w-4 h-4 rounded border-2 flex items-center justify-center shrink-0 ${!showEditSlot.etablissement_id ? "border-brand-500 bg-brand-500" : "border-gray-300"}`}>
+                      {!showEditSlot.etablissement_id && <Check className="w-2.5 h-2.5 text-white" />}
+                    </span>
+                    Tous les établissements
+                  </button>
+                  <div className="max-h-36 overflow-y-auto">
+                    {(isSA ? etabs : getPiloteEtabsList(profile?.id || "")).map((etab) => {
+                      const isSelected = showEditSlot.etablissement_id === etab.id;
+                      const etabEleves = eleves.filter((el) => el.etablissement_id === etab.id);
+                      const elevsSelected: string[] = showEditSlot.eleves_autorises || [];
+                      return (
+                        <div key={etab.id} className="border-b border-gray-50 last:border-0">
+                          <button
+                            type="button"
+                            onClick={() => setShowEditSlot({ ...showEditSlot, etablissement_id: isSelected ? "" : etab.id, eleves_autorises: [] })}
+                            className={`w-full flex items-center gap-2 px-3 py-2 text-sm transition-colors ${isSelected ? "bg-brand-50 text-brand-700 font-semibold" : "text-gray-700 hover:bg-gray-50"}`}
+                          >
+                            <span className={`w-4 h-4 rounded border-2 flex items-center justify-center shrink-0 ${isSelected ? "border-brand-500 bg-brand-500" : "border-gray-300"}`}>
+                              {isSelected && <Check className="w-2.5 h-2.5 text-white" />}
+                            </span>
+                            {etab.nom}
+                          </button>
+                          {/* Per-étab eleves_autorises — inline, same as creation */}
+                          {isSelected && etabEleves.length > 0 && (
+                            <div className="px-3 pb-2 bg-brand-50/50">
+                              <p className="text-[10px] text-gray-400 mb-1.5">Restreindre à des élèves spécifiques (optionnel) :</p>
+                              <div className="flex flex-wrap gap-1">
+                                {etabEleves.map((el) => {
+                                  const sel = elevsSelected.includes(el.id);
+                                  return (
+                                    <button
+                                      key={el.id}
+                                      type="button"
+                                      onClick={() => {
+                                        const next = sel
+                                          ? elevsSelected.filter((x) => x !== el.id)
+                                          : [...elevsSelected, el.id];
+                                        setShowEditSlot({ ...showEditSlot, eleves_autorises: next });
+                                      }}
+                                      className={`text-[11px] px-2 py-0.5 rounded-full border transition-colors ${sel ? "bg-brand-500 text-white border-brand-500" : "text-gray-600 border-gray-300 hover:border-brand-300"}`}
+                                    >
+                                      {el.prenom} {el.nom}
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                              {elevsSelected.length > 0 && (
+                                <p className="text-[10px] text-brand-500 mt-1">{elevsSelected.length} élève{elevsSelected.length > 1 ? "s" : ""} sélectionné{elevsSelected.length > 1 ? "s" : ""}</p>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
                   </div>
-                );
-              })()}
+                </div>
+              </div>
               <div>
                 <label className="label">Notes</label>
                 <textarea value={showEditSlot.notes_pilote || ""} onChange={(e) => setShowEditSlot({ ...showEditSlot, notes_pilote: e.target.value })} className="input min-h-[60px]" />
