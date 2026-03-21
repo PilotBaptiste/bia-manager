@@ -56,27 +56,15 @@ export default function VolsPage() {
   const [showAddEleve, setShowAddEleve] = useState(false);
   const [addEleveSearch, setAddEleveSearch] = useState("");
   const [addEleveTypeVol, setAddEleveTypeVol] = useState<1 | 2>(1);
-  const [showDirectVol, setShowDirectVol] = useState(false);
-  const [directForm, setDirectForm] = useState({
-    date_vol: "",
-    aeronef_id: "",
-    pilote_id: "",
-    temps_vol_minutes: "",
-    prix_total: "",
-    numero_aerogest: "",
-    notes: "",
-  });
-  const [directEleves, setDirectEleves] = useState<{ eleve_id: string; type_vol: 1 | 2 }[]>([]);
-  const [directSearch, setDirectSearch] = useState("");
   const [form, setForm] = useState({
     date_vol: "",
     heure_debut: "09:00",
     heure_fin: "10:00",
     aeronef_id: "",
-    etablissement_id: "",
+    etablissements: [] as string[],
+    elevesByEtab: {} as Record<string, string[]>,
     notes_pilote: "",
     pilote_id: "",
-    eleves_autorises: [] as string[],
   });
   const [closeForm, setCloseForm] = useState({
     numero_aerogest: "",
@@ -227,8 +215,8 @@ export default function VolsPage() {
       setError("Aucun etablissement assigne. Contactez le SuperAdmin.");
       return;
     }
-    if (!isSA && !form.etablissement_id) {
-      setError("Selectionnez un etablissement.");
+    if (!isSA && form.etablissements.length === 0) {
+      setError("Selectionnez au moins un etablissement.");
       return;
     }
     if (form.heure_debut && form.heure_fin && form.heure_debut >= form.heure_fin) {
@@ -237,51 +225,61 @@ export default function VolsPage() {
     }
     const piloteId = isSA && form.pilote_id ? form.pilote_id : profile.id;
     const aeronef = aeronefs.find((a) => a.id === form.aeronef_id);
-    setSaving(true);
-    const { data: created, error: err } = await supabase.from("creneaux").insert({
-      pilote_id: piloteId,
-      aeronef_id: form.aeronef_id,
-      annee_id: anneeId,
-      etablissement_id: form.etablissement_id || null,
-      date_vol: form.date_vol,
-      heure_debut: form.heure_debut,
-      heure_fin: form.heure_fin,
-      places_disponibles: aeronef?.nb_places_eleves || 2,
-      notes_pilote: form.notes_pilote || null,
-      eleves_autorises: form.eleves_autorises.length > 0 ? form.eleves_autorises : null,
-    }).select("id").single();
-    setSaving(false);
-    if (err) {
-      setError(err.message);
-      return;
-    }
-    setShowCreate(false);
-    // Notify eligible parents only if no open slots already existed for this scope (anti-spam)
-    const pilote = pilotes.find((p: any) => p.id === piloteId) || (isSA ? null : profile);
+    const piloteObj = pilotes.find((p: any) => p.id === piloteId) || (isSA ? null : profile);
+    const piloteNom = piloteObj ? `${piloteObj.prenom} ${piloteObj.nom}` : "";
     const aeronefObj = aeronefs.find((a: any) => a.id === form.aeronef_id);
-    fetch("/api/email/notify-slot", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        creneau_id: created?.id,
-        etablissement_id: form.etablissement_id || null,
-        eleves_autorises: form.eleves_autorises.length > 0 ? form.eleves_autorises : null,
+    const aeronefLabel = aeronefObj ? `${aeronefObj.type_aeronef} (${aeronefObj.immatriculation})` : "";
+    // Create one créneau per selected établissement (or one global if SA with none selected)
+    const etabsToCreate: (string | null)[] = form.etablissements.length > 0
+      ? form.etablissements
+      : [null];
+    setSaving(true);
+    let hasError = false;
+    for (const etabId of etabsToCreate) {
+      const eleveAut = etabId && (form.elevesByEtab[etabId]?.length ?? 0) > 0
+        ? form.elevesByEtab[etabId]
+        : null;
+      const { data: created, error: err } = await supabase.from("creneaux").insert({
+        pilote_id: piloteId,
+        aeronef_id: form.aeronef_id,
+        annee_id: anneeId,
+        etablissement_id: etabId,
         date_vol: form.date_vol,
         heure_debut: form.heure_debut,
         heure_fin: form.heure_fin,
-        pilote_nom: pilote ? `${pilote.prenom} ${pilote.nom}` : "",
-        aeronef: aeronefObj ? `${aeronefObj.type_aeronef} (${aeronefObj.immatriculation})` : "",
-      }),
-    }).catch(() => {});
+        places_disponibles: aeronef?.nb_places_eleves || 2,
+        notes_pilote: form.notes_pilote || null,
+        eleves_autorises: eleveAut,
+      }).select("id").single();
+      if (err) { setError(err.message); hasError = true; break; }
+      // Notify eligible parents (anti-spam: only if no open slots already existed for this scope)
+      fetch("/api/email/notify-slot", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          creneau_id: created?.id,
+          etablissement_id: etabId,
+          eleves_autorises: eleveAut,
+          date_vol: form.date_vol,
+          heure_debut: form.heure_debut,
+          heure_fin: form.heure_fin,
+          pilote_nom: piloteNom,
+          aeronef: aeronefLabel,
+        }),
+      }).catch(() => {});
+    }
+    setSaving(false);
+    if (hasError) return;
+    setShowCreate(false);
     setForm({
       date_vol: "",
       heure_debut: "09:00",
       heure_fin: "10:00",
       aeronef_id: "",
-      etablissement_id: "",
+      etablissements: [],
+      elevesByEtab: {},
       notes_pilote: "",
       pilote_id: "",
-      eleves_autorises: [],
     });
     load();
   }
@@ -376,60 +374,6 @@ export default function VolsPage() {
       notes: "",
       pilote_override: "",
     });
-    load();
-  }
-
-  async function doDirectVol() {
-    if (!directForm.date_vol || !directForm.aeronef_id || !directForm.temps_vol_minutes || !directForm.prix_total || directEleves.length === 0) {
-      setError("Veuillez remplir tous les champs obligatoires et ajouter au moins un élève.");
-      return;
-    }
-    const piloteId = isSA && directForm.pilote_id ? directForm.pilote_id : profile.id;
-    const aeronef = aeronefs.find((a: any) => a.id === directForm.aeronef_id);
-    const prixTotal = parseFloat(directForm.prix_total);
-    const prixParEleve = prixTotal / Math.max(directEleves.length, 1);
-    const piloteObj = pilotes.find((p: any) => p.id === piloteId) || profile;
-    const piloteNom = piloteObj ? `${piloteObj.prenom} ${piloteObj.nom}` : "";
-
-    setSaving(true);
-    await supabase.from("vols_effectues").insert({
-      creneau_id: null,
-      numero_aerogest: directForm.numero_aerogest || null,
-      temps_vol_minutes: parseInt(directForm.temps_vol_minutes),
-      nb_eleves: directEleves.length,
-      prix_total: prixTotal,
-      notes: directForm.notes || null,
-      valide_par: profile.id,
-    });
-
-    for (const de of directEleves) {
-      if (de.type_vol === 2) {
-        await supabase.from("eleves").update({
-          vol2_effectue: true,
-          vol2_temps_minutes: parseInt(directForm.temps_vol_minutes),
-          vol2_aeronef_id: directForm.aeronef_id,
-          vol2_prix: prixParEleve,
-          vol2_pilote_nom: piloteNom,
-          vol2_numero_aerogest: directForm.numero_aerogest || null,
-        }).eq("id", de.eleve_id);
-      } else {
-        await supabase.from("eleves").update({
-          vol1_effectue: true,
-          vol1_temps_minutes: parseInt(directForm.temps_vol_minutes),
-          vol1_aeronef_id: directForm.aeronef_id,
-          vol1_prix: prixParEleve,
-          vol1_pilote_nom: piloteNom,
-          vol1_numero_aerogest: directForm.numero_aerogest || null,
-        }).eq("id", de.eleve_id);
-      }
-    }
-
-    setSaving(false);
-    setShowDirectVol(false);
-    setDirectForm({ date_vol: "", aeronef_id: "", pilote_id: "", temps_vol_minutes: "", prix_total: "", numero_aerogest: "", notes: "" });
-    setDirectEleves([]);
-    setDirectSearch("");
-    toast.success("Vol enregistré avec succès");
     load();
   }
 
@@ -692,130 +636,8 @@ export default function VolsPage() {
       </div>
     );
 
-  // Computed values for directVol
-  const directAeronef = aeronefs.find((a: any) => a.id === directForm.aeronef_id);
-  const directPiloteId = isSA && directForm.pilote_id ? directForm.pilote_id : profile?.id;
-  const directAvailableAeronefs = isSA && !directForm.pilote_id
-    ? aeronefs
-    : aeronefs.filter((a: any) => qualifs.some((q: any) => q.pilote_id === directPiloteId && q.aeronef_id === a.id));
-  const directElevesFiltered = eleves.filter((e: any) => {
-    if (directEleves.some((de) => de.eleve_id === e.id)) return false;
-    if (!directSearch) return true;
-    const s = directSearch.toLowerCase();
-    return `${e.prenom} ${e.nom}`.toLowerCase().includes(s);
-  }).slice(0, 8);
-
   return (
     <div>
-      {/* DIRECT VOL */}
-      {showDirectVol && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" onClick={() => setShowDirectVol(false)}>
-          <div className="absolute inset-0 bg-black/40" />
-          <div onClick={(e) => e.stopPropagation()} className="relative bg-white rounded-2xl p-6 w-full max-w-lg shadow-xl max-h-[90vh] overflow-auto">
-            <div className="flex items-center justify-between mb-5">
-              <h2 className="text-lg font-bold text-gray-900">Saisie directe d'un vol</h2>
-              <button onClick={() => setShowDirectVol(false)} className="text-gray-400 hover:text-gray-600"><X className="w-5 h-5" /></button>
-            </div>
-            {error && <div className="mb-3 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">{error}</div>}
-            <div className="space-y-4">
-              {isSA && (
-                <div>
-                  <label className="block text-xs font-medium text-gray-700 mb-1">Pilote *</label>
-                  <select value={directForm.pilote_id} onChange={(e) => setDirectForm((f) => ({ ...f, pilote_id: e.target.value, aeronef_id: "" }))} className="input-field w-full">
-                    <option value="">— Choisir un pilote —</option>
-                    {pilotes.map((p: any) => <option key={p.id} value={p.id}>{p.prenom} {p.nom}</option>)}
-                  </select>
-                </div>
-              )}
-              <div>
-                <label className="block text-xs font-medium text-gray-700 mb-1">Date du vol *</label>
-                <input type="date" value={directForm.date_vol} onChange={(e) => setDirectForm((f) => ({ ...f, date_vol: e.target.value }))} className="input-field w-full" />
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-gray-700 mb-1">Aéronef *</label>
-                <select value={directForm.aeronef_id} onChange={(e) => {
-                  const a = aeronefs.find((x: any) => x.id === e.target.value);
-                  const mins = directForm.temps_vol_minutes ? parseInt(directForm.temps_vol_minutes) : 0;
-                  const prix = a?.prix_heure && mins ? Math.round((mins / 60) * a.prix_heure * 100) / 100 : "";
-                  setDirectForm((f) => ({ ...f, aeronef_id: e.target.value, prix_total: prix ? String(prix) : f.prix_total }));
-                }} className="input-field w-full">
-                  <option value="">{isSA && !directForm.pilote_id ? "(choisir un pilote d'abord)" : "— Choisir —"}</option>
-                  {directAvailableAeronefs.map((a: any) => <option key={a.id} value={a.id}>{a.type_aeronef} ({a.immatriculation})</option>)}
-                </select>
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-medium text-gray-700 mb-1">Temps de vol (min) *</label>
-                  <input type="number" min="1" value={directForm.temps_vol_minutes} onChange={(e) => {
-                    const mins = parseInt(e.target.value) || 0;
-                    const a = directAeronef;
-                    const prix = a?.prix_heure && mins ? Math.round((mins / 60) * a.prix_heure * 100) / 100 : "";
-                    setDirectForm((f) => ({ ...f, temps_vol_minutes: e.target.value, prix_total: prix ? String(prix) : f.prix_total }));
-                  }} className="input-field w-full" placeholder="60" />
-                  {directAeronef?.prix_heure && <p className="text-[10px] text-gray-400 mt-0.5">Tarif : {directAeronef.prix_heure}€/h · calculé automatiquement</p>}
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-gray-700 mb-1">Prix total (€) *</label>
-                  <input type="number" step="0.01" min="0" value={directForm.prix_total} onChange={(e) => setDirectForm((f) => ({ ...f, prix_total: e.target.value }))} className="input-field w-full" placeholder="0.00" />
-                </div>
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-gray-700 mb-1">N° Aerogest</label>
-                <input type="text" value={directForm.numero_aerogest} onChange={(e) => setDirectForm((f) => ({ ...f, numero_aerogest: e.target.value }))} className="input-field w-full" placeholder="Optionnel" />
-              </div>
-              {/* Élèves */}
-              <div>
-                <label className="block text-xs font-medium text-gray-700 mb-1">Élèves *</label>
-                {directEleves.length > 0 && (
-                  <div className="flex flex-wrap gap-1.5 mb-2">
-                    {directEleves.map((de) => {
-                      const el = eleves.find((e: any) => e.id === de.eleve_id);
-                      return (
-                        <div key={de.eleve_id} className="flex items-center gap-1 bg-brand-50 text-brand-700 border border-brand-200 rounded-full px-2 py-0.5 text-xs">
-                          <span>{el ? `${el.prenom} ${el.nom}` : de.eleve_id}</span>
-                          <span className="text-brand-400">(Vol {de.type_vol})</span>
-                          <button onClick={() => setDirectEleves((prev) => prev.filter((x) => x.eleve_id !== de.eleve_id))} className="ml-0.5 text-brand-400 hover:text-red-500"><X className="w-3 h-3" /></button>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-                <div className="relative">
-                  <input type="text" value={directSearch} onChange={(e) => setDirectSearch(e.target.value)} className="input-field w-full" placeholder="Rechercher un élève..." />
-                  {directSearch && directElevesFiltered.length > 0 && (
-                    <div className="absolute left-0 right-0 top-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg z-10 max-h-40 overflow-y-auto">
-                      {directElevesFiltered.map((e: any) => (
-                        <div key={e.id} className="flex items-center justify-between px-3 py-2 hover:bg-gray-50 cursor-pointer border-b border-gray-50 last:border-0">
-                          <span className="text-sm">{e.prenom} {e.nom}</span>
-                          <div className="flex gap-1">
-                            {!e.vol1_effectue && (
-                              <button onClick={() => { setDirectEleves((prev) => [...prev, { eleve_id: e.id, type_vol: 1 }]); setDirectSearch(""); }} className="text-[10px] px-2 py-0.5 bg-brand-500 text-white rounded-full">Vol 1</button>
-                            )}
-                            {!e.vol2_effectue && (
-                              <button onClick={() => { setDirectEleves((prev) => [...prev, { eleve_id: e.id, type_vol: 2 }]); setDirectSearch(""); }} className="text-[10px] px-2 py-0.5 bg-purple-500 text-white rounded-full">Vol 2</button>
-                            )}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-gray-700 mb-1">Notes</label>
-                <textarea value={directForm.notes} onChange={(e) => setDirectForm((f) => ({ ...f, notes: e.target.value }))} className="input-field w-full" rows={2} placeholder="Optionnel" />
-              </div>
-            </div>
-            <div className="flex justify-end gap-2 mt-6">
-              <button onClick={() => setShowDirectVol(false)} className="btn-secondary btn-sm">Annuler</button>
-              <button onClick={doDirectVol} disabled={saving} className="btn-primary btn-sm">
-                {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />} Enregistrer le vol
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
       {/* CREATE */}
       {showCreate && (
         <div
@@ -923,86 +745,85 @@ export default function VolsPage() {
                   ))}
                 </select>
               </div>
+              {/* Établissements (multi-select) */}
               <div>
-                <label className="label">
-                  Etablissement {!isSA ? "*" : ""}
-                </label>
-                <select
-                  value={form.etablissement_id}
-                  onChange={(e) =>
-                    setForm({ ...form, etablissement_id: e.target.value })
-                  }
-                  className="select"
-                >
-                  <option value="">{isSA ? "Tous" : "— Choisir —"}</option>
-                  {(isSA ? etabs : availableEtabs).map((e) => (
-                    <option key={e.id} value={e.id}>
-                      {e.nom}
-                    </option>
-                  ))}
-                </select>
+                <label className="label">Établissements {!isSA ? "*" : ""}</label>
                 {!isSA && availableEtabs.length === 0 && (
-                  <p className="text-xs text-red-500 mt-1">
-                    Aucun etablissement assigne. Contactez le SuperAdmin.
-                  </p>
+                  <p className="text-xs text-red-500 mt-1">Aucun etablissement assigne. Contactez le SuperAdmin.</p>
+                )}
+                <div className="border border-gray-200 rounded-lg overflow-hidden">
+                  {isSA && (
+                    <button
+                      type="button"
+                      onClick={() => setForm({ ...form, etablissements: [], elevesByEtab: {} })}
+                      className={`w-full flex items-center gap-2 px-3 py-2 text-sm border-b border-gray-100 transition-colors ${form.etablissements.length === 0 ? "bg-brand-50 text-brand-600 font-semibold" : "text-gray-500 hover:bg-gray-50"}`}
+                    >
+                      <span className={`w-4 h-4 rounded border-2 flex items-center justify-center shrink-0 ${form.etablissements.length === 0 ? "border-brand-500 bg-brand-500" : "border-gray-300"}`}>
+                        {form.etablissements.length === 0 && <Check className="w-2.5 h-2.5 text-white" />}
+                      </span>
+                      Tous les établissements
+                    </button>
+                  )}
+                  <div className="max-h-36 overflow-y-auto">
+                    {(isSA ? etabs : availableEtabs).map((etab) => {
+                      const checked = form.etablissements.includes(etab.id);
+                      const etabEleves = eleves.filter((el) => el.etablissement_id === etab.id);
+                      const etabElvsSelected = form.elevesByEtab[etab.id] ?? [];
+                      return (
+                        <div key={etab.id} className="border-b border-gray-50 last:border-0">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const next = checked
+                                ? form.etablissements.filter((x) => x !== etab.id)
+                                : [...form.etablissements, etab.id];
+                              setForm({ ...form, etablissements: next });
+                            }}
+                            className={`w-full flex items-center gap-2 px-3 py-2 text-sm transition-colors ${checked ? "bg-brand-50 text-brand-700 font-semibold" : "text-gray-700 hover:bg-gray-50"}`}
+                          >
+                            <span className={`w-4 h-4 rounded border-2 flex items-center justify-center shrink-0 ${checked ? "border-brand-500 bg-brand-500" : "border-gray-300"}`}>
+                              {checked && <Check className="w-2.5 h-2.5 text-white" />}
+                            </span>
+                            {etab.nom}
+                          </button>
+                          {/* Per-étab eleves_autorises */}
+                          {checked && etabEleves.length > 0 && (
+                            <div className="px-3 pb-2 bg-brand-50/50">
+                              <p className="text-[10px] text-gray-400 mb-1.5">Restreindre à des élèves spécifiques (optionnel) :</p>
+                              <div className="flex flex-wrap gap-1">
+                                {etabEleves.map((el) => {
+                                  const sel = etabElvsSelected.includes(el.id);
+                                  return (
+                                    <button
+                                      key={el.id}
+                                      type="button"
+                                      onClick={() => {
+                                        const next = sel
+                                          ? etabElvsSelected.filter((x) => x !== el.id)
+                                          : [...etabElvsSelected, el.id];
+                                        setForm({ ...form, elevesByEtab: { ...form.elevesByEtab, [etab.id]: next } });
+                                      }}
+                                      className={`text-[11px] px-2 py-0.5 rounded-full border transition-colors ${sel ? "bg-brand-500 text-white border-brand-500" : "text-gray-600 border-gray-300 hover:border-brand-300"}`}
+                                    >
+                                      {el.prenom} {el.nom}
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                              {etabElvsSelected.length > 0 && (
+                                <p className="text-[10px] text-brand-500 mt-1">{etabElvsSelected.length} élève{etabElvsSelected.length > 1 ? "s" : ""} sélectionné{etabElvsSelected.length > 1 ? "s" : ""}</p>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+                {form.etablissements.length > 0 && (
+                  <p className="text-xs text-brand-500 mt-1">{form.etablissements.length} établissement{form.etablissements.length > 1 ? "s" : ""} — {form.etablissements.length} créneau{form.etablissements.length > 1 ? "x" : ""} créé{form.etablissements.length > 1 ? "s" : ""}</p>
                 )}
               </div>
-              {/* Optional: restrict to specific students */}
-              {form.etablissement_id && eleves.length === 0 && (
-                <p className="text-xs text-gray-400 mt-1">
-                  Aucun élève trouvé (vérifier les droits RLS dans Supabase).
-                </p>
-              )}
-              {(() => {
-                const elevesDispo = eleves.filter((el) =>
-                  form.etablissement_id ? el.etablissement_id === form.etablissement_id : true,
-                );
-                if (elevesDispo.length === 0) return null;
-                const allSelected = form.eleves_autorises.length === 0;
-                return (
-                  <div>
-                    <label className="label">Élèves autorisés <span className="normal-case font-normal text-gray-400">(optionnel — vide = tous)</span></label>
-                    <div className="border border-gray-200 rounded-lg overflow-hidden">
-                      <button
-                        type="button"
-                        onClick={() => setForm({ ...form, eleves_autorises: [] })}
-                        className={`w-full flex items-center gap-2 px-3 py-2 text-sm border-b border-gray-100 transition-colors ${allSelected ? "bg-brand-50 text-brand-600 font-semibold" : "text-gray-500 hover:bg-gray-50"}`}
-                      >
-                        <span className={`w-4 h-4 rounded border-2 flex items-center justify-center shrink-0 ${allSelected ? "border-brand-500 bg-brand-500" : "border-gray-300"}`}>
-                          {allSelected && <Check className="w-2.5 h-2.5 text-white" />}
-                        </span>
-                        Tous les élèves
-                      </button>
-                      <div className="max-h-40 overflow-y-auto">
-                        {elevesDispo.map((el) => {
-                          const checked = form.eleves_autorises.includes(el.id);
-                          return (
-                            <button
-                              key={el.id}
-                              type="button"
-                              onClick={() => {
-                                const next = checked
-                                  ? form.eleves_autorises.filter((x) => x !== el.id)
-                                  : [...form.eleves_autorises, el.id];
-                                setForm({ ...form, eleves_autorises: next });
-                              }}
-                              className={`w-full flex items-center gap-2 px-3 py-2 text-sm border-b border-gray-50 last:border-0 transition-colors ${checked ? "bg-brand-50 text-brand-700" : "text-gray-700 hover:bg-gray-50"}`}
-                            >
-                              <span className={`w-4 h-4 rounded border-2 flex items-center justify-center shrink-0 ${checked ? "border-brand-500 bg-brand-500" : "border-gray-300"}`}>
-                                {checked && <Check className="w-2.5 h-2.5 text-white" />}
-                              </span>
-                              {el.prenom} {el.nom}
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </div>
-                    {form.eleves_autorises.length > 0 && (
-                      <p className="text-xs text-brand-500 mt-1">{form.eleves_autorises.length} élève{form.eleves_autorises.length > 1 ? "s" : ""} sélectionné{form.eleves_autorises.length > 1 ? "s" : ""}</p>
-                    )}
-                  </div>
-                );
-              })()}
               <div>
                 <label className="label">Notes</label>
                 <textarea
@@ -1694,23 +1515,15 @@ export default function VolsPage() {
             ))}
           </div>
           {canCreate && (
-            <>
-              <button
-                onClick={() => { setError(null); setShowDirectVol(true); }}
-                className="btn-secondary btn-sm"
-              >
-                <Plus className="w-3.5 h-3.5" /> Vol direct
-              </button>
-              <button
-                onClick={() => {
-                  setError(null);
-                  setShowCreate(true);
-                }}
-                className="btn-primary btn-sm"
-              >
-                <Plus className="w-3.5 h-3.5" /> Nouveau créneau
-              </button>
-            </>
+            <button
+              onClick={() => {
+                setError(null);
+                setShowCreate(true);
+              }}
+              className="btn-primary btn-sm"
+            >
+              <Plus className="w-3.5 h-3.5" /> Nouveau créneau
+            </button>
           )}
         </div>
       </div>
