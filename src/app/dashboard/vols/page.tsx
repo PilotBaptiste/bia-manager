@@ -20,6 +20,7 @@ import {
   Save,
   Filter,
   Download,
+  Trash2,
 } from "lucide-react";
 import ConfirmModal from "@/components/ConfirmModal";
 
@@ -43,6 +44,10 @@ export default function VolsPage() {
   const [showClose, setShowClose] = useState<any>(null);
   const [showEditSlot, setShowEditSlot] = useState<any>(null);
   const [editHisto, setEditHisto] = useState<any>(null);
+  const [editHistoElevesLocal, setEditHistoElevesLocal] = useState<any[]>([]);
+  const [editHistoElevesOrig, setEditHistoElevesOrig] = useState<any[]>([]);
+  const [addHistoEleveId, setAddHistoEleveId] = useState("");
+  const [addHistoEleveTypeVol, setAddHistoEleveTypeVol] = useState<1 | 2>(1);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [confirmAction, setConfirmAction] = useState<{ title: string; message: string; variant?: "danger" | "primary"; onConfirm: () => void } | null>(null);
@@ -95,7 +100,7 @@ export default function VolsPage() {
         supabase
           .from("vols_effectues")
           .select(
-            "*, creneau:creneaux(date_vol,heure_debut,heure_fin,pilote_id,aeronef_id,etablissement_id,pilote:profiles!pilote_id(nom,prenom),aeronef:aeronefs(type_aeronef,immatriculation),etablissement:etablissements(nom),reservations(eleve:eleves(nom,prenom)))",
+            "*, creneau:creneaux(date_vol,heure_debut,heure_fin,pilote_id,aeronef_id,etablissement_id,pilote:profiles!pilote_id(nom,prenom),aeronef:aeronefs(type_aeronef,immatriculation),etablissement:etablissements(nom),reservations(id,type_vol,statut,eleve:eleves(id,nom,prenom)))",
           )
           .order("created_at", { ascending: false }),
         supabase
@@ -655,21 +660,108 @@ export default function VolsPage() {
     load();
   }
 
+  function openEditHisto(v: any) {
+    const resEleves = (v.creneau?.reservations || [])
+      .filter((r: any) => r.statut !== "annule" && r.eleve?.id)
+      .map((r: any) => ({ ...r.eleve, type_vol: r.type_vol || 1, reservation_id: r.id }));
+    setEditHistoElevesLocal(resEleves);
+    setEditHistoElevesOrig(resEleves);
+    setAddHistoEleveId("");
+    setAddHistoEleveTypeVol(1);
+    setEditHisto({ ...v });
+  }
+
+  async function doDeleteHisto(v: any) {
+    // Reset vol flags on linked eleves
+    const reservations = (v.creneau?.reservations || []).filter((r: any) => r.eleve?.id);
+    for (const r of reservations) {
+      if (r.type_vol === 2) {
+        await supabase.from("eleves").update({ vol2_effectue: false, vol2_numero_aerogest: null, vol2_temps_minutes: null, vol2_aeronef_id: null, vol2_prix: null, vol2_pilote_nom: null }).eq("id", r.eleve.id);
+      } else {
+        await supabase.from("eleves").update({ vol1_effectue: false, vol1_numero_aerogest: null, vol1_temps_minutes: null, vol1_aeronef_id: null, vol1_prix: null, vol1_pilote_nom: null }).eq("id", r.eleve.id);
+      }
+      await supabase.from("reservations").update({ statut: "reserve" }).eq("id", r.id);
+    }
+    // Reopen the creneau
+    await supabase.from("creneaux").update({ statut: "ouvert" }).eq("id", v.creneau_id);
+    await supabase.from("vols_effectues").delete().eq("id", v.id);
+    toast.success("Entrée supprimée");
+    load();
+  }
+
+  async function doDeleteManual(group: { ids: string[]; numero_aerogest: string }) {
+    const vol1Ids = group.ids.filter((id) => id.endsWith("_vol1")).map((id) => id.replace("_vol1", ""));
+    const vol2Ids = group.ids.filter((id) => id.endsWith("_vol2")).map((id) => id.replace("_vol2", ""));
+    if (vol1Ids.length) {
+      await supabase.from("eleves").update({ vol1_effectue: false, vol1_numero_aerogest: null, vol1_temps_minutes: null, vol1_aeronef_id: null, vol1_prix: null, vol1_pilote_nom: null }).in("id", vol1Ids);
+    }
+    if (vol2Ids.length) {
+      await supabase.from("eleves").update({ vol2_effectue: false, vol2_numero_aerogest: null, vol2_temps_minutes: null, vol2_aeronef_id: null, vol2_prix: null, vol2_pilote_nom: null }).in("id", vol2Ids);
+    }
+    toast.success("Entrée supprimée");
+    load();
+  }
+
   async function handleSaveHisto() {
     if (!editHisto) return;
     setSaving(true);
+
+    const newNbEleves = editHistoElevesLocal.length > 0 ? editHistoElevesLocal.length : editHisto.nb_eleves;
     await supabase
       .from("vols_effectues")
       .update({
         numero_aerogest: editHisto.numero_aerogest,
         temps_vol_minutes: editHisto.temps_vol_minutes,
-        nb_eleves: editHisto.nb_eleves,
+        nb_eleves: newNbEleves,
         prix_total: editHisto.prix_total,
         notes: editHisto.notes,
       })
       .eq("id", editHisto.id);
+
+    // Compute eleve diffs
+    const origIds = new Set(editHistoElevesOrig.map((e: any) => e.id));
+    const newIds = new Set(editHistoElevesLocal.map((e: any) => e.id));
+    const creneauId = editHisto.creneau_id;
+    const prixParEleve = editHisto.prix_total ? parseFloat(editHisto.prix_total) / Math.max(newNbEleves, 1) : 0;
+    const tempsMin = editHisto.temps_vol_minutes;
+    const numAerogest = editHisto.numero_aerogest || null;
+    const piloteNom = editHisto.creneau?.pilote ? `${editHisto.creneau.pilote.prenom} ${editHisto.creneau.pilote.nom}` : "";
+    const aeronefId = editHisto.creneau?.aeronef_id;
+
+    // Remove eleves no longer on the vol
+    for (const e of editHistoElevesOrig) {
+      if (!newIds.has(e.id)) {
+        await supabase.from("reservations").update({ statut: "annule" }).eq("id", e.reservation_id);
+        if (e.type_vol === 2) {
+          await supabase.from("eleves").update({ vol2_effectue: false, vol2_numero_aerogest: null, vol2_temps_minutes: null, vol2_aeronef_id: null, vol2_prix: null, vol2_pilote_nom: null }).eq("id", e.id);
+        } else {
+          await supabase.from("eleves").update({ vol1_effectue: false, vol1_numero_aerogest: null, vol1_temps_minutes: null, vol1_aeronef_id: null, vol1_prix: null, vol1_pilote_nom: null }).eq("id", e.id);
+        }
+      }
+    }
+
+    // Add new eleves
+    for (const e of editHistoElevesLocal) {
+      if (!origIds.has(e.id)) {
+        const typeVol = e.type_vol || 1;
+        const { data: existing } = await supabase.from("reservations").select("id").eq("creneau_id", creneauId).eq("eleve_id", e.id).maybeSingle();
+        if (existing) {
+          await supabase.from("reservations").update({ statut: "effectue", type_vol: typeVol }).eq("id", existing.id);
+        } else {
+          await supabase.from("reservations").insert({ creneau_id: creneauId, eleve_id: e.id, type_vol: typeVol, statut: "effectue" });
+        }
+        if (typeVol === 2) {
+          await supabase.from("eleves").update({ vol2_effectue: true, vol2_temps_minutes: tempsMin, vol2_aeronef_id: aeronefId, vol2_prix: prixParEleve, vol2_pilote_nom: piloteNom, vol2_numero_aerogest: numAerogest }).eq("id", e.id);
+        } else {
+          await supabase.from("eleves").update({ vol1_effectue: true, vol1_temps_minutes: tempsMin, vol1_aeronef_id: aeronefId, vol1_prix: prixParEleve, vol1_pilote_nom: piloteNom, vol1_numero_aerogest: numAerogest }).eq("id", e.id);
+        }
+      }
+    }
+
     setSaving(false);
     setEditHisto(null);
+    setEditHistoElevesLocal([]);
+    setEditHistoElevesOrig([]);
     load();
   }
 
@@ -1554,18 +1646,12 @@ export default function VolsPage() {
                   />
                 </div>
                 <div>
-                  <label className="label">Nb eleves</label>
-                  <input
-                    type="number"
-                    value={editHisto.nb_eleves}
-                    onChange={(e) =>
-                      setEditHisto({
-                        ...editHisto,
-                        nb_eleves: parseInt(e.target.value) || 0,
-                      })
-                    }
-                    className="input"
-                  />
+                  <label className="label">Nb élèves</label>
+                  <div className="input bg-gray-50 text-gray-500 flex items-center gap-1 cursor-default select-none">
+                    <User className="w-3.5 h-3.5 text-gray-400" />
+                    <span>{editHistoElevesLocal.length > 0 ? editHistoElevesLocal.length : editHisto.nb_eleves}</span>
+                    {editHistoElevesLocal.length > 0 && <span className="text-[10px] text-gray-400 ml-1">(depuis liste)</span>}
+                  </div>
                 </div>
               </div>
               <div>
@@ -1592,6 +1678,65 @@ export default function VolsPage() {
                   }
                   className="input min-h-[60px]"
                 />
+              </div>
+              {/* Eleves management */}
+              <div>
+                <label className="label">Élèves sur ce vol ({editHistoElevesLocal.length})</label>
+                <div className="space-y-1 mb-2 max-h-40 overflow-y-auto">
+                  {editHistoElevesLocal.length === 0 && (
+                    <p className="text-xs text-gray-400 italic">Aucun élève lié</p>
+                  )}
+                  {editHistoElevesLocal.map((e: any) => (
+                    <div key={e.id} className="flex items-center justify-between bg-gray-50 rounded-lg px-3 py-1.5 text-sm">
+                      <span className="font-medium">{e.prenom} {e.nom} <span className="text-[10px] font-normal text-gray-400 ml-1">Vol {e.type_vol || 1}</span></span>
+                      <button
+                        type="button"
+                        onClick={() => setEditHistoElevesLocal((prev) => prev.filter((x) => x.id !== e.id))}
+                        className="text-red-400 hover:text-red-600 p-0.5 rounded"
+                        title="Retirer de ce vol"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+                <div className="flex gap-2">
+                  <select
+                    value={addHistoEleveId}
+                    onChange={(e) => setAddHistoEleveId(e.target.value)}
+                    className="input flex-1 text-sm"
+                  >
+                    <option value="">— Ajouter un élève</option>
+                    {eleves
+                      .filter((e: any) => !editHistoElevesLocal.some((x: any) => x.id === e.id))
+                      .sort((a: any, b: any) => `${a.prenom} ${a.nom}`.localeCompare(`${b.prenom} ${b.nom}`))
+                      .map((e: any) => (
+                        <option key={e.id} value={e.id}>{e.prenom} {e.nom}</option>
+                      ))}
+                  </select>
+                  <select
+                    value={addHistoEleveTypeVol}
+                    onChange={(e) => setAddHistoEleveTypeVol(parseInt(e.target.value) as 1 | 2)}
+                    className="input w-20 text-sm"
+                  >
+                    <option value={1}>Vol 1</option>
+                    <option value={2}>Vol 2</option>
+                  </select>
+                  <button
+                    type="button"
+                    disabled={!addHistoEleveId}
+                    onClick={() => {
+                      const found = eleves.find((e: any) => e.id === addHistoEleveId);
+                      if (!found) return;
+                      setEditHistoElevesLocal((prev) => [...prev, { ...found, type_vol: addHistoEleveTypeVol, reservation_id: null }]);
+                      setAddHistoEleveId("");
+                    }}
+                    className="btn-secondary btn-sm px-3"
+                    title="Ajouter"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                  </button>
+                </div>
               </div>
             </div>
             <div className="flex justify-end gap-2 mt-5 pt-4 border-t border-gray-100">
@@ -2048,7 +2193,23 @@ export default function VolsPage() {
                         </td>
                         <td className="px-3 py-2.5 text-gray-400 text-xs">{v.notes || "—"}</td>
                         <td className="px-3 py-2.5">
-                          {isSA && <button onClick={() => setEditHisto({ ...v })} className="btn-secondary btn-sm"><Edit className="w-3 h-3" /></button>}
+                          {isSA && (
+                            <div className="flex items-center gap-1">
+                              <button onClick={() => openEditHisto(v)} className="btn-secondary btn-sm" title="Modifier"><Edit className="w-3 h-3" /></button>
+                              <button
+                                onClick={() => setConfirmAction({
+                                  title: "Supprimer cette entrée ?",
+                                  message: `Cette action supprimera l'entrée de vol (N° ${v.numero_aerogest || "—"}) et réinitialisera les flags vol des élèves liés. Le créneau repassera en statut "ouvert".`,
+                                  variant: "danger",
+                                  onConfirm: () => doDeleteHisto(v),
+                                })}
+                                className="btn-secondary btn-sm text-red-500 hover:bg-red-50"
+                                title="Supprimer"
+                              >
+                                <Trash2 className="w-3 h-3" />
+                              </button>
+                            </div>
+                          )}
                         </td>
                       </tr>
                     );
@@ -2075,7 +2236,22 @@ export default function VolsPage() {
                           ) : "—"}
                         </td>
                         <td className="px-3 py-2.5 text-gray-400 text-xs">—</td>
-                        <td className="px-3 py-2.5"></td>
+                        <td className="px-3 py-2.5">
+                          {isSA && (
+                            <button
+                              onClick={() => setConfirmAction({
+                                title: "Supprimer cette entrée ?",
+                                message: `Cette action réinitialisera les informations de vol (N° ${g.numero_aerogest}) des élèves concernés.`,
+                                variant: "danger",
+                                onConfirm: () => doDeleteManual(g),
+                              })}
+                              className="btn-secondary btn-sm text-red-500 hover:bg-red-50"
+                              title="Supprimer"
+                            >
+                              <Trash2 className="w-3 h-3" />
+                            </button>
+                          )}
+                        </td>
                       </tr>
                     );
                   })}
