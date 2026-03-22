@@ -22,6 +22,7 @@ import {
   UserCheck,
   Upload,
   Mail,
+  BookOpen,
 } from "lucide-react";
 
 const iconMap: Record<string, any> = {
@@ -37,6 +38,7 @@ const iconMap: Record<string, any> = {
   Calendar,
   FileSignature,
   CalendarPlus,
+  BookOpen,
   UserCheck,
   Upload,
   Mail,
@@ -109,6 +111,13 @@ function getNav(roles: string[]) {
     "CalendarPlus",
     "/dashboard/reservation",
     ["parent"],
+  );
+  add(
+    "reglementation",
+    "Réglementation BIA",
+    "BookOpen",
+    "/dashboard/reglementation",
+    ["superadmin", "coordinateur", "pilote", "gerant"],
   );
   add("profil", "Mon profil", "UserCheck", "/dashboard/profil", [
     "parent",
