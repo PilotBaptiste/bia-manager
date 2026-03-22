@@ -202,7 +202,7 @@ export default function ProfilPage() {
         supabase
           .from("eleves")
           .select("id,nom,prenom,date_naissance,lieu_naissance,adresse_rue,adresse_cp,adresse_ville")
-          .or(`parent_id.eq.${user.id},parent_email.eq.${user.email}`)
+          .eq("parent_email", user.email!)
           .eq("archive", false),
       ]);
       if (prof) {

@@ -45,31 +45,29 @@ export default function ParentOnboarding({ userId, defaultPrenom, defaultNom, de
   const [done, setDone] = useState(false);
 
   useEffect(() => {
-    supabase.auth.getUser().then(({ data: { user } }) => {
-      if (!user) return;
-      supabase
+    supabase.auth.getUser().then(async ({ data: { user } }) => {
+      if (!user?.email) return;
+      const { data } = await supabase
         .from("eleves")
         .select("id,nom,prenom,date_naissance,lieu_naissance,adresse_rue,adresse_cp,adresse_ville")
-        .or(`parent_id.eq.${userId},parent_email.eq.${user.email}`)
-        .eq("archive", false)
-        .then(({ data }) => {
-        if (data && data.length > 0) {
-          setEnfants(data);
-          const forms: Record<string, any> = {};
-          data.forEach((e: Enfant) => {
-            forms[e.id] = {
-              nom: e.nom || "",
-              prenom: e.prenom || "",
-              date_naissance: e.date_naissance || "",
-              lieu_naissance: e.lieu_naissance || "",
-              adresse_rue: e.adresse_rue || "",
-              adresse_cp: e.adresse_cp || "",
-              adresse_ville: e.adresse_ville || "",
-            };
-          });
-          setEnfantForms(forms);
-        }
-      });
+        .eq("parent_email", user.email)
+        .eq("archive", false);
+      if (data && data.length > 0) {
+        setEnfants(data);
+        const forms: Record<string, any> = {};
+        data.forEach((e: Enfant) => {
+          forms[e.id] = {
+            nom: e.nom || "",
+            prenom: e.prenom || "",
+            date_naissance: e.date_naissance || "",
+            lieu_naissance: e.lieu_naissance || "",
+            adresse_rue: e.adresse_rue || "",
+            adresse_cp: e.adresse_cp || "",
+            adresse_ville: e.adresse_ville || "",
+          };
+        });
+        setEnfantForms(forms);
+      }
     });
   }, [userId]);
 
