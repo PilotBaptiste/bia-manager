@@ -134,9 +134,19 @@ const sections: Section[] = [
           "L'aéroclub doit avoir souscrit une police d'assurance responsabilité civile pour l'aéronef (cf. Art. 3 de la convention type).",
       },
       {
+        ok: true,
+        text: "Aérodrome de départ = Aérodrome d'arrivée",
+        detail: "Le vol BIA doit se terminer sur le même aérodrome que celui de départ. Aucun posé sur un terrain extérieur n'est autorisé.",
+      },
+      {
         ok: false,
         text: "Avion personnel du pilote non exploité par le club",
         detail: "Non éligible pour les vols BIA.",
+      },
+      {
+        ok: false,
+        text: "Posé sur un terrain extérieur",
+        detail: "Strictement interdit — le vol doit obligatoirement revenir à l'aérodrome de départ.",
       },
     ],
   },
@@ -275,6 +285,7 @@ const checklist = [
   { id: "assurance", label: "L'aéronef est couvert par une assurance RC valide" },
   { id: "duree", label: "Je vais effectuer ≤ 30 min si je suis pilote VD (ou 55 min d'un coup si instructeur)" },
   { id: "eleve", label: "L'élève est bien déclaré sur SMILE par l'aéroclub" },
+  { id: "terrain", label: "Le vol revient à l'aérodrome de départ — aucun posé extérieur prévu" },
   { id: "carnet", label: "Je sais comment remplir le carnet de route (format BIA)" },
 ];
 
