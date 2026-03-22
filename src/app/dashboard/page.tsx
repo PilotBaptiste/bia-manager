@@ -213,8 +213,25 @@ async function DashboardPilote({ supabase, profile }: { supabase: any; profile: 
 // ─── Gérant Dashboard ───────────────────────────────────
 async function DashboardGerant({ supabase, profile }: { supabase: any; profile: any }) {
   const etabId = profile.etablissement_id;
-  const { data: etab } = etabId ? await supabase.from("etablissements").select("nom").eq("id", etabId).single() : { data: null };
-  const { data: mesEleves } = etabId ? await supabase.from("eleves").select("*").eq("etablissement_id", etabId).eq("archive", false).order("nom") : { data: [] };
+
+  // Guard: gérant without établissement assigned
+  if (!etabId) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[60vh] text-center px-4">
+        <div className="w-14 h-14 rounded-full bg-amber-100 flex items-center justify-center mb-4">
+          <AlertCircle className="w-7 h-7 text-amber-500" />
+        </div>
+        <h2 className="text-lg font-bold text-gray-900 mb-2">Aucun établissement assigné</h2>
+        <p className="text-sm text-gray-500 max-w-sm">
+          Votre compte gérant n&apos;est pas encore lié à un établissement.<br />
+          Contactez le SuperAdmin pour qu&apos;il vous assigne un établissement.
+        </p>
+      </div>
+    );
+  }
+
+  const { data: etab } = await supabase.from("etablissements").select("nom").eq("id", etabId).single();
+  const { data: mesEleves } = await supabase.from("eleves").select("*").eq("etablissement_id", etabId).eq("archive", false).order("nom");
   const eleves = mesEleves || [];
 
   return (
@@ -287,7 +304,7 @@ async function DashboardParent({ supabase, profile }: { supabase: any; profile: 
         />
       )}
       <div className="mb-6">
-        <h1 className="text-xl font-bold text-gray-900">Bonjour, {profile.prenom || "!"}</h1>
+        <h1 className="text-xl font-bold text-gray-900">Bonjour{profile.prenom ? `, ${profile.prenom}` : ""} !</h1>
         <p className="text-sm text-gray-500 mt-1">Espace parent · Aéro-Club du Bassin d&apos;Arcachon</p>
       </div>
 

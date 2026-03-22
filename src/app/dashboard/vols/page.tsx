@@ -204,7 +204,11 @@ export default function VolsPage() {
   async function handleCreateSlot() {
     setError(null);
     if (!form.date_vol || !form.aeronef_id) {
-      setError("Date et aeronef obligatoires.");
+      setError("Date et aéronef obligatoires.");
+      return;
+    }
+    if (form.date_vol < new Date().toISOString().slice(0, 10)) {
+      setError("La date du vol ne peut pas être dans le passé.");
       return;
     }
     if (isSA && !form.pilote_id) {

@@ -1,5 +1,6 @@
 "use client";
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 
 interface Props {
@@ -15,6 +16,7 @@ interface Props {
  */
 export default function ParentOnboarding({ userId, defaultPrenom, defaultNom, defaultTelephone }: Props) {
   const supabase = createClient();
+  const router = useRouter();
   const [prenom, setPrenom] = useState(defaultPrenom || "");
   const [nom, setNom] = useState(defaultNom || "");
   const [telephone, setTelephone] = useState(defaultTelephone || "");
@@ -39,8 +41,7 @@ export default function ParentOnboarding({ userId, defaultPrenom, defaultNom, de
     setSaving(false);
     if (err) { setError(err.message); return; }
     setDone(true);
-    // Reload page to refresh server component data
-    window.location.reload();
+    router.refresh();
   }
 
   return (

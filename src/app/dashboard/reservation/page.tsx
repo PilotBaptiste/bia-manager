@@ -67,14 +67,22 @@ export default function ReservationPage() {
     load();
   }, []);
 
-  function canCancel(r: any): { allowed: boolean; reason?: string } {
-    if (!r.creneau) return { allowed: false, reason: "Donnees manquantes" };
+  function canCancel(r: any): { allowed: boolean; reason?: string; pilote?: { nom: string; email?: string; telephone?: string } } {
+    if (!r.creneau) return { allowed: false, reason: "Données manquantes" };
     if (r.statut === "effectue")
-      return { allowed: false, reason: "Vol effectue" };
+      return { allowed: false, reason: "Vol effectué" };
     const volDate = new Date(`${r.creneau.date_vol}T${r.creneau.heure_debut}`);
     const diffH = (volDate.getTime() - Date.now()) / 36e5;
     if (diffH < 48)
-      return { allowed: false, reason: "Moins de 48h. Contactez le pilote." };
+      return {
+        allowed: false,
+        reason: "Annulation impossible moins de 48h avant le vol.",
+        pilote: r.creneau.pilote ? {
+          nom: `${r.creneau.pilote.prenom || ""} ${r.creneau.pilote.nom || ""}`.trim(),
+          email: r.creneau.pilote.email,
+          telephone: r.creneau.pilote.telephone,
+        } : undefined,
+      };
     return { allowed: true };
   }
 
@@ -306,9 +314,16 @@ export default function ReservationPage() {
                             <X className="w-3 h-3" /> Annuler
                           </button>
                         ) : (
-                          <span className="text-[10px] text-gray-400 max-w-[180px]">
-                            {ci.reason}
-                          </span>
+                          <div className="text-right">
+                            <p className="text-[10px] text-amber-600 font-medium">{ci.reason}</p>
+                            {ci.pilote && (
+                              <p className="text-[10px] text-gray-500 mt-0.5">
+                                Contactez {ci.pilote.nom}
+                                {ci.pilote.telephone && <> · <a href={`tel:${ci.pilote.telephone}`} className="text-brand-500 underline">{ci.pilote.telephone}</a></>}
+                                {ci.pilote.email && <> · <a href={`mailto:${ci.pilote.email}`} className="text-brand-500 underline">{ci.pilote.email}</a></>}
+                              </p>
+                            )}
+                          </div>
                         ))}
                     </div>
                     {r.creneau && (

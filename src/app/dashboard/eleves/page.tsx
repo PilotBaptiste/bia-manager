@@ -370,6 +370,15 @@ export default function ElevesPage() {
       setFormError("Email parent obligatoire.");
       return;
     }
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(form.parent_email.trim())) {
+      setFormError("Format d'email parent invalide.");
+      return;
+    }
+    if (form.date_naissance && new Date(form.date_naissance) > new Date()) {
+      setFormError("La date de naissance ne peut pas être dans le futur.");
+      return;
+    }
     if (!anneeId) {
       setFormError("Aucune annee active.");
       return;

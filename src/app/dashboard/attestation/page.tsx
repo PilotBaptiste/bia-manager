@@ -1,5 +1,6 @@
 "use client";
 import { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import {
   FileSignature,
@@ -18,6 +19,7 @@ Je declare avoir pris connaissance des conditions de vol et des mesures de secur
 Fait a {LIEU_SIGNATURE}, le {DATE_SIGNATURE}`;
 
 export default function AttestationPage() {
+  const router = useRouter();
   const supabase = createClient();
   const [enfants, setEnfants] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -410,7 +412,7 @@ export default function AttestationPage() {
           }),
         }).catch(() => {});
       }
-      window.location.reload();
+      router.refresh();
     } catch (err: any) {
       setError(err.message || "Erreur lors de la signature");
       setSaving(false);
