@@ -64,6 +64,27 @@ function InfoRow({
   );
 }
 
+/** Finds the first active (non-cancelled) reservation for a given vol type. */
+function getActiveResa(reservations: any[] | null | undefined, typeVol: number) {
+  if (!reservations) return null;
+  return (
+    reservations.find(
+      (r: any) =>
+        r.type_vol === typeVol &&
+        r.statut !== "annule" &&
+        r.creneau?.statut !== "annule" &&
+        r.creneau?.statut !== "termine",
+    ) || null
+  );
+}
+
+function fmtDay(dateStr: string) {
+  return new Date(dateStr + "T00:00:00").toLocaleDateString("fr-FR", {
+    day: "2-digit",
+    month: "2-digit",
+  });
+}
+
 const emptyForm = {
   nom: "",
   prenom: "",
@@ -162,7 +183,7 @@ export default function ElevesPage() {
     let elevesQuery = supabase
       .from("eleves")
       .select(
-        "*, etablissement:etablissements(*), vol1_aeronef:aeronefs!vol1_aeronef_id(type_aeronef,immatriculation,prix_heure), vol2_aeronef:aeronefs!vol2_aeronef_id(type_aeronef,immatriculation,prix_heure)",
+        "*, etablissement:etablissements(*), vol1_aeronef:aeronefs!vol1_aeronef_id(type_aeronef,immatriculation,prix_heure), vol2_aeronef:aeronefs!vol2_aeronef_id(type_aeronef,immatriculation,prix_heure), reservations(id,statut,type_vol,creneau:creneaux(id,date_vol,heure_debut,heure_fin,statut,pilote:profiles!pilote_id(nom,prenom),aeronef:aeronefs(type_aeronef,immatriculation)))",
       )
       .eq("archive", false)
       .order("nom");
@@ -1461,14 +1482,49 @@ export default function ElevesPage() {
                   )}
                 </>
               ) : (
-                <InfoRow
-                  label="Statut"
-                  value={
-                    s.paiement_effectue && s.attestation_signee
-                      ? "Peut reserver"
-                      : "Conditions non remplies"
+                (() => {
+                  const r = getActiveResa((s as any).reservations, 1);
+                  if (r?.creneau) {
+                    const c = r.creneau;
+                    return (
+                      <>
+                        <InfoRow label="Statut" value="Programmé" accent="text-emerald-600" />
+                        <InfoRow
+                          label="Date"
+                          value={new Date(c.date_vol + "T00:00:00").toLocaleDateString("fr-FR")}
+                        />
+                        {c.heure_debut && (
+                          <InfoRow
+                            label="Horaire"
+                            value={`${c.heure_debut.slice(0, 5)}${c.heure_fin ? " – " + c.heure_fin.slice(0, 5) : ""}`}
+                          />
+                        )}
+                        {c.aeronef && (
+                          <InfoRow
+                            label="Aéronef"
+                            value={`${c.aeronef.type_aeronef} (${c.aeronef.immatriculation})`}
+                          />
+                        )}
+                        {c.pilote && (
+                          <InfoRow
+                            label="Pilote"
+                            value={`${c.pilote.prenom} ${c.pilote.nom}`}
+                          />
+                        )}
+                      </>
+                    );
                   }
-                />
+                  return (
+                    <InfoRow
+                      label="Statut"
+                      value={
+                        s.paiement_effectue && s.attestation_signee
+                          ? "Peut réserver"
+                          : "Conditions non remplies"
+                      }
+                    />
+                  );
+                })()
               )}
             </Section>
             <Section title="BIA">
@@ -1537,11 +1593,40 @@ export default function ElevesPage() {
                   />
                 </>
               ) : s.vol2_autorise ? (
-                <InfoRow
-                  label="Statut"
-                  value="Autorise"
-                  accent="text-amber-600"
-                />
+                (() => {
+                  const r = getActiveResa((s as any).reservations, 2);
+                  if (r?.creneau) {
+                    const c = r.creneau;
+                    return (
+                      <>
+                        <InfoRow label="Statut" value="Programmé" accent="text-emerald-600" />
+                        <InfoRow
+                          label="Date"
+                          value={new Date(c.date_vol + "T00:00:00").toLocaleDateString("fr-FR")}
+                        />
+                        {c.heure_debut && (
+                          <InfoRow
+                            label="Horaire"
+                            value={`${c.heure_debut.slice(0, 5)}${c.heure_fin ? " – " + c.heure_fin.slice(0, 5) : ""}`}
+                          />
+                        )}
+                        {c.aeronef && (
+                          <InfoRow
+                            label="Aéronef"
+                            value={`${c.aeronef.type_aeronef} (${c.aeronef.immatriculation})`}
+                          />
+                        )}
+                        {c.pilote && (
+                          <InfoRow
+                            label="Pilote"
+                            value={`${c.pilote.prenom} ${c.pilote.nom}`}
+                          />
+                        )}
+                      </>
+                    );
+                  }
+                  return <InfoRow label="Statut" value="Autorisé — non programmé" accent="text-amber-600" />;
+                })()
               ) : (
                 <InfoRow label="Statut" value="—" />
               )}
@@ -1928,7 +2013,18 @@ export default function ElevesPage() {
                       <Dot ok={s.attestation_signee} />
                     </td>
                     <td className="px-3 py-2.5">
-                      <Dot ok={s.vol1_effectue} />
+                      {(() => {
+                        if (s.vol1_effectue) return <Dot ok />;
+                        const r = getActiveResa((s as any).reservations, 1);
+                        if (r?.creneau?.date_vol)
+                          return (
+                            <span className="flex items-center gap-1 text-xs font-medium text-emerald-700 whitespace-nowrap">
+                              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0" />
+                              {fmtDay(r.creneau.date_vol)}
+                            </span>
+                          );
+                        return <Dot ok={false} />;
+                      })()}
                     </td>
                     <td className="px-3 py-2.5">
                       {s.bia_resultat ? (
@@ -1943,9 +2039,17 @@ export default function ElevesPage() {
                       {s.vol2_effectue ? (
                         <Dot ok />
                       ) : s.vol2_autorise ? (
-                        <span className="badge bg-amber-50 text-amber-600">
-                          OK
-                        </span>
+                        (() => {
+                          const r = getActiveResa((s as any).reservations, 2);
+                          if (r?.creneau?.date_vol)
+                            return (
+                              <span className="flex items-center gap-1 text-xs font-medium text-emerald-700 whitespace-nowrap">
+                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0" />
+                                {fmtDay(r.creneau.date_vol)}
+                              </span>
+                            );
+                          return <Dot ok={false} />;
+                        })()
                       ) : (
                         "—"
                       )}
