@@ -5,10 +5,12 @@ import { NextResponse } from "next/server";
  * POST /api/email/notify-slot
  * Called when a new créneau is created OR manually via "Notifier" button.
  *
- * Eligibility: paiement_effectue + attestation_signee + no active vol1 reservation + not archived
+ * Sends to TWO groups (same slot can be used for Vol 1 or Vol 2):
+ *   - Vol 1 eligible: paiement + attestation + vol1 non effectué + pas de résa vol1 active + non abandonné
+ *   - Vol 2 eligible: vol2_autorise (= a le BIA) + vol1 effectué + pas de résa vol2 active + non abandonné
  *
  * Anti-spam: Only sends if there were NO other open slots for the same scope before this one.
- * Pass `force: true` to bypass anti-spam (manual button trigger).
+ * Pass `force: true` to bypass anti-spam (manual "Notifier" button).
  *
  * Scoping (priority order):
  *   1. eleves_autorises (array of eleve IDs) → only those specific students' parents
@@ -55,7 +57,6 @@ export async function POST(req: Request) {
       .eq("statut", "ouvert");
     if (creneau_id) countQuery = countQuery.neq("id", creneau_id);
     if (hasMultiEtabs) {
-      // Check against any of the établissements
       countQuery = countQuery.overlaps("etablissement_ids", etablissement_ids);
     } else if (hasSingleEtab) {
       countQuery = countQuery.eq("etablissement_id", etablissement_id);
@@ -68,50 +69,72 @@ export async function POST(req: Request) {
     }
   }
 
-  // Build eligible eleves query
-  let query = supabase
-    .from("eleves")
-    .select("id, prenom, nom, parent_email, parent_prenom, etablissement_id, reservations(id, statut, type_vol)")
-    .eq("archive", false)
-    .eq("paiement_effectue", true)
-    .eq("attestation_signee", true)
-    .eq("vol1_effectue", false)
-    .not("parent_email", "is", null);
-
-  if (isTargeted) {
-    query = query.in("id", eleves_autorises);
-  } else if (hasMultiEtabs) {
-    query = query.in("etablissement_id", etablissement_ids);
-  } else if (hasSingleEtab) {
-    query = query.eq("etablissement_id", etablissement_id);
+  // Helper: apply scope filter to a query
+  function applyScope(query: any) {
+    if (isTargeted) return query.in("id", eleves_autorises);
+    if (hasMultiEtabs) return query.in("etablissement_id", etablissement_ids);
+    if (hasSingleEtab) return query.eq("etablissement_id", etablissement_id);
+    return query; // all
   }
-  // else: no filter → all eligible parents
 
-  const { data: eleves } = await query;
+  // ── Vol 1 eligible ──────────────────────────────────
+  const { data: elevesVol1 } = await applyScope(
+    supabase
+      .from("eleves")
+      .select("id, prenom, nom, parent_email, parent_prenom, etablissement_id, reservations(id, statut, type_vol)")
+      .eq("archive", false)
+      .eq("abandonne", false)
+      .eq("paiement_effectue", true)
+      .eq("attestation_signee", true)
+      .eq("vol1_effectue", false)
+      .not("parent_email", "is", null)
+  );
 
-  // Filter out those who already have an active vol1 reservation
-  const eligible = (eleves ?? []).filter((e: any) => {
+  const vol1Eligible = (elevesVol1 ?? []).filter((e: any) => {
     const activeVol1 = (e.reservations ?? []).some(
       (r: any) => r.type_vol === 1 && r.statut !== "annule",
     );
-    return !activeVol1 && e.parent_email;
+    return !activeVol1;
   });
 
-  // Deduplicate by email
+  // ── Vol 2 eligible ──────────────────────────────────
+  // vol2_autorise = true means they have BIA (Admis or Mention)
+  const { data: elevesVol2 } = await applyScope(
+    supabase
+      .from("eleves")
+      .select("id, prenom, nom, parent_email, parent_prenom, etablissement_id, reservations(id, statut, type_vol)")
+      .eq("archive", false)
+      .eq("abandonne", false)
+      .eq("vol2_autorise", true)
+      .eq("vol1_effectue", true)
+      .eq("vol2_effectue", false)
+      .not("parent_email", "is", null)
+  );
+
+  const vol2Eligible = (elevesVol2 ?? []).filter((e: any) => {
+    const activeVol2 = (e.reservations ?? []).some(
+      (r: any) => r.type_vol === 2 && r.statut !== "annule",
+    );
+    return !activeVol2;
+  });
+
+  // ── Merge, deduplicate per email+élève ──────────────
   const seen = new Set<string>();
-  const parents = eligible
-    .filter((e: any) => {
-      if (seen.has(e.parent_email)) return false;
-      seen.add(e.parent_email);
-      return true;
-    })
-    .map((e: any) => ({
+  const parents: { email: string; prenom: string; eleve_prenom: string; eleve_nom: string; eleve_id: string }[] = [];
+
+  for (const e of [...vol1Eligible, ...vol2Eligible]) {
+    if (!e.parent_email) continue;
+    const key = `${e.parent_email}|${e.id}`; // per parent+élève (a parent can have 2 kids)
+    if (seen.has(key)) continue;
+    seen.add(key);
+    parents.push({
       email: e.parent_email,
       prenom: e.parent_prenom || "",
       eleve_prenom: e.prenom,
       eleve_nom: e.nom,
       eleve_id: e.id,
-    }));
+    });
+  }
 
   if (parents.length === 0) {
     return NextResponse.json({ sent: 0 });

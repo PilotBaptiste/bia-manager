@@ -229,6 +229,8 @@ export default function ReservationPage() {
     );
 
   const bookableEnfants = enfants.filter((e) => {
+    // Abandoned students can never book
+    if (e.abandonne) return false;
     const activeRes = (e.reservations || []).filter(
       (r: any) => r.statut !== "annule" && r.creneau?.statut !== "annule",
     );

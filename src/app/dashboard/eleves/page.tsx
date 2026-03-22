@@ -530,6 +530,32 @@ export default function ElevesPage() {
     });
   }
 
+  async function doAbandon(id: string, currentValue: boolean) {
+    const newValue = !currentValue;
+    const { error } = await supabase.from("eleves").update({ abandonne: newValue }).eq("id", id);
+    if (error) { toast.error("Erreur lors de la mise à jour"); return; }
+    await logActivity("update", id, { abandonne: newValue, nom: selected?.nom, prenom: selected?.prenom });
+    toast.success(newValue ? "Élève marqué comme abandonné" : "Abandon annulé");
+    // Refresh selected
+    setSelected((prev: any) => prev ? { ...prev, abandonne: newValue } : prev);
+    load();
+  }
+
+  function handleAbandon(id: string, currentValue: boolean) {
+    const s = selected;
+    if (currentValue) {
+      // Undoing abandon — no confirmation needed
+      doAbandon(id, currentValue);
+      return;
+    }
+    setConfirmAction({
+      title: "Marquer comme abandonné",
+      message: `${s?.prenom ?? ""} ${s?.nom ?? ""} ne participera pas au vol.\n\nL'élève reste visible dans le système pour le suivi des subventions BIA.`,
+      variant: "danger",
+      onConfirm: () => doAbandon(id, currentValue),
+    });
+  }
+
   // ══════════════════════════════════════════════════
   // FORM MODAL — defined here so it can be used in both fiche and table views
   // ══════════════════════════════════════════════════
@@ -1182,9 +1208,14 @@ export default function ElevesPage() {
             <ChevronLeft className="w-4 h-4" />
           </button>
           <div className="flex-1 min-w-0">
-            <h2 className="text-xl font-bold text-gray-900 truncate">
-              {s.prenom} {s.nom}
-            </h2>
+            <div className="flex items-center gap-2">
+              <h2 className="text-xl font-bold text-gray-900 truncate">
+                {s.prenom} {s.nom}
+              </h2>
+              {s.abandonne && (
+                <span className="text-xs font-semibold bg-red-100 text-red-600 px-2 py-0.5 rounded-full shrink-0">Abandonné</span>
+              )}
+            </div>
             <p className="text-sm text-gray-500">
               {s.etablissement?.nom || "—"} · {s.classe}
             </p>
@@ -1195,6 +1226,14 @@ export default function ElevesPage() {
               className="btn-secondary btn-sm"
             >
               <Edit className="w-3.5 h-3.5" /> Editer
+            </button>
+            {/* Abandon — visible to all non-parent roles (superadmin, gérant, coordinateur) */}
+            <button
+              onClick={() => handleAbandon(s.id, !!s.abandonne)}
+              className={`btn-sm ${s.abandonne ? "btn-secondary text-emerald-600 border-emerald-200 hover:bg-emerald-50" : "btn-secondary text-orange-500 border-orange-200 hover:bg-orange-50"}`}
+              title={s.abandonne ? "Annuler l'abandon" : "Marquer comme abandonné"}
+            >
+              {s.abandonne ? "↩ Réactiver" : "⚠ Abandon"}
             </button>
             <button
               onClick={() => handleDelete(s.id)}
