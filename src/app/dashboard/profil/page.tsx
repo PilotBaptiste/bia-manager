@@ -50,6 +50,10 @@ function EnfantCard({
   async function handleSave() {
     setSaving(true);
     setError(null);
+    const adresse = [
+      form.adresse_rue.trim(),
+      [form.adresse_cp.trim(), form.adresse_ville.trim()].filter(Boolean).join(" "),
+    ].filter(Boolean).join(", ") || null;
     const { error: err } = await supabase
       .from("eleves")
       .update({
@@ -60,6 +64,7 @@ function EnfantCard({
         adresse_rue: form.adresse_rue.trim() || null,
         adresse_cp: form.adresse_cp.trim() || null,
         adresse_ville: form.adresse_ville.trim() || null,
+        adresse,
       })
       .eq("id", enfant.id);
     setSaving(false);
@@ -190,7 +195,6 @@ export default function ProfilPage() {
   const [pwSaving, setPwSaving] = useState(false);
   const [pwMsg, setPwMsg] = useState<string | null>(null);
   const [enfants, setEnfants] = useState<Enfant[]>([]);
-  const [kidsDebug, setKidsDebug] = useState<string | null>(null);
 
   useEffect(() => {
     async function load() {
@@ -218,12 +222,7 @@ export default function ProfilPage() {
         setProfile(prof);
         setForm({ nom: prof.nom || "", prenom: prof.prenom || "", telephone: prof.telephone || "" });
       }
-      if (kidsError) {
-        setKidsDebug(`Erreur RLS: ${kidsError.message} [uid=${user.id}]`);
-      } else {
-        setKidsDebug(`OK — ${kids?.length ?? 0} enfant(s) trouvé(s) [uid=${user.id}]`);
-        if (kids) setEnfants(kids);
-      }
+      if (!kidsError && kids) setEnfants(kids);
       setLoading(false);
     }
     load();
@@ -384,9 +383,6 @@ export default function ProfilPage() {
         <h2 className="text-sm font-semibold text-gray-900 mb-1 flex items-center gap-2">
           <Baby className="w-4 h-4 text-brand-400" /> Mes enfants
         </h2>
-        {kidsDebug && (
-          <p className="text-xs text-gray-400 font-mono mt-1 mb-2">{kidsDebug}</p>
-        )}
         {enfants.length === 0 ? (
           <p className="text-sm text-gray-400 mt-2">
             Aucun enfant lié à votre compte (<span className="font-mono">{profile?.email}</span>).

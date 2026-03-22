@@ -110,6 +110,10 @@ export default function ParentOnboarding({ userId, defaultPrenom, defaultNom, de
     for (const enfant of enfants) {
       const f = enfantForms[enfant.id];
       if (!f) continue;
+      const adresse = [
+        f.adresse_rue.trim(),
+        [f.adresse_cp.trim(), f.adresse_ville.trim()].filter(Boolean).join(" "),
+      ].filter(Boolean).join(", ") || null;
       await supabase.from("eleves").update({
         nom: f.nom.trim() || enfant.nom,
         prenom: f.prenom.trim() || enfant.prenom,
@@ -118,6 +122,7 @@ export default function ParentOnboarding({ userId, defaultPrenom, defaultNom, de
         adresse_rue: f.adresse_rue.trim() || null,
         adresse_cp: f.adresse_cp.trim() || null,
         adresse_ville: f.adresse_ville.trim() || null,
+        adresse,
       }).eq("id", enfant.id);
     }
     setSavingKids(false);
