@@ -3,20 +3,21 @@ import { NextResponse } from "next/server";
 
 /**
  * POST /api/email/notify-slot
- * Called when a new créneau is created. Notifies eligible parents that a slot is available.
+ * Called when a new créneau is created OR manually via "Notifier" button.
  *
  * Eligibility: paiement_effectue + attestation_signee + no active vol1 reservation + not archived
  *
  * Anti-spam: Only sends if there were NO other open slots for the same scope before this one.
- * This prevents spamming parents every time a slot is added when slots already exist.
- * Exception: eleves_autorises slots always notify (they are targeted to specific students).
+ * Pass `force: true` to bypass anti-spam (manual button trigger).
  *
- * Scoping:
- *   - eleves_autorises (array of eleve IDs) → only those specific students' parents (always notifies)
- *   - else etablissement_id → only parents of students in that etablissement
- *   - else → all eligible parents
+ * Scoping (priority order):
+ *   1. eleves_autorises (array of eleve IDs) → only those specific students' parents
+ *   2. etablissement_ids (array) → parents from all those établissements
+ *   3. etablissement_id (single) → parents from that établissement
+ *   4. none → all eligible parents
  *
- * Body: { creneau_id, etablissement_id?, eleves_autorises?, date_vol, heure_debut, heure_fin, pilote_nom, aeronef }
+ * Body: { creneau_id, etablissement_id?, etablissement_ids?, eleves_autorises?, force?,
+ *         date_vol, heure_debut, heure_fin, pilote_nom, aeronef }
  */
 export async function POST(req: Request) {
   if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
@@ -29,17 +30,34 @@ export async function POST(req: Request) {
   );
 
   const body = await req.json();
-  const { creneau_id, etablissement_id, eleves_autorises, date_vol, heure_debut, heure_fin, pilote_nom, aeronef } = body;
+  const {
+    creneau_id,
+    etablissement_id,
+    etablissement_ids,
+    eleves_autorises,
+    date_vol,
+    heure_debut,
+    heure_fin,
+    pilote_nom,
+    aeronef,
+    force = false,
+  } = body;
 
-  // Anti-spam: skip if slots already existed for this scope (unless targeting specific students)
   const isTargeted = eleves_autorises && eleves_autorises.length > 0;
-  if (!isTargeted) {
+  const hasMultiEtabs = etablissement_ids && etablissement_ids.length > 0;
+  const hasSingleEtab = !hasMultiEtabs && !!etablissement_id;
+
+  // Anti-spam: skip if open slots already exist for this scope (unless forced or targeted)
+  if (!force && !isTargeted) {
     let countQuery = supabase
       .from("creneaux")
       .select("id", { count: "exact", head: true })
       .eq("statut", "ouvert");
     if (creneau_id) countQuery = countQuery.neq("id", creneau_id);
-    if (etablissement_id) {
+    if (hasMultiEtabs) {
+      // Check against any of the établissements
+      countQuery = countQuery.overlaps("etablissement_ids", etablissement_ids);
+    } else if (hasSingleEtab) {
       countQuery = countQuery.eq("etablissement_id", etablissement_id);
     } else {
       countQuery = countQuery.is("etablissement_id", null);
@@ -62,9 +80,12 @@ export async function POST(req: Request) {
 
   if (isTargeted) {
     query = query.in("id", eleves_autorises);
-  } else if (etablissement_id) {
+  } else if (hasMultiEtabs) {
+    query = query.in("etablissement_id", etablissement_ids);
+  } else if (hasSingleEtab) {
     query = query.eq("etablissement_id", etablissement_id);
   }
+  // else: no filter → all eligible parents
 
   const { data: eleves } = await query;
 

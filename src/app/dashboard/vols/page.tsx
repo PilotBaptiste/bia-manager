@@ -229,47 +229,48 @@ export default function VolsPage() {
     const piloteNom = piloteObj ? `${piloteObj.prenom} ${piloteObj.nom}` : "";
     const aeronefObj = aeronefs.find((a: any) => a.id === form.aeronef_id);
     const aeronefLabel = aeronefObj ? `${aeronefObj.type_aeronef} (${aeronefObj.immatriculation})` : "";
-    // Create one créneau per selected établissement (or one global if SA with none selected)
-    const etabsToCreate: (string | null)[] = form.etablissements.length > 0
-      ? form.etablissements
-      : [null];
+    // Merge all per-étab eleves_autorises into one flat array
+    const allEleveAut: string[] = [];
+    for (const etabId of form.etablissements) {
+      const ea = form.elevesByEtab[etabId];
+      if (ea?.length > 0) allEleveAut.push(...ea);
+    }
+    const eleveAut = allEleveAut.length > 0 ? allEleveAut : null;
+    const etabIds = form.etablissements.length > 0 ? form.etablissements : null;
+    // Single établissement_id for FK compat (null if multi or none)
+    const singleEtabId = form.etablissements.length === 1 ? form.etablissements[0] : null;
     setSaving(true);
-    let hasError = false;
-    for (const etabId of etabsToCreate) {
-      const eleveAut = etabId && (form.elevesByEtab[etabId]?.length ?? 0) > 0
-        ? form.elevesByEtab[etabId]
-        : null;
-      const { data: created, error: err } = await supabase.from("creneaux").insert({
-        pilote_id: piloteId,
-        aeronef_id: form.aeronef_id,
-        annee_id: anneeId,
-        etablissement_id: etabId,
+    const { data: created, error: err } = await supabase.from("creneaux").insert({
+      pilote_id: piloteId,
+      aeronef_id: form.aeronef_id,
+      annee_id: anneeId,
+      etablissement_id: singleEtabId,
+      etablissement_ids: etabIds,
+      date_vol: form.date_vol,
+      heure_debut: form.heure_debut,
+      heure_fin: form.heure_fin,
+      places_disponibles: aeronef?.nb_places_eleves || 2,
+      notes_pilote: form.notes_pilote || null,
+      eleves_autorises: eleveAut,
+    }).select("id").single();
+    setSaving(false);
+    if (err) { setError(err.message); return; }
+    // Notify eligible parents (anti-spam: only if no open slots already existed for this scope)
+    fetch("/api/email/notify-slot", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        creneau_id: created?.id,
+        etablissement_id: singleEtabId,
+        etablissement_ids: etabIds,
+        eleves_autorises: eleveAut,
         date_vol: form.date_vol,
         heure_debut: form.heure_debut,
         heure_fin: form.heure_fin,
-        places_disponibles: aeronef?.nb_places_eleves || 2,
-        notes_pilote: form.notes_pilote || null,
-        eleves_autorises: eleveAut,
-      }).select("id").single();
-      if (err) { setError(err.message); hasError = true; break; }
-      // Notify eligible parents (anti-spam: only if no open slots already existed for this scope)
-      fetch("/api/email/notify-slot", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          creneau_id: created?.id,
-          etablissement_id: etabId,
-          eleves_autorises: eleveAut,
-          date_vol: form.date_vol,
-          heure_debut: form.heure_debut,
-          heure_fin: form.heure_fin,
-          pilote_nom: piloteNom,
-          aeronef: aeronefLabel,
-        }),
-      }).catch(() => {});
-    }
-    setSaving(false);
-    if (hasError) return;
+        pilote_nom: piloteNom,
+        aeronef: aeronefLabel,
+      }),
+    }).catch(() => {});
     setShowCreate(false);
     setForm({
       date_vol: "",
@@ -463,16 +464,29 @@ export default function VolsPage() {
     }
     // Collect affected parents from original slot BEFORE updating
     const parents = getAffectedParents(showEditSlot);
+    // Build merged eleves_autorises from elevesByEtab (if user changed per-etab selection)
+    const allEleveAut: string[] = [];
+    for (const etabId of (updated.etablissements || [])) {
+      const ea = (updated.elevesByEtab || {})[etabId];
+      if (ea?.length > 0) allEleveAut.push(...ea);
+    }
+    // If user didn't touch per-etab eleves keep existing flat list
+    const eleveAut = allEleveAut.length > 0
+      ? allEleveAut
+      : (updated.eleves_autorises?.length > 0 ? updated.eleves_autorises : null);
+    const etabIds = updated.etablissements?.length > 0 ? updated.etablissements : null;
+    const singleEtabId = updated.etablissements?.length === 1 ? updated.etablissements[0] : null;
     setSaving(true);
     const { error: err } = await supabase.from("creneaux").update({
       date_vol: updated.date_vol,
       heure_debut: updated.heure_debut,
       heure_fin: updated.heure_fin,
       aeronef_id: updated.aeronef_id,
-      etablissement_id: updated.etablissement_id || null,
+      etablissement_id: singleEtabId,
+      etablissement_ids: etabIds,
       pilote_id: updated.pilote_id,
       notes_pilote: updated.notes_pilote || null,
-      eleves_autorises: updated.eleves_autorises?.length > 0 ? updated.eleves_autorises : null,
+      eleves_autorises: eleveAut,
     }).eq("id", updated.id);
     setSaving(false);
     if (err) { toast.error(err.message); return; }
@@ -502,6 +516,33 @@ export default function VolsPage() {
       }).catch(() => {});
     }
     load();
+  }
+
+  async function handleNotifySlot(slot: any) {
+    const etabIds = slot.etablissement_ids?.length > 0 ? slot.etablissement_ids : null;
+    const singleEtab = !etabIds && slot.etablissement_id ? slot.etablissement_id : null;
+    const aeronefObj = aeronefs.find((a: any) => a.id === slot.aeronef_id);
+    const aeronefLabel = aeronefObj ? `${aeronefObj.type_aeronef} (${aeronefObj.immatriculation})` : "";
+    const piloteNom = slot.pilote ? `${slot.pilote.prenom} ${slot.pilote.nom}` : "";
+    const res = await fetch("/api/email/notify-slot", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        creneau_id: slot.id,
+        etablissement_id: singleEtab,
+        etablissement_ids: etabIds,
+        eleves_autorises: slot.eleves_autorises,
+        date_vol: slot.date_vol,
+        heure_debut: slot.heure_debut,
+        heure_fin: slot.heure_fin,
+        pilote_nom: piloteNom,
+        aeronef: aeronefLabel,
+        force: true,
+      }),
+    }).catch(() => null);
+    const data = await res?.json().catch(() => ({}));
+    if (data?.sent > 0) toast.success(`${data.sent} parent(s) notifié(s)`);
+    else toast.info("Aucun parent éligible à notifier");
   }
 
   async function handleRemoveEleve(rid: string, name: string) {
@@ -826,7 +867,7 @@ export default function VolsPage() {
                   </div>
                 </div>
                 {form.etablissements.length > 0 && (
-                  <p className="text-xs text-brand-500 mt-1">{form.etablissements.length} établissement{form.etablissements.length > 1 ? "s" : ""} — {form.etablissements.length} créneau{form.etablissements.length > 1 ? "x" : ""} créé{form.etablissements.length > 1 ? "s" : ""}</p>
+                  <p className="text-xs text-brand-500 mt-1">{form.etablissements.length} établissement{form.etablissements.length > 1 ? "s" : ""} sélectionné{form.etablissements.length > 1 ? "s" : ""}</p>
                 )}
               </div>
               <div>
@@ -916,11 +957,13 @@ export default function VolsPage() {
                   {showDetail.aeronef?.immatriculation})
                 </span>
               </div>
-              {showDetail.etablissement && (
-                <div className="flex justify-between">
-                  <span className="text-gray-500">Etablissement</span>
-                  <span className="font-medium">
-                    {showDetail.etablissement.nom}
+              {(showDetail.etablissement_ids?.length > 0 || showDetail.etablissement) && (
+                <div className="flex justify-between gap-4">
+                  <span className="text-gray-500 shrink-0">Établissement{showDetail.etablissement_ids?.length > 1 ? "s" : ""}</span>
+                  <span className="font-medium text-right">
+                    {showDetail.etablissement_ids?.length > 0
+                      ? showDetail.etablissement_ids.map((id: string) => etabs.find((e) => e.id === id)?.nom || id).join(", ")
+                      : showDetail.etablissement?.nom}
                   </span>
                 </div>
               )}
@@ -1114,12 +1157,23 @@ export default function VolsPage() {
                       setShowDetail(null);
                       setShowEditSlot({
                         ...showDetail,
+                        etablissements: showDetail.etablissement_ids?.length > 0
+                          ? showDetail.etablissement_ids
+                          : (showDetail.etablissement_id ? [showDetail.etablissement_id] : []),
+                        elevesByEtab: {},
                         eleves_autorises: showDetail.eleves_autorises || [],
                       });
                     }}
                     className="btn-secondary"
                   >
                     <Edit className="w-4 h-4" /> Modifier
+                  </button>
+                  <button
+                    onClick={() => handleNotifySlot(showDetail)}
+                    className="btn-secondary"
+                    title="Notifier les parents éligibles"
+                  >
+                    <Mail className="w-4 h-4" /> Notifier
                   </button>
                   <button
                     onClick={() => handleCancelSlot(showDetail.id)}
@@ -1317,53 +1371,60 @@ export default function VolsPage() {
                   {aeronefs.map((a) => <option key={a.id} value={a.id}>{a.type_aeronef} ({a.immatriculation}) — {a.prix_heure}E/h</option>)}
                 </select>
               </div>
-              {/* Établissement — single select, checkbox style */}
+              {/* Établissements — multi-select, même UI que la création */}
               <div>
-                <label className="label">Établissement</label>
+                <label className="label">Établissements</label>
                 <div className="border border-gray-200 rounded-lg overflow-hidden">
-                  <button
-                    type="button"
-                    onClick={() => setShowEditSlot({ ...showEditSlot, etablissement_id: "", eleves_autorises: [] })}
-                    className={`w-full flex items-center gap-2 px-3 py-2 text-sm border-b border-gray-100 transition-colors ${!showEditSlot.etablissement_id ? "bg-brand-50 text-brand-600 font-semibold" : "text-gray-500 hover:bg-gray-50"}`}
-                  >
-                    <span className={`w-4 h-4 rounded border-2 flex items-center justify-center shrink-0 ${!showEditSlot.etablissement_id ? "border-brand-500 bg-brand-500" : "border-gray-300"}`}>
-                      {!showEditSlot.etablissement_id && <Check className="w-2.5 h-2.5 text-white" />}
-                    </span>
-                    Tous les établissements
-                  </button>
+                  {isSA && (
+                    <button
+                      type="button"
+                      onClick={() => setShowEditSlot({ ...showEditSlot, etablissements: [], elevesByEtab: {} })}
+                      className={`w-full flex items-center gap-2 px-3 py-2 text-sm border-b border-gray-100 transition-colors ${(showEditSlot.etablissements || []).length === 0 ? "bg-brand-50 text-brand-600 font-semibold" : "text-gray-500 hover:bg-gray-50"}`}
+                    >
+                      <span className={`w-4 h-4 rounded border-2 flex items-center justify-center shrink-0 ${(showEditSlot.etablissements || []).length === 0 ? "border-brand-500 bg-brand-500" : "border-gray-300"}`}>
+                        {(showEditSlot.etablissements || []).length === 0 && <Check className="w-2.5 h-2.5 text-white" />}
+                      </span>
+                      Tous les établissements
+                    </button>
+                  )}
                   <div className="max-h-36 overflow-y-auto">
                     {(isSA ? etabs : getPiloteEtabsList(profile?.id || "")).map((etab) => {
-                      const isSelected = showEditSlot.etablissement_id === etab.id;
+                      const editEtabs: string[] = showEditSlot.etablissements || [];
+                      const checked = editEtabs.includes(etab.id);
                       const etabEleves = eleves.filter((el) => el.etablissement_id === etab.id);
-                      const elevsSelected: string[] = showEditSlot.eleves_autorises || [];
+                      const etabElvsSelected: string[] = (showEditSlot.elevesByEtab || {})[etab.id] ?? [];
                       return (
                         <div key={etab.id} className="border-b border-gray-50 last:border-0">
                           <button
                             type="button"
-                            onClick={() => setShowEditSlot({ ...showEditSlot, etablissement_id: isSelected ? "" : etab.id, eleves_autorises: [] })}
-                            className={`w-full flex items-center gap-2 px-3 py-2 text-sm transition-colors ${isSelected ? "bg-brand-50 text-brand-700 font-semibold" : "text-gray-700 hover:bg-gray-50"}`}
+                            onClick={() => {
+                              const next = checked
+                                ? editEtabs.filter((x) => x !== etab.id)
+                                : [...editEtabs, etab.id];
+                              setShowEditSlot({ ...showEditSlot, etablissements: next });
+                            }}
+                            className={`w-full flex items-center gap-2 px-3 py-2 text-sm transition-colors ${checked ? "bg-brand-50 text-brand-700 font-semibold" : "text-gray-700 hover:bg-gray-50"}`}
                           >
-                            <span className={`w-4 h-4 rounded border-2 flex items-center justify-center shrink-0 ${isSelected ? "border-brand-500 bg-brand-500" : "border-gray-300"}`}>
-                              {isSelected && <Check className="w-2.5 h-2.5 text-white" />}
+                            <span className={`w-4 h-4 rounded border-2 flex items-center justify-center shrink-0 ${checked ? "border-brand-500 bg-brand-500" : "border-gray-300"}`}>
+                              {checked && <Check className="w-2.5 h-2.5 text-white" />}
                             </span>
                             {etab.nom}
                           </button>
-                          {/* Per-étab eleves_autorises — inline, same as creation */}
-                          {isSelected && etabEleves.length > 0 && (
+                          {checked && etabEleves.length > 0 && (
                             <div className="px-3 pb-2 bg-brand-50/50">
                               <p className="text-[10px] text-gray-400 mb-1.5">Restreindre à des élèves spécifiques (optionnel) :</p>
                               <div className="flex flex-wrap gap-1">
                                 {etabEleves.map((el) => {
-                                  const sel = elevsSelected.includes(el.id);
+                                  const sel = etabElvsSelected.includes(el.id);
                                   return (
                                     <button
                                       key={el.id}
                                       type="button"
                                       onClick={() => {
                                         const next = sel
-                                          ? elevsSelected.filter((x) => x !== el.id)
-                                          : [...elevsSelected, el.id];
-                                        setShowEditSlot({ ...showEditSlot, eleves_autorises: next });
+                                          ? etabElvsSelected.filter((x) => x !== el.id)
+                                          : [...etabElvsSelected, el.id];
+                                        setShowEditSlot({ ...showEditSlot, elevesByEtab: { ...(showEditSlot.elevesByEtab || {}), [etab.id]: next } });
                                       }}
                                       className={`text-[11px] px-2 py-0.5 rounded-full border transition-colors ${sel ? "bg-brand-500 text-white border-brand-500" : "text-gray-600 border-gray-300 hover:border-brand-300"}`}
                                     >
@@ -1372,8 +1433,8 @@ export default function VolsPage() {
                                   );
                                 })}
                               </div>
-                              {elevsSelected.length > 0 && (
-                                <p className="text-[10px] text-brand-500 mt-1">{elevsSelected.length} élève{elevsSelected.length > 1 ? "s" : ""} sélectionné{elevsSelected.length > 1 ? "s" : ""}</p>
+                              {etabElvsSelected.length > 0 && (
+                                <p className="text-[10px] text-brand-500 mt-1">{etabElvsSelected.length} élève{etabElvsSelected.length > 1 ? "s" : ""} sélectionné{etabElvsSelected.length > 1 ? "s" : ""}</p>
                               )}
                             </div>
                           )}
@@ -1382,6 +1443,9 @@ export default function VolsPage() {
                     })}
                   </div>
                 </div>
+                {(showEditSlot.etablissements || []).length > 0 && (
+                  <p className="text-xs text-brand-500 mt-1">{showEditSlot.etablissements.length} établissement{showEditSlot.etablissements.length > 1 ? "s" : ""} sélectionné{showEditSlot.etablissements.length > 1 ? "s" : ""}</p>
+                )}
               </div>
               <div>
                 <label className="label">Notes</label>
