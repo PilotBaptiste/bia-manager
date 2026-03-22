@@ -373,28 +373,35 @@ export default function ProfilPage() {
         </div>
       </div>
 
-      {/* Mes enfants */}
-      {enfants.length > 0 && (
-        <div className="card">
-          <h2 className="text-sm font-semibold text-gray-900 mb-1 flex items-center gap-2">
-            <Baby className="w-4 h-4 text-brand-400" /> Mes enfants
-          </h2>
-          <p className="text-xs text-gray-500 mb-4">
-            Vous pouvez modifier les informations de votre enfant. Elles sont utilisées pour les documents officiels (attestation, BIA).
+      {/* Mes enfants — toujours visible */}
+      <div className="card">
+        <h2 className="text-sm font-semibold text-gray-900 mb-1 flex items-center gap-2">
+          <Baby className="w-4 h-4 text-brand-400" /> Mes enfants
+        </h2>
+        {enfants.length === 0 ? (
+          <p className="text-sm text-gray-400 mt-2">
+            Aucun enfant lié à votre compte (<span className="font-mono">{profile?.email}</span>).
+            Vérifiez avec l&apos;aéroclub que cet email est bien enregistré sur la fiche élève.
           </p>
-          <div className="space-y-2">
-            {enfants.map((e) => (
-              <EnfantCard
-                key={e.id}
-                enfant={e}
-                onSaved={(updated) =>
-                  setEnfants((prev) => prev.map((x) => (x.id === updated.id ? updated : x)))
-                }
-              />
-            ))}
-          </div>
-        </div>
-      )}
+        ) : (
+          <>
+            <p className="text-xs text-gray-500 mb-4">
+              Vous pouvez modifier les informations de votre enfant. Elles sont utilisées pour les documents officiels (attestation, BIA).
+            </p>
+            <div className="space-y-2">
+              {enfants.map((e) => (
+                <EnfantCard
+                  key={e.id}
+                  enfant={e}
+                  onSaved={(updated) =>
+                    setEnfants((prev) => prev.map((x) => (x.id === updated.id ? updated : x)))
+                  }
+                />
+              ))}
+            </div>
+          </>
+        )}
+      </div>
     </div>
   );
 }
