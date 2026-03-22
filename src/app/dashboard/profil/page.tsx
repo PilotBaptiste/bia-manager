@@ -190,6 +190,7 @@ export default function ProfilPage() {
   const [pwSaving, setPwSaving] = useState(false);
   const [pwMsg, setPwMsg] = useState<string | null>(null);
   const [enfants, setEnfants] = useState<Enfant[]>([]);
+  const [kidsDebug, setKidsDebug] = useState<string | null>(null);
 
   useEffect(() => {
     async function load() {
@@ -205,7 +206,7 @@ export default function ProfilPage() {
         body: JSON.stringify({ userId: user.id, email: user.email }),
       }).catch(() => {});
 
-      const [{ data: prof }, { data: kids }] = await Promise.all([
+      const [{ data: prof }, { data: kids, error: kidsError }] = await Promise.all([
         supabase.from("profiles").select("*").eq("id", user.id).single(),
         supabase
           .from("eleves")
@@ -217,7 +218,12 @@ export default function ProfilPage() {
         setProfile(prof);
         setForm({ nom: prof.nom || "", prenom: prof.prenom || "", telephone: prof.telephone || "" });
       }
-      if (kids) setEnfants(kids);
+      if (kidsError) {
+        setKidsDebug(`Erreur RLS: ${kidsError.message} [uid=${user.id}]`);
+      } else {
+        setKidsDebug(`OK — ${kids?.length ?? 0} enfant(s) trouvé(s) [uid=${user.id}]`);
+        if (kids) setEnfants(kids);
+      }
       setLoading(false);
     }
     load();
@@ -378,6 +384,9 @@ export default function ProfilPage() {
         <h2 className="text-sm font-semibold text-gray-900 mb-1 flex items-center gap-2">
           <Baby className="w-4 h-4 text-brand-400" /> Mes enfants
         </h2>
+        {kidsDebug && (
+          <p className="text-xs text-gray-400 font-mono mt-1 mb-2">{kidsDebug}</p>
+        )}
         {enfants.length === 0 ? (
           <p className="text-sm text-gray-400 mt-2">
             Aucun enfant lié à votre compte (<span className="font-mono">{profile?.email}</span>).
