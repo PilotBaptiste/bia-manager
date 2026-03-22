@@ -159,7 +159,7 @@ export default function Sidebar({ profile }: { profile: any }) {
           <p className="text-[10px] text-gray-400">ACBA · {new Date().getFullYear()}</p>
         </div>
       </div>
-      <nav className="flex-1 flex flex-col gap-0.5 overflow-y-auto">
+      <nav className="flex-1 flex flex-col gap-0.5 overflow-y-auto" aria-label="Navigation principale">
         {nav.map((item) => {
           const Icon = iconMap[item.icon] || LayoutDashboard;
           const active = isActive(item.href);
@@ -170,6 +170,8 @@ export default function Sidebar({ profile }: { profile: any }) {
                 router.push(item.href);
                 setOpen(false);
               }}
+              aria-current={active ? "page" : undefined}
+              aria-label={item.label}
               className={cn(
                 "group relative flex items-center gap-2.5 w-full px-3 py-2 rounded-lg text-[13px] font-medium text-left",
                 "transition-all duration-[120ms] cubic-bezier(.34,1.56,.64,1)",
@@ -181,7 +183,7 @@ export default function Sidebar({ profile }: { profile: any }) {
             >
               {/* Active accent strip */}
               {active && (
-                <span className="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-5 bg-brand-500 rounded-r-full" />
+                <span className="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-5 bg-brand-500 rounded-r-full" aria-hidden="true" />
               )}
               <Icon
                 className={cn(
@@ -190,6 +192,7 @@ export default function Sidebar({ profile }: { profile: any }) {
                     ? "text-brand-500"
                     : "text-gray-400 group-hover:text-gray-600 group-hover:scale-110",
                 )}
+                aria-hidden="true"
               />
               {item.label}
             </button>

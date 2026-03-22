@@ -228,6 +228,25 @@ export default function VolsPage() {
       return;
     }
     const piloteId = isSA && form.pilote_id ? form.pilote_id : profile.id;
+    // Check overlap: same pilot OR same aircraft on the same day with overlapping time
+    const overlap = creneaux.find((c) => {
+      if (c.statut === "annule" || c.statut === "termine") return false;
+      if (c.date_vol !== form.date_vol) return false;
+      const sameActor = c.pilote_id === piloteId || c.aeronef_id === form.aeronef_id;
+      if (!sameActor) return false;
+      // Time overlap: existing [cStart, cEnd) overlaps new [newStart, newEnd)
+      const cStart = c.heure_debut?.slice(0, 5) ?? "00:00";
+      const cEnd = c.heure_fin?.slice(0, 5) ?? "23:59";
+      const newStart = form.heure_debut;
+      const newEnd = form.heure_fin;
+      return newStart < cEnd && newEnd > cStart;
+    });
+    if (overlap) {
+      const who = overlap.pilote_id === piloteId ? "ce pilote" : "cet aéronef";
+      const t = `${overlap.heure_debut?.slice(0, 5)}–${overlap.heure_fin?.slice(0, 5)}`;
+      setError(`Chevauchement détecté : ${who} a déjà un créneau de ${t} ce jour-là.`);
+      return;
+    }
     const aeronef = aeronefs.find((a) => a.id === form.aeronef_id);
     const piloteObj = pilotes.find((p: any) => p.id === piloteId) || (isSA ? null : profile);
     const piloteNom = piloteObj ? `${piloteObj.prenom} ${piloteObj.nom}` : "";
@@ -464,6 +483,25 @@ export default function VolsPage() {
   async function handleEditSlot(updated: any) {
     if (updated.heure_debut && updated.heure_fin && updated.heure_debut >= updated.heure_fin) {
       toast.error("L'heure de fin doit être après l'heure de début");
+      return;
+    }
+    // Check overlap (excluding this slot itself)
+    const editOverlap = creneaux.find((c) => {
+      if (c.id === updated.id) return false;
+      if (c.statut === "annule" || c.statut === "termine") return false;
+      if (c.date_vol !== updated.date_vol) return false;
+      const sameActor = c.pilote_id === updated.pilote_id || c.aeronef_id === updated.aeronef_id;
+      if (!sameActor) return false;
+      const cStart = c.heure_debut?.slice(0, 5) ?? "00:00";
+      const cEnd = c.heure_fin?.slice(0, 5) ?? "23:59";
+      const newStart = updated.heure_debut?.slice(0, 5);
+      const newEnd = updated.heure_fin?.slice(0, 5);
+      return newStart < cEnd && newEnd > cStart;
+    });
+    if (editOverlap) {
+      const who = editOverlap.pilote_id === updated.pilote_id ? "ce pilote" : "cet aéronef";
+      const t = `${editOverlap.heure_debut?.slice(0, 5)}–${editOverlap.heure_fin?.slice(0, 5)}`;
+      toast.error(`Chevauchement : ${who} a déjà un créneau de ${t} ce jour-là.`);
       return;
     }
     // Collect affected parents from original slot BEFORE updating
@@ -711,7 +749,7 @@ export default function VolsPage() {
               </button>
             </div>
             {error && (
-              <div className="mb-4 p-3 rounded-lg bg-red-50 text-sm text-red-700">
+              <div className="mb-4 p-3 rounded-lg bg-red-50 text-sm text-red-700" role="alert" aria-live="assertive">
                 {error}
               </div>
             )}
@@ -1230,7 +1268,7 @@ export default function VolsPage() {
               </p>
             </div>
             {error && (
-              <div className="mb-4 p-3 rounded-lg bg-red-50 text-sm text-red-700">
+              <div className="mb-4 p-3 rounded-lg bg-red-50 text-sm text-red-700" role="alert" aria-live="assertive">
                 {error}
               </div>
             )}

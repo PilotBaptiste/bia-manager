@@ -45,13 +45,13 @@ export default function ParentOnboarding({ userId, defaultPrenom, defaultNom, de
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4" role="dialog" aria-modal="true" aria-labelledby="onboarding-title">
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-8">
         {/* Header */}
         <div className="flex items-center gap-3 mb-6">
           <div className="w-10 h-10 rounded-full bg-brand-100 flex items-center justify-center text-xl">✈️</div>
           <div>
-            <h2 className="text-lg font-bold text-gray-900">Bienvenue sur BIA Manager !</h2>
+            <h2 id="onboarding-title" className="text-lg font-bold text-gray-900">Bienvenue sur BIA Manager !</h2>
             <p className="text-sm text-gray-500">Complétez votre profil pour continuer</p>
           </div>
         </div>
@@ -103,7 +103,7 @@ export default function ParentOnboarding({ userId, defaultPrenom, defaultNom, de
             </p>
           </div>
 
-          {error && <p className="text-sm text-red-600">{error}</p>}
+          {error && <p className="text-sm text-red-600" role="alert">{error}</p>}
 
           <button
             type="submit"

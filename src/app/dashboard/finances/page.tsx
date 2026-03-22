@@ -1,7 +1,7 @@
 "use client";
 import { useState, useEffect } from "react";
 import { createClient } from "@/lib/supabase/client";
-import { Euro, Plane, Users, School, TrendingUp, Loader2, Edit, Save, X, Clock, History, UserCheck, Plus, Trash2, Check } from "lucide-react";
+import { Euro, Plane, Users, School, TrendingUp, Loader2, Edit, Save, X, Clock, History, UserCheck, Plus, Trash2, Check, Download } from "lucide-react";
 import { toast } from "sonner";
 
 const PAYMENT_MODES = ["Espèces", "Chèque", "Virement", "CB", "Autre"];
@@ -235,13 +235,80 @@ export default function FinancesPage() {
     load();
   }
 
-  if (loading) return <div className="flex items-center justify-center h-64"><Loader2 className="w-6 h-6 animate-spin text-brand-400" /></div>;
+  function exportCSV(type: "operations" | "etabs" | "pilotes") {
+    let rows: string[][] = [];
+    let filename = "";
+    const fmt = (v: any) => v == null ? "" : String(v).replace(/"/g, '""');
+    const cell = (v: any) => `"${fmt(v)}"`;
+    const date = new Date().toISOString().slice(0, 10);
+
+    if (type === "operations") {
+      filename = `finances_operations_${date}.csv`;
+      rows = [
+        ["Date", "Type", "Sens", "Montant (€)", "Description", "Établissement", "Aéronef", "Pilote", "Temps (min)", "Mode"],
+        ...operations.map(op => [
+          op.date ? new Date(op.date).toLocaleDateString("fr-FR") : "",
+          op.type,
+          op.sens === "recette" ? "Recette" : "Dépense",
+          op.montant?.toFixed(2) ?? "",
+          op.description ?? "",
+          op.etablissement ?? "",
+          op.aeronef ?? "",
+          op.pilote ?? "",
+          op.temps ?? "",
+          op.mode ?? "",
+        ].map(cell)),
+      ];
+    } else if (type === "etabs") {
+      filename = `finances_etablissements_${date}.csv`;
+      rows = [
+        ["Établissement", "Élèves", "Payés", "Inscriptions (€)", "BIA admis", "Subv. fédé (€)", "Coût vols (€)", "Solde (€)"],
+        ...etabStats.map(r => [
+          r.nom, r.eleves, r.payes, r.ins, r.bia, r.fed, r.couts.toFixed(2), r.solde.toFixed(2),
+        ].map(cell)),
+        // Total row
+        ["TOTAL", eleves.length, totalPaye, recettesInscriptions.toFixed(2), totalBia, recettesFede, coutVolsTotal.toFixed(2), solde.toFixed(2)].map(cell),
+      ];
+    } else {
+      filename = `finances_pilotes_${date}.csv`;
+      rows = [
+        ["Pilote", "Vols", "Heures", "Coût (€)"],
+        ...Object.entries(piloteStats).map(([nom, s]: any) => [
+          nom, s.vols, (s.minutes / 60).toFixed(1), s.cout.toFixed(2),
+        ].map(cell)),
+      ];
+    }
+
+    const bom = "\uFEFF";
+    const csv = bom + rows.map(r => r.join(";")).join("\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = filename; a.click();
+    URL.revokeObjectURL(url);
+    toast.success(`Export ${filename} téléchargé`);
+  }
+
+  if (loading) return <div className="flex items-center justify-center h-64" role="status" aria-label="Chargement des finances…"><Loader2 className="w-6 h-6 animate-spin text-brand-400" aria-hidden="true" /></div>;
 
   return (
     <div>
-      <div className="mb-6">
-        <h1 className="text-xl font-bold text-gray-900">Finances — {new Date().getFullYear()}</h1>
-        {nomClub && <p className="text-sm text-gray-500 mt-0.5">{nomClub}</p>}
+      <div className="mb-6 flex items-start justify-between gap-4 flex-wrap">
+        <div>
+          <h1 className="text-xl font-bold text-gray-900">Finances — {new Date().getFullYear()}</h1>
+          {nomClub && <p className="text-sm text-gray-500 mt-0.5">{nomClub}</p>}
+        </div>
+        <div className="flex gap-2">
+          <button onClick={() => exportCSV("operations")} className="btn-secondary btn-sm" title="Exporter toutes les opérations">
+            <Download className="w-3.5 h-3.5" /> Opérations
+          </button>
+          <button onClick={() => exportCSV("etabs")} className="btn-secondary btn-sm" title="Exporter par établissement">
+            <Download className="w-3.5 h-3.5" /> Établissements
+          </button>
+          <button onClick={() => exportCSV("pilotes")} className="btn-secondary btn-sm" title="Exporter par pilote">
+            <Download className="w-3.5 h-3.5" /> Pilotes
+          </button>
+        </div>
       </div>
 
       {/* Tabs */}
