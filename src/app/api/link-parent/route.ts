@@ -37,12 +37,12 @@ export async function POST(req: Request) {
       .eq("prenom", "");
   }
 
-  // Link unlinked children
+  // Link children by email — also overwrite if parent_id points to a different (deleted) account
   const { error } = await supabase
     .from("eleves")
     .update({ parent_id: userId })
     .eq("parent_email", email)
-    .is("parent_id", null);
+    .neq("parent_id", userId); // skip rows already correctly linked
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 400 });

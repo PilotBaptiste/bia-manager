@@ -86,6 +86,7 @@ export default function ParentOnboarding({ userId, defaultPrenom, defaultNom, de
   async function handleStep1(e: React.FormEvent) {
     e.preventDefault();
     if (!prenom.trim() || !nom.trim()) { setError("Prénom et nom sont requis."); return; }
+    if (!telephone.trim()) { setError("Le numéro de téléphone est requis."); return; }
     setSaving(true);
     setError(null);
     const { error: err } = await supabase
@@ -182,13 +183,14 @@ export default function ParentOnboarding({ userId, defaultPrenom, defaultNom, de
               </div>
             </div>
             <div>
-              <label className="label">Téléphone</label>
+              <label className="label">Téléphone *</label>
               <input
                 className="input"
                 value={telephone}
                 onChange={(e) => setTelephone(e.target.value)}
                 placeholder="06 12 34 56 78"
                 type="tel"
+                required
               />
             </div>
 
