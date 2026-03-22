@@ -197,12 +197,20 @@ export default function ProfilPage() {
         data: { user },
       } = await supabase.auth.getUser();
       if (!user) return;
+
+      // Ensure parent_id is set on all linked eleves (same as reservation page)
+      await fetch("/api/link-parent", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId: user.id, email: user.email }),
+      }).catch(() => {});
+
       const [{ data: prof }, { data: kids }] = await Promise.all([
         supabase.from("profiles").select("*").eq("id", user.id).single(),
         supabase
           .from("eleves")
           .select("id,nom,prenom,date_naissance,lieu_naissance,adresse_rue,adresse_cp,adresse_ville")
-          .eq("parent_email", user.email!)
+          .eq("parent_id", user.id)
           .eq("archive", false),
       ]);
       if (prof) {

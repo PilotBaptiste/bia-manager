@@ -47,10 +47,16 @@ export default function ParentOnboarding({ userId, defaultPrenom, defaultNom, de
   useEffect(() => {
     supabase.auth.getUser().then(async ({ data: { user } }) => {
       if (!user?.email) return;
+      // Set parent_id on linked eleves before querying (same pattern as reservation page)
+      await fetch("/api/link-parent", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId: user.id, email: user.email }),
+      }).catch(() => {});
       const { data } = await supabase
         .from("eleves")
         .select("id,nom,prenom,date_naissance,lieu_naissance,adresse_rue,adresse_cp,adresse_ville")
-        .eq("parent_email", user.email)
+        .eq("parent_id", user.id)
         .eq("archive", false);
       if (data && data.length > 0) {
         setEnfants(data);
