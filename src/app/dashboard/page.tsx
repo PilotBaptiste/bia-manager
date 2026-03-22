@@ -271,8 +271,10 @@ async function DashboardParent({ supabase, profile }: { supabase: any; profile: 
   const contactEmail = params["email_aeroclub"] || "contact@acba.fr";
   const contactTel = params["telephone_aeroclub"] || null;
 
-  // Show onboarding modal if profile incomplete (first login)
-  const needsOnboarding = !profile.nom || !profile.prenom;
+  // Show onboarding modal if profile incomplete
+  // Check nom + prenom + telephone — ensures parents who had their account deleted+recreated
+  // (and kept their old profile row) still go through onboarding if telephone is missing
+  const needsOnboarding = !profile.nom || !profile.prenom || !profile.telephone;
 
   return (
     <div>
@@ -281,6 +283,7 @@ async function DashboardParent({ supabase, profile }: { supabase: any; profile: 
           userId={profile.id}
           defaultPrenom={profile.prenom || ""}
           defaultNom={profile.nom || ""}
+          defaultTelephone={profile.telephone || ""}
         />
       )}
       <div className="mb-6">

@@ -6,17 +6,18 @@ interface Props {
   userId: string;
   defaultPrenom?: string;
   defaultNom?: string;
+  defaultTelephone?: string;
 }
 
 /**
- * Modal shown to parents who haven't completed their profile yet (nom/prenom/telephone empty).
+ * Modal shown to parents who haven't completed their profile yet (nom/prenom/telephone missing).
  * Collects name + phone, updates profiles table, then dismisses itself.
  */
-export default function ParentOnboarding({ userId, defaultPrenom, defaultNom }: Props) {
+export default function ParentOnboarding({ userId, defaultPrenom, defaultNom, defaultTelephone }: Props) {
   const supabase = createClient();
   const [prenom, setPrenom] = useState(defaultPrenom || "");
   const [nom, setNom] = useState(defaultNom || "");
-  const [telephone, setTelephone] = useState("");
+  const [telephone, setTelephone] = useState(defaultTelephone || "");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState(false);
