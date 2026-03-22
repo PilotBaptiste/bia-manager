@@ -15,18 +15,27 @@ const FROM =
 const APP_URL =
   process.env.NEXT_PUBLIC_APP_URL ?? "https://bia-manager-acba.vercel.app";
 
-function wrap(inner: string) {
+function wrap(inner: string, contact?: { nom?: string; email?: string; telephone?: string }) {
+  const contactLines = [];
+  if (contact?.telephone) contactLines.push(`📞 ${contact.telephone}`);
+  if (contact?.email) contactLines.push(`✉️ <a href="mailto:${contact.email}" style="color:#1b3a5c">${contact.email}</a>`);
+  const contactBlock = contact?.nom || contactLines.length > 0 ? `
+    <div style="margin-top:20px;padding:14px 16px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;font-size:12px;color:#64748b">
+      <p style="margin:0 0 4px;font-weight:700;color:#1b3a5c">${contact?.nom || "Aéro-Club"}</p>
+      ${contactLines.map(l => `<p style="margin:2px 0">${l}</p>`).join("")}
+    </div>` : "";
   return `<div style="font-family:system-ui,'DM Sans',sans-serif;background:#f1f5f9;padding:40px 16px;min-height:100vh">
   <div style="max-width:540px;margin:0 auto">
     <div style="background:#1b3a5c;border-radius:12px 12px 0 0;padding:20px 28px;display:flex;align-items:center;gap:10px">
       <span style="color:#fff;font-weight:800;font-size:15px;letter-spacing:.3px">✈ BIA Manager</span>
-      <span style="color:#7b9fd1;font-size:13px">— Aéro-Club du Bassin d'Arcachon</span>
+      <span style="color:#7b9fd1;font-size:13px">— ${contact?.nom || "Aéro-Club du Bassin d'Arcachon"}</span>
     </div>
     <div style="background:#fff;border-radius:0 0 12px 12px;border:1px solid #e2e8f0;border-top:none;padding:32px 28px">
       ${inner}
-      <div style="margin-top:32px;padding-top:20px;border-top:1px solid #f1f5f9;color:#94a3b8;font-size:12px;text-align:center">
+      ${contactBlock}
+      <div style="margin-top:24px;padding-top:16px;border-top:1px solid #f1f5f9;color:#94a3b8;font-size:12px;text-align:center">
         <a href="${APP_URL}" style="color:#1b3a5c;font-weight:600;text-decoration:none">Accéder à la plateforme</a>
-        &nbsp;·&nbsp; Aéro-Club du Bassin d'Arcachon
+        &nbsp;·&nbsp; ${contact?.nom || "Aéro-Club du Bassin d'Arcachon"}
       </div>
     </div>
   </div>
@@ -78,6 +87,22 @@ export async function POST(req: Request) {
     const body = await req.json();
     const { type } = body;
 
+    // Fetch aéroclub contact info from parametres table
+    const supabaseAdmin = adminSupabase();
+    let contact: { nom?: string; email?: string; telephone?: string } = {};
+    if (supabaseAdmin) {
+      const { data: params } = await supabaseAdmin.from("parametres").select("cle, valeur");
+      if (params) {
+        const p: Record<string, string> = {};
+        for (const row of params) p[row.cle] = row.valeur;
+        contact = {
+          nom: p["nom_aeroclub"] || undefined,
+          email: p["email_aeroclub"] || undefined,
+          telephone: p["telephone_aeroclub"] || undefined,
+        };
+      }
+    }
+
     const emails: { to: string; subject: string; html: string; eleve_id?: string | null }[] = [];
 
     // ─────────────────────────────────────────────────
@@ -121,7 +146,7 @@ export async function POST(req: Request) {
           ])}
           <p style="color:#64748b;font-size:13px">En cas d'empêchement, annulez la réservation au moins <strong>48h avant</strong> le vol depuis votre espace.</p>
           ${ctaBtn("Voir mes réservations", `${APP_URL}/dashboard/reservation`)}
-        `),
+        `, contact),
       });
 
       // To pilot — new booking notification (skip if same address as parent)
@@ -140,7 +165,7 @@ export async function POST(req: Request) {
               ...(etablissement ? [{ label: "🏫 Établissement", value: etablissement }] : []),
             ])}
             ${ctaBtn("Voir le planning", `${APP_URL}/dashboard/vols`)}
-          `),
+          `, contact),
         });
       }
     }
@@ -177,7 +202,7 @@ export async function POST(req: Request) {
           ])}
           <p style="color:#64748b;font-size:13px">Vous pouvez réserver un autre créneau disponible depuis votre espace.</p>
           ${ctaBtn("Réserver un nouveau créneau", `${APP_URL}/dashboard/reservation`)}
-        `),
+        `, contact),
       });
 
       // To pilot — cancellation notification (skip if same address as parent)
@@ -195,7 +220,7 @@ export async function POST(req: Request) {
               { label: "⏰ Horaire", value: heure_debut?.slice(0, 5) || "—" },
             ])}
             ${ctaBtn("Voir le planning", `${APP_URL}/dashboard/vols`)}
-          `),
+          `, contact),
         });
       }
     }
@@ -232,7 +257,7 @@ export async function POST(req: Request) {
             ])}
             <p style="color:#64748b;font-size:13px">Si ces modifications ne vous conviennent pas, vous pouvez annuler et choisir un autre créneau depuis votre espace.</p>
             ${ctaBtn("Voir mes réservations", `${APP_URL}/dashboard/reservation`)}
-          `),
+          `, contact),
         });
       }
     }
@@ -260,7 +285,7 @@ export async function POST(req: Request) {
             ])}
             <p style="color:#64748b;font-size:13px">Vous pouvez réserver un nouveau créneau disponible depuis votre espace dès maintenant.</p>
             ${ctaBtn("Réserver un nouveau créneau", `${APP_URL}/dashboard/reservation`)}
-          `),
+          `, contact),
         });
       }
     }
@@ -292,7 +317,7 @@ export async function POST(req: Request) {
               <p style="margin:6px 0 0;color:#1d4ed8;font-size:13px">Ne tardez pas à réserver, les créneaux se remplissent vite. Si celui-ci est déjà complet, d'autres seront ouverts prochainement.</p>
             </div>
             ${ctaBtn("Réserver ce créneau", `${APP_URL}/dashboard/reservation`)}
-          `),
+          `, contact),
         });
       }
     }
@@ -333,7 +358,7 @@ export async function POST(req: Request) {
             <p style="margin:6px 0 0;color:#1d4ed8;font-size:13px">Si aucun créneau n'est disponible pour le moment, <strong>ne vous inquiétez pas</strong> — de nouveaux créneaux seront ouverts prochainement et vous recevrez une notification dès qu'il y en aura un.</p>
           </div>
           ${ctaBtn("Réserver le vol maintenant", `${APP_URL}/dashboard/reservation`)}
-        `),
+        `, contact),
       });
     }
 
@@ -359,7 +384,7 @@ export async function POST(req: Request) {
             </div>
             <p style="color:#64748b;font-size:13px">Vous pouvez vous connecter à tout moment pour vérifier la disponibilité.</p>
             ${ctaBtn("Vérifier les créneaux", `${APP_URL}/dashboard/reservation`)}
-          `),
+          `, contact),
         });
       }
     }
@@ -380,7 +405,7 @@ export async function POST(req: Request) {
           html: wrap(`
             <div style="color:#374151;font-size:14px;line-height:1.7">${customBody.replace(/\n/g, "<br>")}</div>
             ${replyLine}
-          `),
+          `, contact),
         });
       }
     }
@@ -395,8 +420,7 @@ export async function POST(req: Request) {
       );
     }
 
-    // Send all emails and log each one
-    const supabase = adminSupabase();
+    // Send all emails and log each one (reuse supabaseAdmin from above)
     const errors: string[] = [];
 
     for (const e of emails) {
@@ -417,8 +441,8 @@ export async function POST(req: Request) {
 
       // Log to email_logs (best-effort, don't fail the request if logging fails)
       try {
-        if (!supabase) throw new Error("no supabase");
-        await supabase.from("email_logs").insert({
+        if (!supabaseAdmin) throw new Error("no supabase");
+        await supabaseAdmin.from("email_logs").insert({
           type,
           to_email: e.to,
           subject: e.subject,

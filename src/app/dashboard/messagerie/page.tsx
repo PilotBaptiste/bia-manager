@@ -277,6 +277,44 @@ export default function MessageriePage() {
             <span className="text-xs text-gray-400 bg-gray-50 px-2 py-1 rounded-full">{recipients.length} destinataire{recipients.length > 1 ? "s" : ""}</span>
           </div>
 
+          {/* Email templates */}
+          <div>
+            <p className="text-xs font-medium text-gray-500 mb-2">Modèles rapides :</p>
+            <div className="flex flex-wrap gap-1.5">
+              {[
+                {
+                  label: "📝 Attestation parentale",
+                  subject: "Action requise : remplir l'attestation parentale BIA",
+                  body: `Bonjour,\n\nNous vous contactons au sujet de la participation de votre enfant au programme BIA (Brevet d'Initiation Aéronautique).\n\nPour que votre enfant puisse réserver son vol de découverte, vous devez remplir et signer l'attestation parentale disponible dans votre espace en ligne.\n\nRendez-vous dans votre espace parent > onglet "Attestation" pour compléter cette démarche.\n\nSans cette attestation signée, aucune réservation de vol ne sera possible.\n\nCordialement,`,
+                },
+                {
+                  label: "💳 Valider le paiement",
+                  subject: "Rappel : validation du paiement BIA",
+                  body: `Bonjour,\n\nNous vous rappelons que le paiement de l'activité BIA pour votre enfant n'a pas encore été enregistré dans notre système.\n\nPour que votre enfant puisse accéder aux vols de découverte, le paiement doit être validé par l'établissement ou l'aéro-club.\n\nSi vous avez déjà effectué le règlement, merci de contacter directement votre établissement scolaire afin qu'il mette à jour votre dossier.\n\nCordialement,`,
+                },
+                {
+                  label: "✈️ Créneaux disponibles",
+                  subject: "Des créneaux de vol sont disponibles !",
+                  body: `Bonjour,\n\nNous avons le plaisir de vous informer que des créneaux de vol de découverte sont disponibles pour votre enfant.\n\nConnectez-vous à votre espace parent pour consulter les créneaux disponibles et effectuer votre réservation.\n\nAttention : les places sont limitées, nous vous encourageons à réserver rapidement.\n\nCordialement,`,
+                },
+                {
+                  label: "📋 Rappel général",
+                  subject: "Rappel BIA — Votre espace parent",
+                  body: `Bonjour,\n\nNous souhaitons vous rappeler que votre espace parent BIA Manager vous permet de :\n\n• Suivre l'avancement du dossier de votre enfant\n• Remplir et signer l'attestation parentale\n• Réserver un créneau de vol de découverte une fois le paiement et l'attestation validés\n\nPour toute question, n'hésitez pas à nous contacter directement.\n\nCordialement,`,
+                },
+              ].map(tpl => (
+                <button
+                  key={tpl.label}
+                  type="button"
+                  onClick={() => { setSubject(tpl.subject); setBody(tpl.body); }}
+                  className="text-xs px-2.5 py-1 rounded-full border border-gray-200 text-gray-600 hover:border-brand-300 hover:text-brand-600 hover:bg-brand-50 transition-colors"
+                >
+                  {tpl.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
           <div className="space-y-3">
             <div>
               <label className="block text-xs font-medium text-gray-600 mb-1">Objet *</label>

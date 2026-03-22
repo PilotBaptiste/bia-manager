@@ -2,6 +2,7 @@ import { getCurrentProfile } from "@/lib/auth";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { Users, CheckCircle2, Plane, Euro, Calendar, Clock, School, FileSignature, CalendarPlus, AlertCircle } from "lucide-react";
 import Link from "next/link";
+import ParentOnboarding from "@/components/ParentOnboarding";
 
 // ─── Stat Card ──────────────────────────────────────────
 function Stat({ icon: Icon, label, value, sub, color = "bg-brand-50 text-brand-500" }: any) {
@@ -270,10 +271,20 @@ async function DashboardParent({ supabase, profile }: { supabase: any; profile: 
   const contactEmail = params["email_aeroclub"] || "contact@acba.fr";
   const contactTel = params["telephone_aeroclub"] || null;
 
+  // Show onboarding modal if profile incomplete (first login)
+  const needsOnboarding = !profile.nom || !profile.prenom;
+
   return (
     <div>
+      {needsOnboarding && (
+        <ParentOnboarding
+          userId={profile.id}
+          defaultPrenom={profile.prenom || ""}
+          defaultNom={profile.nom || ""}
+        />
+      )}
       <div className="mb-6">
-        <h1 className="text-xl font-bold text-gray-900">Bonjour, {profile.prenom}</h1>
+        <h1 className="text-xl font-bold text-gray-900">Bonjour, {profile.prenom || "!"}</h1>
         <p className="text-sm text-gray-500 mt-1">Espace parent · Aéro-Club du Bassin d&apos;Arcachon</p>
       </div>
 

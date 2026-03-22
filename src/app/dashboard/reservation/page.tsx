@@ -53,7 +53,7 @@ export default function ReservationPage() {
       supabase
         .from("creneaux")
         .select(
-          "*, pilote:profiles!pilote_id(nom, prenom, email, telephone), aeronef:aeronefs(type_aeronef, immatriculation, nb_places_eleves), etablissement:etablissements(nom), reservations(id, statut)",
+          "*, etablissement_ids, pilote:profiles!pilote_id(nom, prenom, email, telephone), aeronef:aeronefs(type_aeronef, immatriculation, nb_places_eleves), etablissement:etablissements(nom), reservations(id, statut)",
         )
         .in("statut", ["ouvert", "confirme"])
         .order("date_vol"),
@@ -203,13 +203,16 @@ export default function ReservationPage() {
         (r: any) => r.statut !== "annule",
       ).length;
       if (activeBookings >= capacity) return false;
-      // Show creneaux for this student's etablissement OR creneaux open to all
-      if (
-        c.etablissement_id &&
-        enfant.etablissement_id &&
-        c.etablissement_id !== enfant.etablissement_id
-      )
+      // Show creneaux for this student's établissement OR creneaux open to all
+      // Multi-étab: creneau has etablissement_ids[] and etablissement_id=null
+      const hasMultiEtabs = c.etablissement_ids && c.etablissement_ids.length > 0;
+      if (hasMultiEtabs) {
+        // Multi-étab: only show if student's établissement is in the list
+        if (enfant.etablissement_id && !c.etablissement_ids.includes(enfant.etablissement_id)) return false;
+      } else if (c.etablissement_id && enfant.etablissement_id && c.etablissement_id !== enfant.etablissement_id) {
+        // Single-étab: must match exactly
         return false;
+      }
       // If the slot restricts to specific students, check inclusion
       if (c.eleves_autorises && c.eleves_autorises.length > 0) {
         if (!c.eleves_autorises.includes(enfant.id)) return false;
