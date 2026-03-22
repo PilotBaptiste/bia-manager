@@ -45,12 +45,14 @@ export default function ParentOnboarding({ userId, defaultPrenom, defaultNom, de
   const [done, setDone] = useState(false);
 
   useEffect(() => {
-    supabase
-      .from("eleves")
-      .select("id,nom,prenom,date_naissance,lieu_naissance,adresse_rue,adresse_cp,adresse_ville")
-      .eq("parent_id", userId)
-      .eq("archive", false)
-      .then(({ data }) => {
+    supabase.auth.getUser().then(({ data: { user } }) => {
+      if (!user) return;
+      supabase
+        .from("eleves")
+        .select("id,nom,prenom,date_naissance,lieu_naissance,adresse_rue,adresse_cp,adresse_ville")
+        .or(`parent_id.eq.${userId},parent_email.eq.${user.email}`)
+        .eq("archive", false)
+        .then(({ data }) => {
         if (data && data.length > 0) {
           setEnfants(data);
           const forms: Record<string, any> = {};
@@ -68,6 +70,7 @@ export default function ParentOnboarding({ userId, defaultPrenom, defaultNom, de
           setEnfantForms(forms);
         }
       });
+    });
   }, [userId]);
 
   if (done) return null;
