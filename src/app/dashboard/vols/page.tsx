@@ -152,7 +152,7 @@ export default function VolsPage() {
         ? [profile.etablissement_id]
         : [];
   const canCreate = isPilote || isSA;
-  // Priority: SA/coordinateur → all | gérant → their établissements | pilot only → their slots
+  // Priority: SA/coordinateur → all | gérant → their établissements | pilot → all (read-only on others)
   const displayed =
     isSA || isCoord
       ? creneaux
@@ -162,9 +162,7 @@ export default function VolsPage() {
               !c.etablissement_id ||
               gerantEtabIds.includes(c.etablissement_id),
           )
-        : isPilote
-          ? creneaux.filter((c) => c.pilote_id === profile?.id)
-          : creneaux;
+        : creneaux; // pilotes see all slots, edit rights checked per-slot below
 
   const filteredDisplayed = displayed.filter((c) => {
     if (filterPilote && c.pilote_id !== filterPilote) return false;
@@ -1131,7 +1129,8 @@ export default function VolsPage() {
                 <p className="text-sm font-semibold text-gray-900">
                   Elèves ({showDetail.reservations?.filter((r: any) => r.statut !== "annule").length || 0})
                 </p>
-                {showDetail.statut !== "termine" && showDetail.statut !== "annule" && canCreate && (
+                {showDetail.statut !== "termine" && showDetail.statut !== "annule" &&
+                  (isSA || isCoord || showDetail.pilote_id === profile?.id) && (
                   <button
                     onClick={() => { setShowAddEleve(v => !v); setAddEleveSearch(""); }}
                     className={`flex items-center gap-1 text-xs font-medium px-2.5 py-1 rounded-lg border transition-all ${showAddEleve ? "bg-brand-50 border-brand-200 text-brand-600" : "border-gray-200 text-gray-500 hover:bg-gray-50"}`}
@@ -1156,8 +1155,7 @@ export default function VolsPage() {
                           Vol {r.type_vol || 1}
                         </span>
                         {showDetail.statut !== "termine" &&
-                          (canCreate ||
-                            showDetail.pilote_id === profile?.id) && (
+                          (isSA || isCoord || showDetail.pilote_id === profile?.id) && (
                             <button
                               onClick={() =>
                                 handleRemoveEleve(
@@ -1289,64 +1287,73 @@ export default function VolsPage() {
                 );
               })()}
             </div>
-            {showDetail.statut !== "termine" &&
-              showDetail.statut !== "annule" &&
-              (canCreate || showDetail.pilote_id === profile?.id) && (
-                <div className="flex gap-2 pt-3 border-t border-gray-100">
-                  <button
-                    onClick={() => {
-                      setShowDetail(null);
-                      setShowClose(showDetail);
-                      setCloseForm({
-                        ...closeForm,
-                        nb_eleves: String(
-                          showDetail.reservations?.filter(
-                            (r: any) => r.statut !== "annule",
-                          ).length || 0,
-                        ),
-                      });
-                    }}
-                    className="btn-primary flex-1"
-                  >
-                    <Check className="w-4 h-4" /> Cloturer
-                  </button>
-                  <button
-                    onClick={() => {
-                      setShowDetail(null);
-                      setShowEditSlot({
-                        ...showDetail,
-                        etablissements: showDetail.etablissement_ids?.length > 0
-                          ? showDetail.etablissement_ids
-                          : (showDetail.etablissement_id ? [showDetail.etablissement_id] : []),
-                        elevesByEtab: {},
-                        eleves_autorises: showDetail.eleves_autorises || [],
-                      });
-                    }}
-                    className="btn-secondary"
-                  >
-                    <Edit className="w-4 h-4" /> Modifier
-                  </button>
-                  <button
-                    onClick={() => handleNotifySlot(showDetail)}
-                    className="btn-secondary"
-                    title="Notifier les parents éligibles"
-                  >
-                    <Mail className="w-4 h-4" /> Notifier
-                  </button>
-                  <button
-                    onClick={() => handleCancelSlot(showDetail.id)}
-                    className="btn-secondary"
-                  >
-                    Annuler vol
-                  </button>
-                  <button
-                    onClick={() => handleDeleteSlot(showDetail.id)}
-                    className="btn-danger btn-sm"
-                  >
-                    Suppr.
-                  </button>
-                </div>
-              )}
+            {showDetail.statut !== "termine" && showDetail.statut !== "annule" && (() => {
+                const canEditSlot = isSA || isCoord || showDetail.pilote_id === profile?.id;
+                return (
+                  <div className="flex gap-2 pt-3 border-t border-gray-100 flex-wrap">
+                    {canEditSlot && (
+                      <button
+                        onClick={() => {
+                          setShowDetail(null);
+                          setShowClose(showDetail);
+                          setCloseForm({
+                            ...closeForm,
+                            nb_eleves: String(
+                              showDetail.reservations?.filter(
+                                (r: any) => r.statut !== "annule",
+                              ).length || 0,
+                            ),
+                          });
+                        }}
+                        className="btn-primary flex-1"
+                      >
+                        <Check className="w-4 h-4" /> Cloturer
+                      </button>
+                    )}
+                    {canEditSlot && (
+                      <button
+                        onClick={() => {
+                          setShowDetail(null);
+                          setShowEditSlot({
+                            ...showDetail,
+                            etablissements: showDetail.etablissement_ids?.length > 0
+                              ? showDetail.etablissement_ids
+                              : (showDetail.etablissement_id ? [showDetail.etablissement_id] : []),
+                            elevesByEtab: {},
+                            eleves_autorises: showDetail.eleves_autorises || [],
+                          });
+                        }}
+                        className="btn-secondary"
+                      >
+                        <Edit className="w-4 h-4" /> Modifier
+                      </button>
+                    )}
+                    <button
+                      onClick={() => handleNotifySlot(showDetail)}
+                      className="btn-secondary"
+                      title="Notifier les parents"
+                    >
+                      <Mail className="w-4 h-4" /> Notifier
+                    </button>
+                    {canEditSlot && (
+                      <button
+                        onClick={() => handleCancelSlot(showDetail.id)}
+                        className="btn-secondary"
+                      >
+                        Annuler vol
+                      </button>
+                    )}
+                    {canEditSlot && (
+                      <button
+                        onClick={() => handleDeleteSlot(showDetail.id)}
+                        className="btn-danger btn-sm"
+                      >
+                        Suppr.
+                      </button>
+                    )}
+                  </div>
+                );
+              })()}
           </div>
         </div>
       )}
