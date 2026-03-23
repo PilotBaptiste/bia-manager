@@ -124,6 +124,7 @@ export default function FinancesPage() {
     const etEleves = eleves.filter(e => e.etablissement_id === et.id);
     const etPaye = etEleves.filter(e => e.paiement_effectue).length;
     const etBia = etEleves.filter(e => e.bia_resultat && e.bia_resultat !== "Non admis").length;
+    const etVol1 = etEleves.filter(e => e.vol1_effectue).length;
     const etVol2 = etEleves.filter(e => e.vol2_effectue).length;
     const etCout = etEleves.reduce((a, e) => {
       let c = 0;
@@ -135,7 +136,7 @@ export default function FinancesPage() {
     }, 0);
     const ins = etEleves.filter(e => e.paiement_effectue).reduce((a, e) => a + (e.paiement_montant != null ? parseFloat(e.paiement_montant) : prixInscription), 0);
     const fed = etBia * subFede;
-    return { nom: et.nom, eleves: etEleves.length, payes: etPaye, ins, bia: etBia, fed, couts: etCout, solde: ins + fed - etCout };
+    return { nom: et.nom, eleves: etEleves.length, payes: etPaye, ins, bia: etBia, vol1: etVol1, vol2: etVol2, fed, couts: etCout, solde: ins + fed - etCout };
   });
 
   // ---------- Operations list (with source tracking) ----------
@@ -338,7 +339,7 @@ export default function FinancesPage() {
           <div className="card mb-4">
             <h2 className="text-sm font-semibold text-gray-900 mb-3 flex items-center gap-2"><School className="w-4 h-4 text-brand-400" /> Par etablissement</h2>
             <div className="overflow-auto"><table className="w-full text-sm min-w-[700px]"><thead><tr className="bg-gray-50">
-              {["Etablissement", "Eleves", "Payes", "Inscriptions", "BIA", "Subv.", "Cout vols", "Solde"].map(h => <th key={h} className="px-3 py-2 text-left text-[10px] font-semibold uppercase text-gray-400">{h}</th>)}
+              {["Etablissement", "Eleves", "Payes", "Inscriptions", "BIA", "Vol 1", "Vol 2", "Subv.", "Cout vols", "Solde"].map(h => <th key={h} className="px-3 py-2 text-left text-[10px] font-semibold uppercase text-gray-400">{h}</th>)}
             </tr></thead><tbody>
               {etabStats.map((r, i) => <tr key={i} className="border-t border-gray-100">
                 <td className="px-3 py-2.5 font-semibold">{r.nom}</td>
@@ -346,6 +347,8 @@ export default function FinancesPage() {
                 <td className="px-3 py-2.5">{r.payes}/{r.eleves}</td>
                 <td className="px-3 py-2.5 text-emerald-600 font-semibold">{r.ins}€</td>
                 <td className="px-3 py-2.5">{r.bia}</td>
+                <td className="px-3 py-2.5 font-semibold">{r.vol1}</td>
+                <td className="px-3 py-2.5 font-semibold">{r.vol2}</td>
                 <td className="px-3 py-2.5 text-emerald-600">{r.fed}€</td>
                 <td className="px-3 py-2.5 text-red-600">{r.couts.toFixed(2)}€</td>
                 <td className={`px-3 py-2.5 font-bold ${r.solde >= 0 ? "text-emerald-600" : "text-red-600"}`}>{r.solde >= 0 ? "+" : ""}{r.solde.toFixed(2)}€</td>

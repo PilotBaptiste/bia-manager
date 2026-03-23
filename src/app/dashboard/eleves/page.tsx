@@ -1995,9 +1995,12 @@ export default function ElevesPage() {
                       />
                     </td>
                     <td className="px-3 py-2.5 font-semibold text-gray-900">
-                      {s.nom}
+                      <span className={s.abandonne ? "line-through text-gray-400" : ""}>{s.nom}</span>
+                      {s.abandonne && <span className="ml-2 inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-orange-100 text-orange-600 uppercase tracking-wide">Abandon</span>}
                     </td>
-                    <td className="px-3 py-2.5 text-gray-700">{s.prenom}</td>
+                    <td className="px-3 py-2.5 text-gray-700">
+                      <span className={s.abandonne ? "line-through text-gray-400" : ""}>{s.prenom}</span>
+                    </td>
                     <td className="px-3 py-2.5">
                       <span className="badge bg-brand-50 text-brand-500 truncate max-w-[150px]">
                         {s.etablissement?.nom || "—"}
