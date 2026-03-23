@@ -575,30 +575,35 @@ export default function VolsPage() {
     });
 
     // Notify parents of students ALREADY on this slot (confirmation/reminder)
-    const onSlotParents = getAffectedParents(slot);
-    if (onSlotParents.length > 0) {
-      const res = await fetch("/api/email", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          type: "slot_available",
-          parents: onSlotParents.map((p: any) => ({
-            email: p.email,
-            prenom: p.prenom,
-            eleve_prenom: p.eleve_prenom,
-            eleve_nom: p.eleve_nom,
-            eleve_id: p.eleve_id,
-          })),
-          date_vol: dateFormatted,
-          heure_debut: slot.heure_debut?.slice(0, 5),
-          heure_fin: slot.heure_fin?.slice(0, 5),
-          pilote_nom: piloteNom,
-          aeronef: aeronefLabel,
-          creneau_id: slot.id,
-        }),
-      }).catch(() => null);
-      const ok = res?.ok;
-      if (ok) toast.success(`${onSlotParents.length} parent(s) notifié(s)`);
+    const activeResas = (slot.reservations || []).filter(
+      (r: any) => r.statut !== "annule" && r.eleve?.parent_email,
+    );
+    if (activeResas.length > 0) {
+      let sent = 0;
+      for (const r of activeResas) {
+        const res = await fetch("/api/email", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            type: "booking_confirm",
+            parent_email: r.eleve.parent_email,
+            parent_prenom: r.eleve.parent_prenom || "",
+            eleve_prenom: r.eleve.prenom,
+            eleve_nom: r.eleve.nom,
+            type_vol: r.type_vol,
+            date_vol: slot.date_vol,
+            heure_debut: slot.heure_debut?.slice(0, 5),
+            heure_fin: slot.heure_fin?.slice(0, 5),
+            aeronef: aeronefLabel,
+            pilote_nom: piloteNom,
+            pilote_email: "", // ne pas notifier le pilote lors d'un envoi manuel admin
+            pilote_telephone: slot.pilote?.telephone || "",
+            etablissement: slot.etablissement?.nom || "",
+          }),
+        }).catch(() => null);
+        if (res?.ok) sent++;
+      }
+      if (sent > 0) toast.success(`${sent} parent(s) notifié(s)`);
       else toast.error("Erreur lors de l'envoi");
       return;
     }
