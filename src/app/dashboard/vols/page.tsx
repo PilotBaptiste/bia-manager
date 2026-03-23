@@ -1328,13 +1328,15 @@ export default function VolsPage() {
                         <Edit className="w-4 h-4" /> Modifier
                       </button>
                     )}
-                    <button
-                      onClick={() => handleNotifySlot(showDetail)}
-                      className="btn-secondary"
-                      title="Notifier les parents"
-                    >
-                      <Mail className="w-4 h-4" /> Notifier
-                    </button>
+                    {canEditSlot && (
+                      <button
+                        onClick={() => handleNotifySlot(showDetail)}
+                        className="btn-secondary"
+                        title="Notifier les parents"
+                      >
+                        <Mail className="w-4 h-4" /> Notifier
+                      </button>
+                    )}
                     {canEditSlot && (
                       <button
                         onClick={() => handleCancelSlot(showDetail.id)}
@@ -1951,8 +1953,6 @@ export default function VolsPage() {
 
       {/* LIST */}
       {mode === "list" && (() => {
-        const activeSlots = filteredDisplayed.filter((c) => !["termine", "annule"].includes(c.statut));
-        const pastSlots = filteredDisplayed.filter((c) => ["termine", "annule"].includes(c.statut));
         const SlotCard = ({ c }: { c: any }) => (
           <div
             key={c.id}
@@ -1976,8 +1976,7 @@ export default function VolsPage() {
                   {c.pilote?.prenom} {c.pilote?.nom} ·{" "}
                   {c.aeronef?.type_aeronef} ({c.aeronef?.immatriculation})
                 </p>
-                {c.reservations?.filter((r: any) => r.statut !== "annule")
-                  .length > 0 && (
+                {c.reservations?.filter((r: any) => r.statut !== "annule").length > 0 && (
                   <p className="text-xs text-gray-400 mt-0.5">
                     {c.reservations
                       .filter((r: any) => r.statut !== "annule")
@@ -1987,40 +1986,60 @@ export default function VolsPage() {
                 )}
               </div>
             </div>
-            <span
-              className={`badge ${sS[c.statut] || "bg-gray-100 text-gray-500"}`}
-            >
+            <span className={`badge ${sS[c.statut] || "bg-gray-100 text-gray-500"}`}>
               {sL[c.statut] || c.statut}
             </span>
           </div>
         );
-        return (
-          <div className="flex flex-col gap-2.5">
-            {activeSlots.length === 0 && pastSlots.length === 0 ? (
-              <div className="card text-center py-12 text-gray-400">
-                <Plane className="w-8 h-8 mx-auto mb-2 text-gray-300" />
-                <p>Aucun creneau</p>
-              </div>
-            ) : (
-              <>
-                {activeSlots.length === 0 && (
-                  <p className="text-sm text-gray-400 text-center py-4">Aucun créneau actif</p>
-                )}
-                {activeSlots.map((c) => <SlotCard key={c.id} c={c} />)}
-                {pastSlots.length > 0 && (
-                  <details className="mt-2">
-                    <summary className="text-xs font-semibold text-gray-400 uppercase tracking-wider cursor-pointer select-none py-2 px-1 hover:text-gray-600">
-                      Terminés / Annulés ({pastSlots.length})
-                    </summary>
-                    <div className="flex flex-col gap-2.5 mt-2 opacity-70">
-                      {pastSlots.map((c) => <SlotCard key={c.id} c={c} />)}
-                    </div>
-                  </details>
-                )}
-              </>
-            )}
-          </div>
-        );
+
+        const SectionList = ({ slots, label }: { slots: any[]; label?: string }) => {
+          const active = slots.filter((c) => !["termine", "annule"].includes(c.statut));
+          const past = slots.filter((c) => ["termine", "annule"].includes(c.statut));
+          return (
+            <div className="flex flex-col gap-2.5">
+              {label && (
+                <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider px-1 pt-1">{label}</p>
+              )}
+              {active.length === 0 && past.length === 0 && (
+                <p className="text-sm text-gray-400 text-center py-4">Aucun créneau</p>
+              )}
+              {active.map((c) => <SlotCard key={c.id} c={c} />)}
+              {past.length > 0 && (
+                <details className="mt-1">
+                  <summary className="text-xs font-semibold text-gray-400 uppercase tracking-wider cursor-pointer select-none py-2 px-1 hover:text-gray-600">
+                    Terminés / Annulés ({past.length})
+                  </summary>
+                  <div className="flex flex-col gap-2.5 mt-2 opacity-70">
+                    {past.map((c) => <SlotCard key={c.id} c={c} />)}
+                  </div>
+                </details>
+              )}
+            </div>
+          );
+        };
+
+        // For pilots: split my slots vs others
+        if (isPilote && !isSA && !isCoord) {
+          const mySlots = filteredDisplayed.filter((c) => c.pilote_id === profile?.id);
+          const othersSlots = filteredDisplayed.filter((c) => c.pilote_id !== profile?.id);
+          return (
+            <div className="flex flex-col gap-6">
+              <SectionList slots={mySlots} label="Mes créneaux" />
+              {othersSlots.length > 0 && (
+                <details>
+                  <summary className="text-xs font-semibold text-gray-500 uppercase tracking-wider cursor-pointer select-none py-2 px-1 hover:text-gray-700 flex items-center gap-2">
+                    <span>Créneaux des autres pilotes ({othersSlots.filter(c => !["termine","annule"].includes(c.statut)).length} actifs)</span>
+                  </summary>
+                  <div className="mt-3">
+                    <SectionList slots={othersSlots} />
+                  </div>
+                </details>
+              )}
+            </div>
+          );
+        }
+
+        return <SectionList slots={filteredDisplayed} />;
       })()}
 
       {/* CALENDAR */}
