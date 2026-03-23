@@ -124,7 +124,11 @@ export default function VolsPage() {
     setCreneaux(crRes.data || []);
     setAeronefs(aRes.data || []);
     setEtabs(eRes.data || []);
-    setVolsHisto(vhRes.data || []);
+    setVolsHisto((vhRes.data || []).sort((a: any, b: any) => {
+      const da = `${a.creneau?.date_vol ?? ""}${a.creneau?.heure_debut ?? ""}`;
+      const db = `${b.creneau?.date_vol ?? ""}${b.creneau?.heure_debut ?? ""}`;
+      return db.localeCompare(da); // desc: plus récent en premier
+    }));
     setPilotes(pRes.data || []);
     setQualifs(qRes.data || []);
     setPiloteEtabs(peRes.data || []);
@@ -2042,7 +2046,7 @@ export default function VolsPage() {
               </div>
             ))}
             {cD.map((d, i) => {
-              const fls = d ? fBD[d] || [] : [];
+              const fls = d ? (fBD[d] || []).slice().sort((a: any, b: any) => (a.heure_debut || "").localeCompare(b.heure_debut || "")) : [];
               return (
                 <div
                   key={i}
