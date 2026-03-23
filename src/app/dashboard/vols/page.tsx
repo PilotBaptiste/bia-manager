@@ -93,7 +93,8 @@ export default function VolsPage() {
           .select(
             "*, pilote:profiles!pilote_id(nom,prenom,id,email,telephone), aeronef:aeronefs(*), etablissement:etablissements(nom), reservations(*, eleve:eleves(id,nom,prenom,date_naissance,lieu_naissance,classe,commentaires,vol1_temps_minutes,parent_nom,parent_prenom,parent_email,parent_telephone,etablissement:etablissements(nom)))",
           )
-          .order("date_vol", { ascending: false }),
+          .order("date_vol", { ascending: false })
+          .order("heure_debut", { ascending: true }),
         supabase.from("aeronefs").select("*").eq("actif", true),
         supabase.from("etablissements").select("*").eq("actif", true),
         supabase.from("annees").select("*").eq("active", true).single(),
@@ -566,11 +567,45 @@ export default function VolsPage() {
   }
 
   async function handleNotifySlot(slot: any) {
-    const etabIds = slot.etablissement_ids?.length > 0 ? slot.etablissement_ids : null;
-    const singleEtab = !etabIds && slot.etablissement_id ? slot.etablissement_id : null;
     const aeronefObj = aeronefs.find((a: any) => a.id === slot.aeronef_id);
     const aeronefLabel = aeronefObj ? `${aeronefObj.type_aeronef} (${aeronefObj.immatriculation})` : "";
     const piloteNom = slot.pilote ? `${slot.pilote.prenom} ${slot.pilote.nom}` : "";
+    const dateFormatted = new Date(slot.date_vol + "T00:00:00").toLocaleDateString("fr-FR", {
+      weekday: "long", day: "numeric", month: "long", year: "numeric",
+    });
+
+    // Notify parents of students ALREADY on this slot (confirmation/reminder)
+    const onSlotParents = getAffectedParents(slot);
+    if (onSlotParents.length > 0) {
+      const res = await fetch("/api/email", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          type: "slot_available",
+          parents: onSlotParents.map((p: any) => ({
+            email: p.email,
+            prenom: p.prenom,
+            eleve_prenom: p.eleve_prenom,
+            eleve_nom: p.eleve_nom,
+            eleve_id: p.eleve_id,
+          })),
+          date_vol: dateFormatted,
+          heure_debut: slot.heure_debut?.slice(0, 5),
+          heure_fin: slot.heure_fin?.slice(0, 5),
+          pilote_nom: piloteNom,
+          aeronef: aeronefLabel,
+          creneau_id: slot.id,
+        }),
+      }).catch(() => null);
+      const ok = res?.ok;
+      if (ok) toast.success(`${onSlotParents.length} parent(s) notifié(s)`);
+      else toast.error("Erreur lors de l'envoi");
+      return;
+    }
+
+    // No students on slot yet → notify eligible parents that a slot is available
+    const etabIds = slot.etablissement_ids?.length > 0 ? slot.etablissement_ids : null;
+    const singleEtab = !etabIds && slot.etablissement_id ? slot.etablissement_id : null;
     const res = await fetch("/api/email/notify-slot", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
