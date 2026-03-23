@@ -603,28 +603,8 @@ export default function VolsPage() {
       return;
     }
 
-    // No students on slot yet → notify eligible parents that a slot is available
-    const etabIds = slot.etablissement_ids?.length > 0 ? slot.etablissement_ids : null;
-    const singleEtab = !etabIds && slot.etablissement_id ? slot.etablissement_id : null;
-    const res = await fetch("/api/email/notify-slot", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        creneau_id: slot.id,
-        etablissement_id: singleEtab,
-        etablissement_ids: etabIds,
-        eleves_autorises: slot.eleves_autorises,
-        date_vol: slot.date_vol,
-        heure_debut: slot.heure_debut,
-        heure_fin: slot.heure_fin,
-        pilote_nom: piloteNom,
-        aeronef: aeronefLabel,
-        force: true,
-      }),
-    }).catch(() => null);
-    const data = await res?.json().catch(() => ({}));
-    if (data?.sent > 0) toast.success(`${data.sent} parent(s) notifié(s)`);
-    else toast.info("Aucun parent éligible à notifier");
+    // No students on slot → nothing to send
+    toast.info("Aucun élève sur ce créneau à notifier");
   }
 
   async function handleRemoveEleve(rid: string, name: string) {
