@@ -592,11 +592,11 @@ export default function ElevesPage() {
   const formModal = showForm ? (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center p-4"
-      onClick={() => setShowForm(false)}
     >
-      <div className="absolute inset-0 bg-black/40" />
+      <div className="absolute inset-0 bg-black/40" onClick={() => setShowForm(false)} />
       <div
         onClick={(e) => e.stopPropagation()}
+        onMouseDown={(e) => e.stopPropagation()}
         className="relative bg-white rounded-2xl p-6 w-full max-w-3xl shadow-xl max-h-[90vh] overflow-auto"
       >
         <div className="flex items-center justify-between mb-5">
