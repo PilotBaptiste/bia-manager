@@ -1,6 +1,7 @@
 "use client";
 import { useState, useEffect } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { matchDesiderata } from "@/components/DesiderataGrid";
 import { toast } from "sonner";
 import {
   Plane,
@@ -116,7 +117,7 @@ export default function VolsPage() {
           .select("pilote_id, etablissement_id"),
         supabase
           .from("eleves")
-          .select("id, nom, prenom, etablissement_id, vol1_effectue, vol1_numero_aerogest, vol1_prix, vol1_temps_minutes, vol1_pilote_nom, vol1_aeronef_id, vol2_effectue, vol2_numero_aerogest, vol2_prix, vol2_temps_minutes, vol2_pilote_nom, vol2_aeronef_id")
+          .select("id, nom, prenom, etablissement_id, desiderata, vol1_effectue, vol1_numero_aerogest, vol1_prix, vol1_temps_minutes, vol1_pilote_nom, vol1_aeronef_id, vol2_effectue, vol2_numero_aerogest, vol2_prix, vol2_temps_minutes, vol2_pilote_nom, vol2_aeronef_id")
           .eq("archive", false)
           .order("nom"),
       ]);
@@ -1272,16 +1273,23 @@ export default function VolsPage() {
                     <div className="max-h-36 overflow-y-auto space-y-1">
                       {available.length === 0 ? (
                         <p className="text-xs text-gray-400 py-1">Aucun élève disponible</p>
-                      ) : available.map((e: any) => (
-                        <button
-                          key={e.id}
-                          onClick={() => handleAddEleve(e.id, addEleveTypeVol)}
-                          className="w-full flex items-center justify-between px-2.5 py-1.5 text-sm rounded-lg bg-white border border-gray-100 hover:border-brand-200 hover:bg-brand-50 transition-all text-left"
-                        >
-                          <span className="font-medium text-gray-900">{e.prenom} {e.nom}</span>
-                          <span className="text-xs text-brand-500 font-medium">+ Ajouter</span>
-                        </button>
-                      ))}
+                      ) : available.map((e: any) => {
+                        const match = matchDesiderata(e.desiderata, showDetail.date_vol, showDetail.heure_debut);
+                        return (
+                          <button
+                            key={e.id}
+                            onClick={() => handleAddEleve(e.id, addEleveTypeVol)}
+                            className="w-full flex items-center justify-between px-2.5 py-1.5 text-sm rounded-lg bg-white border border-gray-100 hover:border-brand-200 hover:bg-brand-50 transition-all text-left"
+                          >
+                            <span className="font-medium text-gray-900 flex items-center gap-1.5">
+                              {e.prenom} {e.nom}
+                              {match === "match" && <span title="Correspond aux disponibilités" className="text-emerald-500 text-xs">✓</span>}
+                              {match === "no-match" && <span title="Ne correspond pas aux disponibilités" className="text-orange-400 text-xs">~</span>}
+                            </span>
+                            <span className="text-xs text-brand-500 font-medium">+ Ajouter</span>
+                          </button>
+                        );
+                      })}
                     </div>
                   </div>
                 );

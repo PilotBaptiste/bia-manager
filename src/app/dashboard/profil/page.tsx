@@ -2,7 +2,8 @@
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
-import { User, Save, Loader2, Check, Lock, Baby, ChevronDown, ChevronUp } from "lucide-react";
+import { User, Save, Loader2, Check, Lock, Baby, ChevronDown, ChevronUp, CalendarDays } from "lucide-react";
+import DesiderataGrid, { Desiderata, emptyDesiderata, fromDb } from "@/components/DesiderataGrid";
 
 type Enfant = {
   id: string;
@@ -13,6 +14,7 @@ type Enfant = {
   adresse_rue: string | null;
   adresse_cp: string | null;
   adresse_ville: string | null;
+  desiderata: Desiderata | null;
 };
 
 type EnfantForm = {
@@ -23,6 +25,7 @@ type EnfantForm = {
   adresse_rue: string;
   adresse_cp: string;
   adresse_ville: string;
+  desiderata: Desiderata;
 };
 
 function EnfantCard({
@@ -42,6 +45,7 @@ function EnfantCard({
     adresse_rue: enfant.adresse_rue || "",
     adresse_cp: enfant.adresse_cp || "",
     adresse_ville: enfant.adresse_ville || "",
+    desiderata: fromDb(enfant.desiderata),
   });
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -65,6 +69,7 @@ function EnfantCard({
         adresse_cp: form.adresse_cp.trim() || null,
         adresse_ville: form.adresse_ville.trim() || null,
         adresse,
+        desiderata: form.desiderata,
       })
       .eq("id", enfant.id);
     setSaving(false);
@@ -165,6 +170,17 @@ function EnfantCard({
             </div>
           </div>
 
+          <div className="border border-gray-100 rounded-lg p-3 space-y-2">
+            <p className="text-xs font-semibold text-gray-600 flex items-center gap-1.5">
+              <CalendarDays className="w-3.5 h-3.5 text-brand-400" /> Disponibilités souhaitées
+            </p>
+            <p className="text-xs text-gray-400">Cochez les créneaux préférés pour les vols. Le pilote en tiendra compte lors de la programmation.</p>
+            <DesiderataGrid
+              value={form.desiderata}
+              onChange={(d) => setForm({ ...form, desiderata: d })}
+            />
+          </div>
+
           {error && <p className="text-sm text-red-600">{error}</p>}
 
           {saved && (
@@ -214,7 +230,7 @@ export default function ProfilPage() {
         supabase.from("profiles").select("*").eq("id", user.id).single(),
         supabase
           .from("eleves")
-          .select("id,nom,prenom,date_naissance,lieu_naissance,adresse_rue,adresse_cp,adresse_ville")
+          .select("id,nom,prenom,date_naissance,lieu_naissance,adresse_rue,adresse_cp,adresse_ville,desiderata")
           .eq("parent_id", user.id)
           .eq("archive", false),
       ]);

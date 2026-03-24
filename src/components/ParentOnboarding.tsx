@@ -2,7 +2,8 @@
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
-import { Baby, ChevronRight, Loader2, Check } from "lucide-react";
+import { Baby, ChevronRight, Loader2, Check, CalendarDays } from "lucide-react";
+import DesiderataGrid, { Desiderata, emptyDesiderata, fromDb } from "@/components/DesiderataGrid";
 
 interface Props {
   userId: string;
@@ -20,6 +21,7 @@ type Enfant = {
   adresse_rue: string | null;
   adresse_cp: string | null;
   adresse_ville: string | null;
+  desiderata: Desiderata | null;
 };
 
 /**
@@ -55,7 +57,7 @@ export default function ParentOnboarding({ userId, defaultPrenom, defaultNom, de
       }).catch(() => {});
       const { data } = await supabase
         .from("eleves")
-        .select("id,nom,prenom,date_naissance,lieu_naissance,adresse_rue,adresse_cp,adresse_ville")
+        .select("id,nom,prenom,date_naissance,lieu_naissance,adresse_rue,adresse_cp,adresse_ville,desiderata")
         .eq("parent_id", user.id)
         .eq("archive", false);
       if (data && data.length > 0) {
@@ -70,6 +72,7 @@ export default function ParentOnboarding({ userId, defaultPrenom, defaultNom, de
             adresse_rue: e.adresse_rue || "",
             adresse_cp: e.adresse_cp || "",
             adresse_ville: e.adresse_ville || "",
+            desiderata: fromDb(e.desiderata),
           };
         });
         setEnfantForms(forms);
@@ -123,6 +126,7 @@ export default function ParentOnboarding({ userId, defaultPrenom, defaultNom, de
         adresse_cp: f.adresse_cp.trim() || null,
         adresse_ville: f.adresse_ville.trim() || null,
         adresse,
+        desiderata: f.desiderata ?? null,
       }).eq("id", enfant.id);
     }
     setSavingKids(false);
@@ -308,6 +312,17 @@ export default function ParentOnboarding({ userId, defaultPrenom, defaultNom, de
                           placeholder="Paris"
                         />
                       </div>
+                    </div>
+
+                    <div className="border border-gray-100 rounded-lg p-3 space-y-2">
+                      <p className="text-xs font-semibold text-gray-600 flex items-center gap-1.5">
+                        <CalendarDays className="w-3.5 h-3.5 text-brand-400" /> Disponibilités souhaitées <span className="text-gray-400 font-normal">(optionnel)</span>
+                      </p>
+                      <p className="text-xs text-gray-400">Cochez les créneaux préférés pour le vol de votre enfant.</p>
+                      <DesiderataGrid
+                        value={f.desiderata ?? emptyDesiderata()}
+                        onChange={(d) => setEnfantForms((prev) => ({ ...prev, [enfant.id]: { ...prev[enfant.id], desiderata: d } }))}
+                      />
                     </div>
                   </div>
                 );
