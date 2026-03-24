@@ -1006,9 +1006,15 @@ export default function VolsPage() {
                                           : [...etabElvsSelected, el.id];
                                         setForm({ ...form, elevesByEtab: { ...form.elevesByEtab, [etab.id]: next } });
                                       }}
-                                      className={`text-[11px] px-2 py-0.5 rounded-full border transition-colors ${sel ? "bg-brand-500 text-white border-brand-500" : "text-gray-600 border-gray-300 hover:border-brand-300"}`}
+                                      className={`text-[11px] px-2 py-0.5 rounded-full border transition-colors flex items-center gap-1 ${sel ? "bg-brand-500 text-white border-brand-500" : "text-gray-600 border-gray-300 hover:border-brand-300"}`}
                                     >
                                       {el.prenom} {el.nom}
+                                      {(() => {
+                                        const m = matchDesiderata(el.desiderata, form.date_vol, form.heure_debut);
+                                        if (m === "match") return <span className="text-emerald-400 text-[10px]">✓</span>;
+                                        if (m === "no-match") return <span className="text-orange-300 text-[10px]">~</span>;
+                                        return null;
+                                      })()}
                                     </button>
                                   );
                                 })}
@@ -1601,9 +1607,15 @@ export default function VolsPage() {
                                           : [...etabElvsSelected, el.id];
                                         setShowEditSlot({ ...showEditSlot, elevesByEtab: { ...(showEditSlot.elevesByEtab || {}), [etab.id]: next } });
                                       }}
-                                      className={`text-[11px] px-2 py-0.5 rounded-full border transition-colors ${sel ? "bg-brand-500 text-white border-brand-500" : "text-gray-600 border-gray-300 hover:border-brand-300"}`}
+                                      className={`text-[11px] px-2 py-0.5 rounded-full border transition-colors flex items-center gap-1 ${sel ? "bg-brand-500 text-white border-brand-500" : "text-gray-600 border-gray-300 hover:border-brand-300"}`}
                                     >
                                       {el.prenom} {el.nom}
+                                      {(() => {
+                                        const m = matchDesiderata(el.desiderata, showEditSlot.date_vol, showEditSlot.heure_debut);
+                                        if (m === "match") return <span className="text-emerald-400 text-[10px]">✓</span>;
+                                        if (m === "no-match") return <span className="text-orange-300 text-[10px]">~</span>;
+                                        return null;
+                                      })()}
                                     </button>
                                   );
                                 })}
