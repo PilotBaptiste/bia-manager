@@ -14,6 +14,7 @@ import {
   AlertCircle,
 } from "lucide-react";
 import ConfirmModal from "@/components/ConfirmModal";
+import { matchDesiderata } from "@/components/DesiderataGrid";
 
 export default function ReservationPage() {
   const supabase = createClient();
@@ -455,102 +456,138 @@ export default function ReservationPage() {
                   <p className="text-sm text-gray-400 p-3">
                     Aucun creneau disponible pour votre etablissement.
                   </p>
-                ) : (
-                  available.map((c) => {
+                ) : (() => {
+                  const hasDesiderata = enfant.desiderata && Object.values(enfant.desiderata).some(Boolean);
+                  const matchingSlots = hasDesiderata
+                    ? available.filter((c) => matchDesiderata(enfant.desiderata, c.date_vol, c.heure_debut) === "match")
+                    : [];
+                  const otherSlots = hasDesiderata
+                    ? available.filter((c) => matchDesiderata(enfant.desiderata, c.date_vol, c.heure_debut) !== "match")
+                    : available;
+
+                  const renderSlot = (c: any) => {
                     const capacity = c.aeronef?.nb_places_eleves ?? c.places_disponibles ?? 1;
                     const activeBookings = (c.reservations || []).filter((r: any) => r.statut !== "annule").length;
                     const remaining = capacity - activeBookings;
                     return (
-                    <div
-                      key={c.id}
-                      className="p-4 rounded-lg border border-gray-100 mb-2 hover:border-brand-200 transition-colors"
-                    >
-                      <div className="flex items-center justify-between flex-wrap gap-3">
-                        <div className="flex items-center gap-3">
-                          <div className="w-10 h-10 rounded-lg bg-amber-50 flex items-center justify-center">
-                            <Plane className="w-5 h-5 text-amber-600" />
-                          </div>
-                          <div>
-                            <p className="text-sm font-semibold text-gray-900">
-                              {new Date(c.date_vol).toLocaleDateString("fr-FR")}{" "}
-                              · {c.heure_debut?.slice(0, 5)} -{" "}
-                              {c.heure_fin?.slice(0, 5)}
-                            </p>
-                            <p className="text-xs text-gray-500">
-                              {c.aeronef?.type_aeronef} (
-                              {c.aeronef?.immatriculation})
-                            </p>
-                            <p className={`text-xs font-medium mt-0.5 ${remaining === 1 ? "text-amber-600" : "text-emerald-600"}`}>
-                              {remaining === 1 ? "⚠ Dernière place" : `${remaining} place${remaining > 1 ? "s" : ""} disponible${remaining > 1 ? "s" : ""}`}
-                            </p>
-                          </div>
-                        </div>
-                        {booking?.creneauId === c.id &&
-                        booking?.eleveId === enfant.id ? (
-                          <div className="flex flex-col items-end gap-1">
-                            {error && (
-                              <p className="text-xs text-red-600">{error}</p>
-                            )}
-                            <div className="flex gap-2">
-                              <button
-                                onClick={handleBook}
-                                disabled={saving}
-                                className="btn-primary btn-sm"
-                              >
-                                {saving ? (
-                                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                                ) : (
-                                  <Check className="w-3.5 h-3.5" />
-                                )}{" "}
-                                Confirmer
-                              </button>
-                              <button
-                                onClick={() => {
-                                  setBooking(null);
-                                  setError(null);
-                                }}
-                                className="btn-secondary btn-sm"
-                              >
-                                <X className="w-3.5 h-3.5" />
-                              </button>
+                      <div
+                        key={c.id}
+                        className="p-4 rounded-lg border border-gray-100 mb-2 hover:border-brand-200 transition-colors"
+                      >
+                        <div className="flex items-center justify-between flex-wrap gap-3">
+                          <div className="flex items-center gap-3">
+                            <div className="w-10 h-10 rounded-lg bg-amber-50 flex items-center justify-center">
+                              <Plane className="w-5 h-5 text-amber-600" />
+                            </div>
+                            <div>
+                              <p className="text-sm font-semibold text-gray-900">
+                                {new Date(c.date_vol).toLocaleDateString("fr-FR")}{" "}
+                                · {c.heure_debut?.slice(0, 5)} -{" "}
+                                {c.heure_fin?.slice(0, 5)}
+                              </p>
+                              <p className="text-xs text-gray-500">
+                                {c.aeronef?.type_aeronef} (
+                                {c.aeronef?.immatriculation})
+                              </p>
+                              <p className={`text-xs font-medium mt-0.5 ${remaining === 1 ? "text-amber-600" : "text-emerald-600"}`}>
+                                {remaining === 1 ? "⚠ Dernière place" : `${remaining} place${remaining > 1 ? "s" : ""} disponible${remaining > 1 ? "s" : ""}`}
+                              </p>
                             </div>
                           </div>
-                        ) : (
-                          <button
-                            onClick={() => {
-                              setError(null);
-                              setBooking({
-                                eleveId: enfant.id,
-                                creneauId: c.id,
-                                typeVol,
-                              });
-                            }}
-                            className="btn-primary btn-sm"
-                          >
-                            Reserver
-                          </button>
-                        )}
-                      </div>
-                      <div className="mt-3 pt-3 border-t border-gray-100 flex gap-4 text-xs text-gray-500 flex-wrap">
-                        <span className="flex items-center gap-1">
-                          <User className="w-3 h-3" /> {c.pilote?.prenom}{" "}
-                          {c.pilote?.nom}
-                        </span>
-                        {c.pilote?.email && (
+                          {booking?.creneauId === c.id &&
+                          booking?.eleveId === enfant.id ? (
+                            <div className="flex flex-col items-end gap-1">
+                              {error && (
+                                <p className="text-xs text-red-600">{error}</p>
+                              )}
+                              <div className="flex gap-2">
+                                <button
+                                  onClick={handleBook}
+                                  disabled={saving}
+                                  className="btn-primary btn-sm"
+                                >
+                                  {saving ? (
+                                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                  ) : (
+                                    <Check className="w-3.5 h-3.5" />
+                                  )}{" "}
+                                  Confirmer
+                                </button>
+                                <button
+                                  onClick={() => {
+                                    setBooking(null);
+                                    setError(null);
+                                  }}
+                                  className="btn-secondary btn-sm"
+                                >
+                                  <X className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
+                            </div>
+                          ) : (
+                            <button
+                              onClick={() => {
+                                setError(null);
+                                setBooking({
+                                  eleveId: enfant.id,
+                                  creneauId: c.id,
+                                  typeVol,
+                                });
+                              }}
+                              className="btn-primary btn-sm"
+                            >
+                              Reserver
+                            </button>
+                          )}
+                        </div>
+                        <div className="mt-3 pt-3 border-t border-gray-100 flex gap-4 text-xs text-gray-500 flex-wrap">
                           <span className="flex items-center gap-1">
-                            <Mail className="w-3 h-3" /> {c.pilote.email}
+                            <User className="w-3 h-3" /> {c.pilote?.prenom}{" "}
+                            {c.pilote?.nom}
                           </span>
-                        )}
-                        {c.pilote?.telephone && (
-                          <span className="flex items-center gap-1">
-                            <Phone className="w-3 h-3" /> {c.pilote.telephone}
-                          </span>
-                        )}
+                          {c.pilote?.email && (
+                            <span className="flex items-center gap-1">
+                              <Mail className="w-3 h-3" /> {c.pilote.email}
+                            </span>
+                          )}
+                          {c.pilote?.telephone && (
+                            <span className="flex items-center gap-1">
+                              <Phone className="w-3 h-3" /> {c.pilote.telephone}
+                            </span>
+                          )}
+                        </div>
                       </div>
-                    </div>
                     );
-                  })
-                )}
+                  };
+
+                  return (
+                    <>
+                      {hasDesiderata && (
+                        <>
+                          {matchingSlots.length > 0 ? (
+                            <div className="mb-3">
+                              <p className="text-xs font-semibold text-emerald-700 mb-2 flex items-center gap-1">
+                                <Check className="w-3.5 h-3.5" /> Selon vos disponibilités ({matchingSlots.length})
+                              </p>
+                              {matchingSlots.map(renderSlot)}
+                            </div>
+                          ) : (
+                            <p className="text-xs text-gray-400 mb-3">Aucun créneau ne correspond à vos disponibilités pour le moment.</p>
+                          )}
+                          {otherSlots.length > 0 && (
+                            <details className="mb-2">
+                              <summary className="text-xs font-semibold text-gray-500 cursor-pointer select-none list-none flex items-center gap-1 mb-2">
+                                <span className="text-gray-400">▶</span> Autres créneaux ({otherSlots.length})
+                              </summary>
+                              {otherSlots.map(renderSlot)}
+                            </details>
+                          )}
+                        </>
+                      )}
+                      {!hasDesiderata && otherSlots.map(renderSlot)}
+                    </>
+                  );
+                })()}
               </div>
             );
           })}
