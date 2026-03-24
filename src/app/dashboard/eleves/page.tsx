@@ -23,6 +23,7 @@ import {
   Check,
 } from "lucide-react";
 import ConfirmModal from "@/components/ConfirmModal";
+import { fromDb } from "@/components/DesiderataGrid";
 
 function Dot({ ok }: { ok: boolean }) {
   return <span className={ok ? "dot-success" : "dot-danger"} />;
@@ -1340,6 +1341,48 @@ export default function ElevesPage() {
                 </div>
               </Section>
             )}
+            {(() => {
+              const des = fromDb((s as any).desiderata);
+              const JOURS = ["lundi","mardi","mercredi","jeudi","vendredi","samedi","dimanche"] as const;
+              const LABELS: Record<string, string> = { lundi:"Lun", mardi:"Mar", mercredi:"Mer", jeudi:"Jeu", vendredi:"Ven", samedi:"Sam", dimanche:"Dim" };
+              const hasAny = JOURS.some(j => des[`${j}_matin` as keyof typeof des] || des[`${j}_apm` as keyof typeof des]);
+              if (!hasAny && !des.semaine) return null;
+              return (
+                <Section title="Disponibilités souhaitées">
+                  <table className="text-xs w-full">
+                    <thead>
+                      <tr>
+                        <th className="text-left text-gray-400 font-normal pb-1.5 pr-3 w-10" />
+                        <th className="text-center text-gray-500 font-semibold pb-1.5 px-2">Matin</th>
+                        <th className="text-center text-gray-500 font-semibold pb-1.5 px-2">Après-midi</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {JOURS.map((j) => (
+                        <tr key={j}>
+                          <td className="text-gray-600 font-medium pr-3 py-0.5">{LABELS[j]}</td>
+                          <td className="text-center py-0.5 px-2">
+                            {des[`${j}_matin` as keyof typeof des]
+                              ? <span className="inline-block w-4 h-4 rounded bg-emerald-100 text-emerald-600 text-[10px] font-bold leading-4 text-center">✓</span>
+                              : <span className="inline-block w-4 h-4 rounded bg-gray-100 text-gray-300 text-[10px] leading-4 text-center">–</span>}
+                          </td>
+                          <td className="text-center py-0.5 px-2">
+                            {des[`${j}_apm` as keyof typeof des]
+                              ? <span className="inline-block w-4 h-4 rounded bg-emerald-100 text-emerald-600 text-[10px] font-bold leading-4 text-center">✓</span>
+                              : <span className="inline-block w-4 h-4 rounded bg-gray-100 text-gray-300 text-[10px] leading-4 text-center">–</span>}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  {des.semaine && (
+                    <p className="text-xs text-gray-500 mt-2 pt-2 border-t border-gray-100">
+                      Semaines <span className="font-semibold">{des.semaine}</span> uniquement
+                    </p>
+                  )}
+                </Section>
+              );
+            })()}
           </div>
           <div className="card">
             <Section title="Paiement">

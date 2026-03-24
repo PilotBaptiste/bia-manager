@@ -51,7 +51,7 @@ export default function VolsPage() {
   const [addHistoEleveTypeVol, setAddHistoEleveTypeVol] = useState<1 | 2>(1);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [confirmAction, setConfirmAction] = useState<{ title: string; message: string; variant?: "danger" | "primary"; onConfirm: () => void } | null>(null);
+  const [confirmAction, setConfirmAction] = useState<{ title: string; message: string; variant?: "danger" | "primary"; reasonLabel?: string; onConfirm: (reason?: string) => void } | null>(null);
   const [confirmLoading, setConfirmLoading] = useState(false);
   const [filterPilote, setFilterPilote] = useState("");
   const [filterAeronef, setFilterAeronef] = useState("");
@@ -332,7 +332,7 @@ export default function VolsPage() {
       title: "Clôturer le vol",
       message: `Confirmer la clôture du vol du ${showClose?.date_vol ?? ""} ?\n${nbEleves} élève(s) seront enregistrés comme ayant effectué leur vol.`,
       variant: "primary",
-      onConfirm: () => doCloseFlight(),
+      onConfirm: (_r?: string) => doCloseFlight(),
     });
   }
 
@@ -422,9 +422,12 @@ export default function VolsPage() {
       }));
   }
 
-  async function doDeleteSlot(id: string, slot: any) {
+  async function doDeleteSlot(id: string, slot: any, motif?: string) {
     const parents = getAffectedParents(slot);
     const pilotNom = slot?.pilote ? `${slot.pilote.prenom} ${slot.pilote.nom}` : "";
+    if (motif) {
+      await supabase.from("creneaux").update({ motif_annulation: motif }).eq("id", id);
+    }
     await supabase.from("creneaux").delete().eq("id", id);
     toast.success("Créneau supprimé");
     setShowDetail(null);
@@ -438,6 +441,7 @@ export default function VolsPage() {
           date_vol: slot?.date_vol,
           heure_debut: slot?.heure_debut,
           pilote_nom: pilotNom,
+          motif: motif || undefined,
         }),
       }).catch(() => {});
     }
@@ -451,14 +455,15 @@ export default function VolsPage() {
       title: "Supprimer le créneau",
       message: `Le créneau du ${slot?.date_vol ?? ""} sera définitivement supprimé.${affected.length > 0 ? `\n${affected.length} parent(s) seront notifiés par email.` : ""}`,
       variant: "danger",
-      onConfirm: () => doDeleteSlot(id, slot),
+      reasonLabel: affected.length > 0 ? "Motif de suppression (optionnel, visible dans l'email)" : undefined,
+      onConfirm: (motif) => doDeleteSlot(id, slot, motif),
     });
   }
 
-  async function doCancelSlot(id: string, slot: any) {
+  async function doCancelSlot(id: string, slot: any, motif?: string) {
     const parents = getAffectedParents(slot);
     const pilotNom = slot?.pilote ? `${slot.pilote.prenom} ${slot.pilote.nom}` : "";
-    await supabase.from("creneaux").update({ statut: "annule" }).eq("id", id);
+    await supabase.from("creneaux").update({ statut: "annule", ...(motif ? { motif_annulation: motif } : {}) }).eq("id", id);
     await supabase.from("reservations").update({ statut: "annule" }).eq("creneau_id", id).neq("statut", "annule");
     toast.success("Créneau annulé");
     setShowDetail(null);
@@ -472,6 +477,7 @@ export default function VolsPage() {
           date_vol: slot?.date_vol,
           heure_debut: slot?.heure_debut,
           pilote_nom: pilotNom,
+          motif: motif || undefined,
         }),
       }).catch(() => {});
     }
@@ -485,7 +491,8 @@ export default function VolsPage() {
       title: "Annuler le créneau",
       message: `Le créneau du ${slot?.date_vol ?? ""} sera marqué comme annulé.${affected.length > 0 ? `\n${affected.length} parent(s) seront notifiés par email.` : ""}`,
       variant: "danger",
-      onConfirm: () => doCancelSlot(id, slot),
+      reasonLabel: "Motif d'annulation (optionnel, visible dans l'email)",
+      onConfirm: (motif) => doCancelSlot(id, slot, motif),
     });
   }
 
@@ -615,12 +622,10 @@ export default function VolsPage() {
     toast.info("Aucun élève sur ce créneau à notifier");
   }
 
-  async function handleRemoveEleve(rid: string, name: string) {
-    // Capture eleve/slot info before cancelling for the email
+  async function doRemoveEleve(rid: string, name: string, motif?: string) {
     const removedRes = (showDetail?.reservations || []).find((r: any) => r.id === rid);
-    await supabase.from("reservations").update({ statut: "annule" }).eq("id", rid);
+    await supabase.from("reservations").update({ statut: "annule", ...(motif ? { motif_annulation: motif } : {}) }).eq("id", rid);
     toast.success(`${name} retiré du créneau`);
-    // Notify the parent (fire-and-forget) — pilote_email omitted intentionally
     if (removedRes?.eleve?.parent_email) {
       fetch("/api/email", {
         method: "POST",
@@ -635,8 +640,9 @@ export default function VolsPage() {
           type_vol: removedRes.type_vol,
           date_vol: showDetail?.date_vol,
           heure_debut: showDetail?.heure_debut,
-          pilote_email: "", // pilot is the one removing — don't notify themselves
+          pilote_email: "",
           pilote_nom: "",
+          motif: motif || undefined,
         }),
       }).catch(() => {});
     }
@@ -649,6 +655,16 @@ export default function VolsPage() {
       .single();
     if (data) setShowDetail(data);
     load();
+  }
+
+  function handleRemoveEleve(rid: string, name: string) {
+    setConfirmAction({
+      title: `Retirer ${name}`,
+      message: `${name} sera retiré du créneau et le parent sera notifié par email.`,
+      variant: "danger",
+      reasonLabel: "Motif (optionnel, visible dans l'email)",
+      onConfirm: (motif) => doRemoveEleve(rid, name, motif),
+    });
   }
   async function handleAddEleve(eleveId: string, typeVol: 1 | 2) {
     if (!showDetail) return;
@@ -1107,6 +1123,12 @@ export default function VolsPage() {
                   {sL[showDetail.statut]}
                 </span>
               </div>
+              {showDetail.statut === "annule" && showDetail.motif_annulation && (
+                <div className="flex flex-col gap-0.5 bg-red-50 border border-red-100 rounded-lg px-3 py-2">
+                  <span className="text-xs text-red-500 font-semibold">Motif d'annulation</span>
+                  <span className="text-xs text-red-700">{showDetail.motif_annulation}</span>
+                </div>
+              )}
               <div className="flex justify-between">
                 <span className="text-gray-500">Pilote</span>
                 <span className="font-medium">
@@ -2271,7 +2293,7 @@ export default function VolsPage() {
                                   title: "Supprimer cette entrée ?",
                                   message: `Cette action supprimera l'entrée de vol (N° ${v.numero_aerogest || "—"}) et réinitialisera les flags vol des élèves liés. Le créneau repassera en statut "ouvert".`,
                                   variant: "danger",
-                                  onConfirm: () => doDeleteHisto(v),
+                                  onConfirm: (_r?: string) => doDeleteHisto(v),
                                 })}
                                 className="btn-secondary btn-sm text-red-500 hover:bg-red-50"
                                 title="Supprimer"
@@ -2313,7 +2335,7 @@ export default function VolsPage() {
                                 title: "Supprimer cette entrée ?",
                                 message: `Cette action réinitialisera les informations de vol (N° ${g.numero_aerogest}) des élèves concernés.`,
                                 variant: "danger",
-                                onConfirm: () => doDeleteManual(g),
+                                onConfirm: (_r?: string) => doDeleteManual(g),
                               })}
                               className="btn-secondary btn-sm text-red-500 hover:bg-red-50"
                               title="Supprimer"
@@ -2339,11 +2361,12 @@ export default function VolsPage() {
         message={confirmAction?.message ?? ""}
         variant={confirmAction?.variant}
         loading={confirmLoading}
+        reasonLabel={confirmAction?.reasonLabel}
         onCancel={() => setConfirmAction(null)}
-        onConfirm={async () => {
+        onConfirm={async (reason) => {
           if (!confirmAction) return;
           setConfirmLoading(true);
-          await confirmAction.onConfirm();
+          await confirmAction.onConfirm(reason);
           setConfirmLoading(false);
           setConfirmAction(null);
         }}

@@ -184,6 +184,7 @@ export async function POST(req: Request) {
         heure_debut,
         pilote_email,
         pilote_nom,
+        motif,
       } = body;
 
       // To parent — confirmation
@@ -194,11 +195,12 @@ export async function POST(req: Request) {
           <h2 style="margin:0 0 4px;font-size:20px;color:#0f172a">Annulation enregistrée</h2>
           <p style="color:#64748b;margin:0 0 20px;font-size:14px">Bonjour ${parent_prenom},</p>
           <p style="color:#374151;font-size:14px;margin:0 0 16px">
-            L'annulation de la réservation de <strong>${eleve_prenom} ${eleve_nom}</strong> pour le <strong>Vol ${type_vol}</strong> a bien été prise en compte.
+            La réservation de <strong>${eleve_prenom} ${eleve_nom}</strong> pour le <strong>Vol ${type_vol}</strong> a été annulée par le pilote.
           </p>
           ${infoBox([
             { label: "📅 Date annulée", value: fmt(date_vol) },
             { label: "⏰ Horaire", value: heure_debut?.slice(0, 5) || "—" },
+            ...(motif ? [{ label: "💬 Motif", value: motif }] : []),
           ])}
           <p style="color:#64748b;font-size:13px">Vous pouvez réserver un autre créneau disponible depuis votre espace.</p>
           ${ctaBtn("Réserver un nouveau créneau", `${APP_URL}/dashboard/reservation`)}
@@ -266,7 +268,7 @@ export async function POST(req: Request) {
     // SLOT CANCELLED — pilot cancels a slot
     // ─────────────────────────────────────────────────
     else if (type === "slot_cancelled") {
-      const { parents, date_vol, heure_debut, pilote_nom } = body;
+      const { parents, date_vol, heure_debut, pilote_nom, motif } = body;
       for (const p of parents || []) {
         emails.push({
           to: p.email,
@@ -282,6 +284,7 @@ export async function POST(req: Request) {
               { label: "📅 Date", value: fmt(date_vol) },
               { label: "⏰ Horaire", value: heure_debut?.slice(0, 5) || "—" },
               ...(pilote_nom ? [{ label: "👨‍✈️ Pilote", value: pilote_nom }] : []),
+              ...(motif ? [{ label: "💬 Motif", value: motif }] : []),
             ])}
             <p style="color:#64748b;font-size:13px">Vous pouvez réserver un nouveau créneau disponible depuis votre espace dès maintenant.</p>
             ${ctaBtn("Réserver un nouveau créneau", `${APP_URL}/dashboard/reservation`)}
