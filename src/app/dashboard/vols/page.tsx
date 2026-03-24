@@ -1011,8 +1011,8 @@ export default function VolsPage() {
                                       {el.prenom} {el.nom}
                                       {(() => {
                                         const m = matchDesiderata(el.desiderata, form.date_vol, form.heure_debut);
-                                        if (m === "match") return <span className="text-emerald-400 text-[10px]">✓</span>;
-                                        if (m === "no-match") return <span className="text-orange-300 text-[10px]">~</span>;
+                                        if (m === "match") return <span className="bg-emerald-500 text-white text-[9px] font-bold px-1.5 py-0.5 rounded-full leading-none">DISPO</span>;
+                                        if (m === "no-match") return <span className="bg-orange-400 text-white text-[9px] font-bold px-1.5 py-0.5 rounded-full leading-none">INDISPO</span>;
                                         return null;
                                       })()}
                                     </button>
@@ -1289,8 +1289,8 @@ export default function VolsPage() {
                           >
                             <span className="font-medium text-gray-900 flex items-center gap-1.5">
                               {e.prenom} {e.nom}
-                              {match === "match" && <span title="Correspond aux disponibilités" className="text-emerald-500 text-xs">✓</span>}
-                              {match === "no-match" && <span title="Ne correspond pas aux disponibilités" className="text-orange-400 text-xs">~</span>}
+                              {match === "match" && <span className="bg-emerald-500 text-white text-[9px] font-bold px-1.5 py-0.5 rounded-full leading-none">DISPO</span>}
+                              {match === "no-match" && <span className="bg-orange-400 text-white text-[9px] font-bold px-1.5 py-0.5 rounded-full leading-none">INDISPO</span>}
                             </span>
                             <span className="text-xs text-brand-500 font-medium">+ Ajouter</span>
                           </button>
@@ -1612,8 +1612,8 @@ export default function VolsPage() {
                                       {el.prenom} {el.nom}
                                       {(() => {
                                         const m = matchDesiderata(el.desiderata, showEditSlot.date_vol, showEditSlot.heure_debut);
-                                        if (m === "match") return <span className="text-emerald-400 text-[10px]">✓</span>;
-                                        if (m === "no-match") return <span className="text-orange-300 text-[10px]">~</span>;
+                                        if (m === "match") return <span className="bg-emerald-500 text-white text-[9px] font-bold px-1.5 py-0.5 rounded-full leading-none">DISPO</span>;
+                                        if (m === "no-match") return <span className="bg-orange-400 text-white text-[9px] font-bold px-1.5 py-0.5 rounded-full leading-none">INDISPO</span>;
                                         return null;
                                       })()}
                                     </button>
