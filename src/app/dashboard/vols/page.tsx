@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { matchDesiderata } from "@/components/DesiderataGrid";
 import { toast } from "sonner";
@@ -175,6 +175,18 @@ export default function VolsPage() {
     return true;
   });
   const hasFilters = !!(filterPilote || filterAeronef || filterEtab || filterStatut || filterDateFrom || filterDateTo);
+
+  // Students already on an active slot (not cancelled/terminated) — hide from eleves_autorises picker
+  const busyEleveIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const c of creneaux) {
+      if (c.statut === "annule" || c.statut === "termine") continue;
+      for (const r of (c.reservations || [])) {
+        if (r.statut !== "annule" && r.eleve?.id) ids.add(r.eleve.id);
+      }
+    }
+    return ids;
+  }, [creneaux]);
 
   const filteredHisto = volsHisto.filter((v) => {
     if (filterPilote && v.creneau?.pilote_id !== filterPilote) return false;
@@ -1010,8 +1022,9 @@ export default function VolsPage() {
                             <div className="px-3 pb-2 bg-brand-50/50">
                               <p className="text-[10px] text-gray-400 mb-1.5">Restreindre à des élèves spécifiques (optionnel) :</p>
                               <div className="flex flex-wrap gap-1">
-                                {etabEleves.map((el) => {
+                                {etabEleves.filter(el => !busyEleveIds.has(el.id)).map((el) => {
                                   const sel = etabElvsSelected.includes(el.id);
+                                  const volLabel = el.vol1_effectue ? "V2" : "V1";
                                   return (
                                     <button
                                       key={el.id}
@@ -1025,6 +1038,7 @@ export default function VolsPage() {
                                       className={`text-[11px] px-2 py-0.5 rounded-full border transition-colors flex items-center gap-1 ${sel ? "bg-brand-500 text-white border-brand-500" : "text-gray-600 border-gray-300 hover:border-brand-300"}`}
                                     >
                                       {el.prenom} {el.nom}
+                                      <span className={`text-[8px] font-bold px-1 py-0.5 rounded ${sel ? "bg-white/30 text-white" : "bg-gray-100 text-gray-400"}`}>{volLabel}</span>
                                       {(() => {
                                         const m = matchDesiderata(el.desiderata, form.date_vol, form.heure_debut);
                                         if (m === "match") return <span className="bg-emerald-500 text-white text-[9px] font-bold px-1.5 py-0.5 rounded-full leading-none">DISPO</span>;
@@ -1034,6 +1048,9 @@ export default function VolsPage() {
                                     </button>
                                   );
                                 })}
+                                {etabEleves.filter(el => busyEleveIds.has(el.id)).length > 0 && (
+                                  <p className="text-[10px] text-gray-400 w-full mt-1">{etabEleves.filter(el => busyEleveIds.has(el.id)).length} élève(s) déjà positionné(s) sur un vol actif masqué(s)</p>
+                                )}
                               </div>
                               {etabElvsSelected.length > 0 && (
                                 <p className="text-[10px] text-brand-500 mt-1">{etabElvsSelected.length} élève{etabElvsSelected.length > 1 ? "s" : ""} sélectionné{etabElvsSelected.length > 1 ? "s" : ""}</p>
@@ -1617,8 +1634,13 @@ export default function VolsPage() {
                             <div className="px-3 pb-2 bg-brand-50/50">
                               <p className="text-[10px] text-gray-400 mb-1.5">Restreindre à des élèves spécifiques (optionnel) :</p>
                               <div className="flex flex-wrap gap-1">
-                                {etabEleves.map((el) => {
+                                {etabEleves.filter(el => {
+                                  // Keep: not busy, OR already on this specific slot
+                                  if (!busyEleveIds.has(el.id)) return true;
+                                  return (showEditSlot.reservations || []).some((r: any) => r.statut !== "annule" && r.eleve?.id === el.id);
+                                }).map((el) => {
                                   const sel = etabElvsSelected.includes(el.id);
+                                  const volLabel = el.vol1_effectue ? "V2" : "V1";
                                   return (
                                     <button
                                       key={el.id}
@@ -1632,6 +1654,7 @@ export default function VolsPage() {
                                       className={`text-[11px] px-2 py-0.5 rounded-full border transition-colors flex items-center gap-1 ${sel ? "bg-brand-500 text-white border-brand-500" : "text-gray-600 border-gray-300 hover:border-brand-300"}`}
                                     >
                                       {el.prenom} {el.nom}
+                                      <span className={`text-[8px] font-bold px-1 py-0.5 rounded ${sel ? "bg-white/30 text-white" : "bg-gray-100 text-gray-400"}`}>{volLabel}</span>
                                       {(() => {
                                         const m = matchDesiderata(el.desiderata, showEditSlot.date_vol, showEditSlot.heure_debut);
                                         if (m === "match") return <span className="bg-emerald-500 text-white text-[9px] font-bold px-1.5 py-0.5 rounded-full leading-none">DISPO</span>;

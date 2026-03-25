@@ -180,6 +180,7 @@ export default function ElevesPage() {
         : prof?.etablissement_id
           ? [prof.etablissement_id]
           : [];
+    const isPiloteRole = prof?.roles?.includes("pilote") && !prof?.roles?.includes("superadmin") && !prof?.roles?.includes("coordinateur") && !prof?.roles?.includes("gerant");
 
     let elevesQuery = supabase
       .from("eleves")
@@ -191,6 +192,14 @@ export default function ElevesPage() {
 
     if (isGerant && gerantEtabIds.length > 0) {
       elevesQuery = elevesQuery.in("etablissement_id", gerantEtabIds);
+    } else if (isPiloteRole) {
+      const { data: peData } = await supabase
+        .from("pilote_etablissements")
+        .select("etablissement_id")
+        .eq("pilote_id", user.id);
+      const piloteEtabIds = (peData || []).map((x: any) => x.etablissement_id);
+      // Filter to pilot's établissements (empty list → no results)
+      elevesQuery = elevesQuery.in("etablissement_id", piloteEtabIds.length > 0 ? piloteEtabIds : ["__none__"]);
     }
 
     const [eR, etR, aR, anR, pR, profR] = await Promise.all([
@@ -266,6 +275,9 @@ export default function ElevesPage() {
   const activeFilters = [fEtab, fPaiement, fAttest, fVol1, fBia].filter(
     (f) => f !== "all",
   ).length;
+
+  // Pilots: read-only access to their établissements, can only edit statuts + vols
+  const isPiloteOnly = !!profile && profile.roles?.includes("pilote") && !profile.roles?.includes("superadmin") && !profile.roles?.includes("coordinateur") && !profile.roles?.includes("gerant");
 
   function calcPrix(aeronefId: string, minutes: string): string {
     if (!aeronefId || !minutes) return "";
@@ -384,28 +396,71 @@ export default function ElevesPage() {
 
   async function handleSave() {
     setFormError(null);
-    if (!form.nom.trim() || !form.prenom.trim() || !form.date_naissance) {
-      setFormError("Nom, prenom et date de naissance obligatoires.");
-      return;
+    // Pilots can only edit, not create
+    if (isPiloteOnly && !editingId) return;
+    if (!isPiloteOnly) {
+      if (!form.nom.trim() || !form.prenom.trim() || !form.date_naissance) {
+        setFormError("Nom, prenom et date de naissance obligatoires.");
+        return;
+      }
+      if (!form.parent_email.trim()) {
+        setFormError("Email parent obligatoire.");
+        return;
+      }
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(form.parent_email.trim())) {
+        setFormError("Format d'email parent invalide.");
+        return;
+      }
+      if (form.date_naissance && new Date(form.date_naissance) > new Date()) {
+        setFormError("La date de naissance ne peut pas être dans le futur.");
+        return;
+      }
     }
-    if (!form.parent_email.trim()) {
-      setFormError("Email parent obligatoire.");
-      return;
-    }
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!emailRegex.test(form.parent_email.trim())) {
-      setFormError("Format d'email parent invalide.");
-      return;
-    }
-    if (form.date_naissance && new Date(form.date_naissance) > new Date()) {
-      setFormError("La date de naissance ne peut pas être dans le futur.");
-      return;
-    }
-    if (!anneeId) {
+    if (!anneeId && !isPiloteOnly) {
       setFormError("Aucune annee active.");
       return;
     }
     setSaving(true);
+
+    // Pilot-only payload: only statuts + vols
+    if (isPiloteOnly && editingId) {
+      const pilotePayload: any = {
+        paiement_effectue: form.paiement_effectue,
+        paiement_mode: form.paiement_mode || null,
+        paiement_montant: form.paiement_effectue ? parseFloat(form.paiement_montant) || 80 : null,
+        attestation_signee: form.attestation_signee,
+        attestation_parent_signataire: form.attestation_signee ? (form.attestation_parent_signataire || `${form.parent_prenom} ${form.parent_nom}`) : null,
+        attestation_date: form.attestation_signee ? new Date().toISOString() : null,
+        vol1_effectue: form.vol1_effectue,
+        vol1_temps_minutes: form.vol1_effectue && form.vol1_temps_minutes ? parseInt(form.vol1_temps_minutes) : null,
+        vol1_aeronef_id: form.vol1_aeronef_id || null,
+        vol1_prix: form.vol1_prix ? parseFloat(form.vol1_prix) : null,
+        vol1_pilote_nom: form.vol1_pilote_nom || null,
+        vol1_numero_aerogest: form.vol1_numero_aerogest || null,
+        vol2_autorise: form.vol2_autorise || form.bia_resultat === "Admis" || form.bia_resultat === "Mention",
+        vol2_effectue: form.vol2_effectue,
+        vol2_temps_minutes: form.vol2_effectue && form.vol2_temps_minutes ? parseInt(form.vol2_temps_minutes) : null,
+        vol2_aeronef_id: form.vol2_aeronef_id || null,
+        vol2_prix: form.vol2_prix ? parseFloat(form.vol2_prix) : null,
+        vol2_pilote_nom: form.vol2_pilote_nom || null,
+        vol2_numero_aerogest: form.vol2_numero_aerogest || null,
+        bia_passe: form.bia_passe,
+        bia_resultat: form.bia_resultat || null,
+        bia_date: form.bia_date || null,
+      };
+      const { error: piloteErr } = await supabase.from("eleves").update(pilotePayload).eq("id", editingId);
+      setSaving(false);
+      if (piloteErr) { setFormError(`Erreur: ${piloteErr.message}`); return; }
+      setShowForm(false);
+      if (selected && editingId) {
+        const etab = etablissements.find((e: any) => e.id === selected.etablissement_id) ?? selected.etablissement;
+        setSelected({ ...selected, ...pilotePayload, etablissement: etab ?? selected.etablissement });
+      }
+      load();
+      return;
+    }
+
     const payload: any = {
       nom: form.nom,
       prenom: form.prenom,
@@ -618,8 +673,8 @@ export default function ElevesPage() {
           </div>
         )}
 
-        {/* Identite */}
-        <div className="mb-5">
+        {/* Identite — hidden for pilots */}
+        {!isPiloteOnly && <div className="mb-5">
           <h4 className="text-xs font-bold uppercase tracking-wider text-gray-400 mb-3">
             Identite
           </h4>
@@ -714,10 +769,10 @@ export default function ElevesPage() {
               />
             </div>
           </div>
-        </div>
+        </div>}
 
-        {/* Parent */}
-        <div className="mb-5">
+        {/* Parent — hidden for pilots */}
+        {!isPiloteOnly && <div className="mb-5">
           <h4 className="text-xs font-bold uppercase tracking-wider text-gray-400 mb-3">
             Responsable legal
           </h4>
@@ -764,7 +819,7 @@ export default function ElevesPage() {
               />
             </div>
           </div>
-        </div>
+        </div>}
 
         {/* Statuts */}
         <div className="mb-5">
@@ -1185,8 +1240,8 @@ export default function ElevesPage() {
           </div>
         </div>
 
-        {/* Commentaires */}
-        <div className="mb-5">
+        {/* Commentaires — hidden for pilots */}
+        {!isPiloteOnly && <div className="mb-5">
           <h4 className="text-xs font-bold uppercase tracking-wider text-gray-400 mb-3">
             Remarques
           </h4>
@@ -1196,7 +1251,7 @@ export default function ElevesPage() {
             className="input min-h-[80px] resize-y"
             placeholder="Adresse, responsable BIA, infos pilote..."
           />
-        </div>
+        </div>}
 
         <div className="flex justify-end gap-2 pt-4 border-t border-gray-100">
           <button onClick={() => setShowForm(false)} className="btn-secondary">
@@ -1256,22 +1311,26 @@ export default function ElevesPage() {
               onClick={() => openEdit(s)}
               className="btn-secondary btn-sm"
             >
-              <Edit className="w-3.5 h-3.5" /> Editer
+              <Edit className="w-3.5 h-3.5" /> {isPiloteOnly ? "Modifier statuts" : "Editer"}
             </button>
-            {/* Abandon — visible to all non-parent roles (superadmin, gérant, coordinateur) */}
-            <button
-              onClick={() => handleAbandon(s.id, !!s.abandonne)}
-              className={`btn-sm ${s.abandonne ? "btn-secondary text-emerald-600 border-emerald-200 hover:bg-emerald-50" : "btn-secondary text-orange-500 border-orange-200 hover:bg-orange-50"}`}
-              title={s.abandonne ? "Annuler l'abandon" : "Marquer comme abandonné"}
-            >
-              {s.abandonne ? "↩ Réactiver" : "⚠ Abandon"}
-            </button>
-            <button
-              onClick={() => handleDelete(s.id)}
-              className="btn-danger btn-sm"
-            >
-              <Trash2 className="w-3.5 h-3.5" />
-            </button>
+            {/* Abandon + Delete — hidden for pilots */}
+            {!isPiloteOnly && (
+              <>
+                <button
+                  onClick={() => handleAbandon(s.id, !!s.abandonne)}
+                  className={`btn-sm ${s.abandonne ? "btn-secondary text-emerald-600 border-emerald-200 hover:bg-emerald-50" : "btn-secondary text-orange-500 border-orange-200 hover:bg-orange-50"}`}
+                  title={s.abandonne ? "Annuler l'abandon" : "Marquer comme abandonné"}
+                >
+                  {s.abandonne ? "↩ Réactiver" : "⚠ Abandon"}
+                </button>
+                <button
+                  onClick={() => handleDelete(s.id)}
+                  className="btn-danger btn-sm"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                </button>
+              </>
+            )}
           </div>
         </div>
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
