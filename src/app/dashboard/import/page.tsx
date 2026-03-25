@@ -12,7 +12,8 @@ const CSV_HEADERS = [
   "paiement_effectue", "paiement_montant", "paiement_mode",
   "attestation_signee",
   "vol1_effectue", "vol2_autorise", "vol2_effectue",
-  "bia_resultat", "commentaires",
+  "bia_passe", "bia_resultat", "bia_date",
+  "commentaires",
 ];
 
 const CSV_SAMPLE = [
@@ -23,7 +24,8 @@ const CSV_SAMPLE = [
   "Oui", "80", "CB",
   "Oui",
   "Non", "Non", "Non",
-  "", "",
+  "Oui", "Admis", "15/06/2025",
+  "",
 ];
 
 interface ParsedRow {
@@ -47,7 +49,9 @@ interface ParsedRow {
   vol1_effectue: boolean;
   vol2_autorise: boolean;
   vol2_effectue: boolean;
+  bia_passe: boolean;
   bia_resultat: string;
+  bia_date: string;
   commentaires: string;
 }
 
@@ -99,8 +103,10 @@ function parseCSV(text: string): ParsedRow[] {
       vol1_effectue: parseBool(cols[17] || ""),
       vol2_autorise: parseBool(cols[18] || ""),
       vol2_effectue: parseBool(cols[19] || ""),
-      bia_resultat: cols[20]?.trim() || "",
-      commentaires: cols[21]?.trim() || "",
+      bia_passe: parseBool(cols[20] || ""),
+      bia_resultat: cols[21]?.trim() || "",
+      bia_date: cols[22]?.trim() || "",
+      commentaires: cols[23]?.trim() || "",
     };
   }).filter(r => r.nom && r.prenom);
 }
@@ -197,8 +203,9 @@ export default function ImportPage() {
         vol1_effectue: r.vol1_effectue,
         vol2_autorise: r.vol2_autorise || r.bia_resultat === "Admis" || r.bia_resultat === "Mention",
         vol2_effectue: r.vol2_effectue,
-        bia_passe: !!r.bia_resultat,
-        bia_resultat: r.bia_resultat || null,
+        bia_passe: r.bia_passe,
+        bia_resultat: r.bia_passe && r.bia_resultat ? r.bia_resultat : null,
+        bia_date: r.bia_passe && r.bia_date ? parseDate(r.bia_date) : null,
         commentaires: r.commentaires || null,
       };
 
@@ -281,7 +288,7 @@ export default function ImportPage() {
           <div className="card p-0 overflow-auto mb-4">
             <table className="w-full text-xs min-w-[1000px]">
               <thead><tr className="bg-gray-50">
-                {["Nom", "Prénom", "Naissance", "Établissement", "Classe", "Email parent", "Tél", "Payé", "Attest.", "Vol1", "Vol2", "BIA"].map(h => (
+                {["Nom", "Prénom", "Naissance", "Établissement", "Classe", "Email parent", "Tél", "Payé", "Attest.", "Vol1", "Vol2", "BIA", "Résultat BIA", "Date BIA"].map(h => (
                   <th key={h} className="px-2 py-2 text-left text-[10px] font-semibold uppercase text-gray-400">{h}</th>
                 ))}
               </tr></thead>
@@ -299,7 +306,9 @@ export default function ImportPage() {
                     <td className="px-2 py-1.5">{r.attestation_signee ? <span className="dot-success" /> : <span className="dot-danger" />}</td>
                     <td className="px-2 py-1.5">{r.vol1_effectue ? <span className="dot-success" /> : <span className="dot-danger" />}</td>
                     <td className="px-2 py-1.5">{r.vol2_effectue ? <span className="dot-success" /> : <span className="dot-danger" />}</td>
+                    <td className="px-2 py-1.5">{r.bia_passe ? <span className="dot-success" /> : <span className="dot-danger" />}</td>
                     <td className="px-2 py-1.5 text-gray-500">{r.bia_resultat || "—"}</td>
+                    <td className="px-2 py-1.5 text-gray-500">{r.bia_date || "—"}</td>
                   </tr>
                 ))}
               </tbody>
