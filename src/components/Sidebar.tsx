@@ -64,6 +64,7 @@ function getNav(roles: string[]) {
     "superadmin",
     "coordinateur",
     "gerant",
+    "pilote",
   ]);
   add("vols", "Planning vols", "Plane", "/dashboard/vols", [
     "superadmin",
