@@ -78,7 +78,12 @@ export async function POST(req: Request) {
           <a href="${resetLink}" style="display:inline-block;background:#1b3a5c;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:600;font-size:15px">
             Définir mon mot de passe →
           </a>
-          <p style="color:#aaa;font-size:12px;margin-top:24px">Ce lien est valable 24 heures. Si vous n'avez pas demandé cet accès, ignorez cet email.</p>`;
+          <p style="color:#aaa;font-size:12px;margin-top:24px">Ce lien est valable 24 heures. Si vous n'avez pas demandé cet accès, ignorez cet email.</p>
+          <div style="margin-top:32px;padding-top:24px;border-top:1px solid #eee;text-align:center">
+            <p style="color:#555;font-size:14px;margin:0 0 12px;font-weight:600">Besoin d'aide ? Contactez-nous sur WhatsApp</p>
+            <img src="https://api.qrserver.com/v1/create-qr-code/?size=140x140&data=https%3A%2F%2Fwa.me%2F33756919167%3Ftext%3DBonjour%252C%2520j%2527ai%2520besoin%2520d%2527aide%2520sur%2520BIA%2520Manager." alt="QR Code WhatsApp support" width="140" height="140" style="border-radius:8px;border:1px solid #eee" />
+            <p style="color:#aaa;font-size:12px;margin:8px 0 0">Scannez ce QR code avec votre téléphone · 07 56 91 91 67</p>
+          </div>`;
 
   // Send via Resend — no rate limit issues
   if (process.env.RESEND_API_KEY) {

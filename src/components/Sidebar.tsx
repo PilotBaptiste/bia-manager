@@ -23,6 +23,7 @@ import {
   Upload,
   Mail,
   BookOpen,
+  MessageCircle,
 } from "lucide-react";
 
 const iconMap: Record<string, any> = {
@@ -42,6 +43,7 @@ const iconMap: Record<string, any> = {
   UserCheck,
   Upload,
   Mail,
+  MessageCircle,
 };
 
 function getNav(roles: string[]) {
@@ -124,6 +126,13 @@ function getNav(roles: string[]) {
     "parent",
     "pilote",
     "gerant",
+  ]);
+  add("support", "Support", "MessageCircle", "/dashboard/support", [
+    "superadmin",
+    "coordinateur",
+    "pilote",
+    "gerant",
+    "parent",
   ]);
 
   return items;
