@@ -168,7 +168,7 @@ export default function ParentOnboarding({ userId, defaultPrenom, defaultNom, de
         {/* Step 1 */}
         {step === 1 && (
           <form onSubmit={handleStep1} className="p-6 space-y-4">
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
                 <label className="label">Prénom *</label>
                 <input
@@ -245,7 +245,7 @@ export default function ParentOnboarding({ userId, defaultPrenom, defaultNom, de
                       <Baby className="w-4 h-4 text-brand-400" />
                       {f.prenom || enfant.prenom} {f.nom || enfant.nom}
                     </div>
-                    <div className="grid grid-cols-2 gap-3">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                       <div>
                         <label className="label">Prénom</label>
                         <input
@@ -263,7 +263,7 @@ export default function ParentOnboarding({ userId, defaultPrenom, defaultNom, de
                         />
                       </div>
                     </div>
-                    <div className="grid grid-cols-2 gap-3">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                       <div>
                         <label className="label">Date de naissance</label>
                         <input
@@ -292,7 +292,7 @@ export default function ParentOnboarding({ userId, defaultPrenom, defaultNom, de
                         placeholder="Numéro et nom de rue"
                       />
                     </div>
-                    <div className="grid grid-cols-2 gap-3">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                       <div>
                         <label className="label">Code postal</label>
                         <input
