@@ -117,7 +117,7 @@ export default function ParentOnboarding({ userId, defaultPrenom, defaultNom, de
         f.adresse_rue.trim(),
         [f.adresse_cp.trim(), f.adresse_ville.trim()].filter(Boolean).join(" "),
       ].filter(Boolean).join(", ") || null;
-      await supabase.from("eleves").update({
+      const { error: err } = await supabase.from("eleves").update({
         nom: f.nom.trim() || enfant.nom,
         prenom: f.prenom.trim() || enfant.prenom,
         date_naissance: f.date_naissance || null,
@@ -128,6 +128,7 @@ export default function ParentOnboarding({ userId, defaultPrenom, defaultNom, de
         adresse,
         desiderata: f.desiderata ?? null,
       }).eq("id", enfant.id);
+      if (err) { setError(err.message); setSavingKids(false); return; }
     }
     setSavingKids(false);
     setDone(true);
@@ -263,7 +264,7 @@ export default function ParentOnboarding({ userId, defaultPrenom, defaultNom, de
                         />
                       </div>
                     </div>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div className="grid grid-cols-1 gap-3">
                       <div>
                         <label className="label">Date de naissance</label>
                         <input

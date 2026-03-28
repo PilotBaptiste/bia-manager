@@ -54,7 +54,7 @@ export default function ReservationPage() {
       supabase
         .from("creneaux")
         .select(
-          "*, etablissement_ids, pilote:profiles!pilote_id(nom, prenom, email, telephone), aeronef:aeronefs(type_aeronef, immatriculation, nb_places_eleves), etablissement:etablissements(nom), reservations(id, statut)",
+          "*, etablissement_ids, pilote:profiles!pilote_id(nom, prenom, email, telephone), aeronef:aeronefs(type_aeronef, immatriculation, nb_places_eleves), etablissement:etablissements(nom), reservations(id, statut, type_vol)",
         )
         .in("statut", ["ouvert", "confirme"])
         .order("date_vol"),
@@ -120,6 +120,7 @@ export default function ReservationPage() {
           heure_debut: cancelledRes.creneau?.heure_debut,
           pilote_email: cancelledRes.creneau?.pilote?.email,
           pilote_nom: cancelledRes.creneau?.pilote ? `${cancelledRes.creneau.pilote.prenom} ${cancelledRes.creneau.pilote.nom}` : "",
+          motif: "Annulation par le parent",
         }),
       }).catch(() => {});
     }

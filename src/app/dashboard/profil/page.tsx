@@ -3,6 +3,7 @@ import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { User, Save, Loader2, Check, Lock, Baby, ChevronDown, ChevronUp, CalendarDays } from "lucide-react";
+import { toast } from "sonner";
 import DesiderataGrid, { Desiderata, emptyDesiderata, fromDb } from "@/components/DesiderataGrid";
 
 type Enfant = {
@@ -245,11 +246,14 @@ export default function ProfilPage() {
   }, []);
 
   async function handleSave() {
+    if (!profile) return;
     setSaving(true);
-    await supabase
+    const { error: e1 } = await supabase
       .from("profiles")
       .update({ nom: form.nom, prenom: form.prenom, telephone: form.telephone })
       .eq("id", profile.id);
+
+    if (e1) { setSaving(false); toast.error("Erreur lors de la sauvegarde : " + e1.message); return; }
 
     // Sync parent name to all linked eleves rows
     await supabase
