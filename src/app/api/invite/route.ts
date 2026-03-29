@@ -27,6 +27,7 @@ export async function POST(req: Request) {
   // Try recovery first (existing auth user), fall back to invite (creates the account)
   let linkData: any = null;
   let linkError: any = null;
+  let isRecovery = false;
 
   const recovery = await supabase.auth.admin.generateLink({
     type: "recovery",
@@ -45,6 +46,7 @@ export async function POST(req: Request) {
     linkError = invite.error;
   } else {
     linkData = recovery.data;
+    isRecovery = true;
   }
 
   if (linkError) {
@@ -53,6 +55,35 @@ export async function POST(req: Request) {
 
   const resetLink = linkData.properties.action_link;
   const displayName = nom && prenom ? `${prenom} ${nom}` : email;
+
+  const subject = isRecovery
+    ? "BIA Manager — Réinitialisez votre mot de passe"
+    : "Accès BIA Manager — Définissez votre mot de passe";
+
+  const bodyHtml = isRecovery
+    ? `<h2 style="margin:0 0 8px;font-size:22px;color:#111">Bonjour ${displayName},</h2>
+          <p style="color:#555;margin:0 0 24px">
+            Vous avez demandé la réinitialisation de votre mot de passe BIA Manager.
+            Cliquez sur le bouton ci-dessous pour définir un nouveau mot de passe.
+          </p>
+          <a href="${resetLink}" style="display:inline-block;background:#1b3a5c;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:600;font-size:15px">
+            Réinitialiser mon mot de passe →
+          </a>
+          <p style="color:#aaa;font-size:12px;margin-top:24px">Ce lien est valable 24 heures. Si vous n'avez pas demandé cette réinitialisation, ignorez cet email.</p>`
+    : `<h2 style="margin:0 0 8px;font-size:22px;color:#111">Bonjour ${displayName},</h2>
+          <p style="color:#555;margin:0 0 24px">
+            Vous avez été invité(e) sur la plateforme BIA Manager de l'Aéro-Club du Bassin d'Arcachon.
+            Cliquez sur le bouton ci-dessous pour définir votre mot de passe et accéder à votre espace.
+          </p>
+          <a href="${resetLink}" style="display:inline-block;background:#1b3a5c;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:600;font-size:15px">
+            Définir mon mot de passe →
+          </a>
+          <p style="color:#aaa;font-size:12px;margin-top:24px">Ce lien est valable 24 heures. Si vous n'avez pas demandé cet accès, ignorez cet email.</p>
+          <div style="margin-top:32px;padding-top:24px;border-top:1px solid #eee;text-align:center">
+            <p style="color:#555;font-size:14px;margin:0 0 12px;font-weight:600">Besoin d'aide ? Contactez-nous sur WhatsApp</p>
+            <img src="https://api.qrserver.com/v1/create-qr-code/?size=140x140&data=https%3A%2F%2Fwa.me%2F33756919167%3Ftext%3DBonjour%252C%2520j%2527ai%2520besoin%2520d%2527aide%2520sur%2520BIA%2520Manager." alt="QR Code WhatsApp support" width="140" height="140" style="border-radius:8px;border:1px solid #eee" />
+            <p style="color:#aaa;font-size:12px;margin:8px 0 0">Scannez ce QR code avec votre téléphone · 07 56 91 91 67</p>
+          </div>`;
 
   // Send via Resend — no rate limit issues
   if (process.env.RESEND_API_KEY) {
@@ -65,21 +96,13 @@ export async function POST(req: Request) {
           process.env.RESEND_FROM ??
           "BIA Manager <noreply@bia-manager-acba.vercel.app>",
         to: email,
-        subject: "Accès BIA Manager — Définissez votre mot de passe",
+        subject,
         html: `
         <div style="font-family:system-ui,sans-serif;max-width:520px;margin:0 auto;padding:32px 24px;background:#fff">
           <div style="margin-bottom:24px">
             <span style="background:#1b3a5c;color:#fff;padding:6px 14px;border-radius:8px;font-weight:700;font-size:14px">BIA Manager</span>
           </div>
-          <h2 style="margin:0 0 8px;font-size:22px;color:#111">Bonjour ${displayName},</h2>
-          <p style="color:#555;margin:0 0 24px">
-            Vous avez été invité(e) sur la plateforme BIA Manager de l'Aéro-Club du Bassin d'Arcachon.
-            Cliquez sur le bouton ci-dessous pour définir votre mot de passe et accéder à votre espace.
-          </p>
-          <a href="${resetLink}" style="display:inline-block;background:#1b3a5c;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:600;font-size:15px">
-            Définir mon mot de passe →
-          </a>
-          <p style="color:#aaa;font-size:12px;margin-top:24px">Ce lien est valable 24 heures. Si vous n'avez pas demandé cet accès, ignorez cet email.</p>
+          ${bodyHtml}
         </div>
       `,
       });
@@ -89,9 +112,9 @@ export async function POST(req: Request) {
     }
     try {
       await supabase.from("email_logs").insert({
-        type: "invite",
+        type: isRecovery ? "reset_password" : "invite",
         to_email: email,
-        subject: "Accès BIA Manager — Définissez votre mot de passe",
+        subject,
         eleve_id: null,
         resend_id: resendId,
         statut,

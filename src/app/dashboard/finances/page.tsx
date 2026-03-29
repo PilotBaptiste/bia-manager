@@ -1,7 +1,7 @@
 "use client";
 import { useState, useEffect } from "react";
 import { createClient } from "@/lib/supabase/client";
-import { Euro, Plane, Users, School, TrendingUp, Loader2, Edit, Save, X, Clock, History, UserCheck, Plus, Trash2, Check } from "lucide-react";
+import { Euro, Plane, Users, School, TrendingUp, Loader2, Edit, Save, X, Clock, History, UserCheck, Plus, Trash2, Check, Download } from "lucide-react";
 import { toast } from "sonner";
 
 const PAYMENT_MODES = ["Espèces", "Chèque", "Virement", "CB", "Autre"];
@@ -20,6 +20,7 @@ export default function FinancesPage() {
   const [manualOps, setManualOps] = useState<any[]>([]);
   const [prixInscription, setPrixInscription] = useState(80);
   const [subFede, setSubFede] = useState(50);
+  const [nomClub, setNomClub] = useState("");
 
   // Edit state
   const [editingOp, setEditingOp] = useState<any>(null);
@@ -54,23 +55,44 @@ export default function FinancesPage() {
     const sf = params.find((p: any) => p.cle === "subvention_federation");
     if (pi) setPrixInscription(parseFloat(pi.valeur));
     if (sf) setSubFede(parseFloat(sf.valeur));
+    const nc = params.find((p: any) => p.cle === "nom_club");
+    if (nc) setNomClub(nc.valeur);
     setLoading(false);
   }
 
   useEffect(() => { load(); }, []);
 
   // ---------- Calculations ----------
+  // Aerogest dedup needed first for cost calculations
+  const aerogestInVols = new Set<string>(vols.map((v: any) => v.numero_aerogest).filter(Boolean));
+  const aerogestCountAll: Record<string, number> = {};
+  vols.forEach(v => { if (v.numero_aerogest) aerogestCountAll[v.numero_aerogest] = (aerogestCountAll[v.numero_aerogest] || 0) + 1; });
+  eleves.forEach(e => {
+    if (e.vol1_effectue && e.vol1_numero_aerogest && !aerogestInVols.has(e.vol1_numero_aerogest)) aerogestCountAll[e.vol1_numero_aerogest] = (aerogestCountAll[e.vol1_numero_aerogest] || 0) + 1;
+    if (e.vol2_effectue && e.vol2_numero_aerogest && !aerogestInVols.has(e.vol2_numero_aerogest)) aerogestCountAll[e.vol2_numero_aerogest] = (aerogestCountAll[e.vol2_numero_aerogest] || 0) + 1;
+  });
+
   const totalPaye = eleves.filter(e => e.paiement_effectue).length;
   const totalBia = eleves.filter(e => e.bia_resultat && e.bia_resultat !== "Non admis").length;
   const totalVol1 = eleves.filter(e => e.vol1_effectue).length;
   const totalVol2 = eleves.filter(e => e.vol2_effectue).length;
-  const recettesInscriptions = totalPaye * prixInscription;
+  // Use each élève's actual paiement_montant (falls back to default prix_inscription)
+  const recettesInscriptions = eleves.filter(e => e.paiement_effectue).reduce((a, e) => a + (e.paiement_montant != null ? parseFloat(e.paiement_montant) : prixInscription), 0);
   const recettesFede = totalBia * subFede;
   const recettesManuelles = manualOps.filter(o => o.sens === "recette").reduce((a, o) => a + parseFloat(o.montant || 0), 0);
   const depensesManuelles = manualOps.filter(o => o.sens === "depense").reduce((a, o) => a + parseFloat(o.montant || 0), 0);
   const totalRecettes = recettesInscriptions + recettesFede + recettesManuelles;
   const coutVolsClotures = vols.reduce((acc, v) => acc + (parseFloat(v.prix_total) || 0), 0);
-  const coutVolsTotal = coutVolsClotures;
+  // Cost of manually-entered eleve vols (price divided by ×N shared-flight)
+  const coutVolsManuels = eleves.reduce((acc, e) => {
+    let c = 0;
+    if (e.vol1_effectue && e.vol1_numero_aerogest && !aerogestInVols.has(e.vol1_numero_aerogest))
+      c += e.vol1_prix ? parseFloat(e.vol1_prix) / (aerogestCountAll[e.vol1_numero_aerogest] || 1) : 0;
+    if (e.vol2_effectue && e.vol2_numero_aerogest && !aerogestInVols.has(e.vol2_numero_aerogest))
+      c += e.vol2_prix ? parseFloat(e.vol2_prix) / (aerogestCountAll[e.vol2_numero_aerogest] || 1) : 0;
+    return acc + c;
+  }, 0);
+  const coutVolsTotal = coutVolsClotures + coutVolsManuels;
   const margeNonUtil = (totalBia - totalVol2) * subFede;
   const solde = totalRecettes - coutVolsTotal - depensesManuelles;
 
@@ -82,22 +104,45 @@ export default function FinancesPage() {
     piloteStats[pName].heures += (v.temps_vol_minutes || 0) / 60;
     piloteStats[pName].cout += parseFloat(v.prix_total) || 0;
   });
+  // Add manual eleve vols to pilote stats
+  eleves.forEach(e => {
+    if (e.vol1_effectue && e.vol1_pilote_nom && e.vol1_numero_aerogest && !aerogestInVols.has(e.vol1_numero_aerogest)) {
+      if (!piloteStats[e.vol1_pilote_nom]) piloteStats[e.vol1_pilote_nom] = { nom: e.vol1_pilote_nom, nbVols: 0, heures: 0, cout: 0 };
+      piloteStats[e.vol1_pilote_nom].nbVols++;
+      piloteStats[e.vol1_pilote_nom].heures += (e.vol1_temps_minutes || 0) / 60;
+      piloteStats[e.vol1_pilote_nom].cout += e.vol1_prix ? parseFloat(e.vol1_prix) / (aerogestCountAll[e.vol1_numero_aerogest] || 1) : 0;
+    }
+    if (e.vol2_effectue && e.vol2_pilote_nom && e.vol2_numero_aerogest && !aerogestInVols.has(e.vol2_numero_aerogest)) {
+      if (!piloteStats[e.vol2_pilote_nom]) piloteStats[e.vol2_pilote_nom] = { nom: e.vol2_pilote_nom, nbVols: 0, heures: 0, cout: 0 };
+      piloteStats[e.vol2_pilote_nom].nbVols++;
+      piloteStats[e.vol2_pilote_nom].heures += (e.vol2_temps_minutes || 0) / 60;
+      piloteStats[e.vol2_pilote_nom].cout += e.vol2_prix ? parseFloat(e.vol2_prix) / (aerogestCountAll[e.vol2_numero_aerogest] || 1) : 0;
+    }
+  });
 
   const etabStats = etabs.map(et => {
     const etEleves = eleves.filter(e => e.etablissement_id === et.id);
     const etPaye = etEleves.filter(e => e.paiement_effectue).length;
     const etBia = etEleves.filter(e => e.bia_resultat && e.bia_resultat !== "Non admis").length;
+    const etVol1 = etEleves.filter(e => e.vol1_effectue).length;
     const etVol2 = etEleves.filter(e => e.vol2_effectue).length;
-    const etCout = etEleves.reduce((a, e) => a + (parseFloat(e.vol1_prix) || 0) + (parseFloat(e.vol2_prix) || 0), 0);
-    const ins = etPaye * prixInscription;
+    const etCout = etEleves.reduce((a, e) => {
+      let c = 0;
+      if (e.vol1_effectue && e.vol1_numero_aerogest) c += e.vol1_prix ? parseFloat(e.vol1_prix) / (aerogestCountAll[e.vol1_numero_aerogest] || 1) : 0;
+      else if (e.vol1_effectue) c += parseFloat(e.vol1_prix) || 0;
+      if (e.vol2_effectue && e.vol2_numero_aerogest) c += e.vol2_prix ? parseFloat(e.vol2_prix) / (aerogestCountAll[e.vol2_numero_aerogest] || 1) : 0;
+      else if (e.vol2_effectue) c += parseFloat(e.vol2_prix) || 0;
+      return a + c;
+    }, 0);
+    const ins = etEleves.filter(e => e.paiement_effectue).reduce((a, e) => a + (e.paiement_montant != null ? parseFloat(e.paiement_montant) : prixInscription), 0);
     const fed = etBia * subFede;
-    return { nom: et.nom, eleves: etEleves.length, payes: etPaye, ins, bia: etBia, fed, couts: etCout, solde: ins + fed - etCout };
+    return { nom: et.nom, eleves: etEleves.length, payes: etPaye, ins, bia: etBia, vol1: etVol1, vol2: etVol2, fed, couts: etCout, solde: ins + fed - etCout };
   });
 
   // ---------- Operations list (with source tracking) ----------
   const operations: any[] = [];
   eleves.forEach(e => {
-    if (e.paiement_effectue) operations.push({ id: e.id, source: "inscription", date: e.paiement_date || e.created_at, type: "Inscription", sens: "recette", montant: parseFloat(e.paiement_montant) || prixInscription, description: `${e.prenom} ${e.nom}`, etablissement: e.etablissement?.nom, mode: e.paiement_mode });
+    if (e.paiement_effectue) operations.push({ id: e.id, source: "inscription", date: e.paiement_date || e.created_at, type: "Inscription", sens: "recette", montant: e.paiement_montant != null ? parseFloat(e.paiement_montant) : prixInscription, description: `${e.prenom} ${e.nom}`, etablissement: e.etablissement?.nom, mode: e.paiement_mode });
     if (e.bia_resultat && e.bia_resultat !== "Non admis") operations.push({ id: e.id, source: "bia", date: e.bia_date || e.updated_at, type: "Subvention BIA", sens: "recette", montant: subFede, description: `${e.prenom} ${e.nom} — ${e.bia_resultat}`, etablissement: e.etablissement?.nom });
   });
   vols.forEach(v => {
@@ -105,6 +150,17 @@ export default function FinancesPage() {
   });
   manualOps.forEach(op => {
     operations.push({ id: op.id, source: "manuel", date: op.date, type: op.type, sens: op.sens, montant: parseFloat(op.montant), description: op.description, etablissement: op.etablissement, mode: op.mode });
+  });
+  // Add manual eleve vols (not already covered by vols_effectues)
+  eleves.forEach(e => {
+    if (e.vol1_effectue && e.vol1_numero_aerogest && !aerogestInVols.has(e.vol1_numero_aerogest)) {
+      const n = aerogestCountAll[e.vol1_numero_aerogest] || 1;
+      operations.push({ id: `${e.id}_vol1`, source: "vol_manuel", date: e.updated_at, type: "Vol", sens: "depense", montant: e.vol1_prix ? parseFloat(e.vol1_prix) / n : null, description: `${e.prenom} ${e.nom} — Vol 1 (${e.vol1_numero_aerogest}${n > 1 ? ` ×${n}` : ""})`, etablissement: e.etablissement?.nom, pilote: e.vol1_pilote_nom || "", aeronef: e.vol1_aeronef?.type_aeronef || "", temps: e.vol1_temps_minutes });
+    }
+    if (e.vol2_effectue && e.vol2_numero_aerogest && !aerogestInVols.has(e.vol2_numero_aerogest)) {
+      const n = aerogestCountAll[e.vol2_numero_aerogest] || 1;
+      operations.push({ id: `${e.id}_vol2`, source: "vol_manuel", date: e.updated_at, type: "Vol", sens: "depense", montant: e.vol2_prix ? parseFloat(e.vol2_prix) / n : null, description: `${e.prenom} ${e.nom} — Vol 2 (${e.vol2_numero_aerogest}${n > 1 ? ` ×${n}` : ""})`, etablissement: e.etablissement?.nom, pilote: e.vol2_pilote_nom || "", aeronef: e.vol2_aeronef?.type_aeronef || "", temps: e.vol2_temps_minutes });
+    }
   });
   operations.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 
@@ -130,7 +186,10 @@ export default function FinancesPage() {
     } else if (editingOp.source === "bia") {
       await supabase.from("eleves").update({ bia_date: editForm.date || null }).eq("id", editingOp.id);
     } else if (editingOp.source === "vol") {
-      await supabase.from("vols_effectues").update({ prix_total: parseFloat(editForm.montant) || 0, temps_vol_minutes: parseInt(editForm.temps) || null }).eq("id", editingOp.id);
+      const newTemps = editForm.temps !== "" ? parseInt(editForm.temps) : null;
+      const newPrix = editForm.montant !== "" ? parseFloat(editForm.montant) : 0;
+      if (editForm.montant !== "" && isNaN(newPrix)) { setSaving(false); toast.error("Montant invalide"); return; }
+      await supabase.from("vols_effectues").update({ prix_total: newPrix, temps_vol_minutes: (!isNaN(newTemps!) && newTemps !== null) ? newTemps : null }).eq("id", editingOp.id);
     } else {
       await supabase.from("operations_manuelles").update({ type: editForm.type, sens: editForm.sens, date: editForm.date, montant: parseFloat(editForm.montant) || 0, description: editForm.description, etablissement: editForm.etablissement, mode: editForm.mode }).eq("id", editingOp.id);
     }
@@ -177,13 +236,80 @@ export default function FinancesPage() {
     load();
   }
 
-  if (loading) return <div className="flex items-center justify-center h-64"><Loader2 className="w-6 h-6 animate-spin text-brand-400" /></div>;
+  function exportCSV(type: "operations" | "etabs" | "pilotes") {
+    let rows: string[][] = [];
+    let filename = "";
+    const fmt = (v: any) => v == null ? "" : String(v).replace(/"/g, '""');
+    const cell = (v: any) => `"${fmt(v)}"`;
+    const date = new Date().toISOString().slice(0, 10);
+
+    if (type === "operations") {
+      filename = `finances_operations_${date}.csv`;
+      rows = [
+        ["Date", "Type", "Sens", "Montant (€)", "Description", "Établissement", "Aéronef", "Pilote", "Temps (min)", "Mode"],
+        ...operations.map(op => [
+          op.date ? new Date(op.date).toLocaleDateString("fr-FR") : "",
+          op.type,
+          op.sens === "recette" ? "Recette" : "Dépense",
+          op.montant?.toFixed(2) ?? "",
+          op.description ?? "",
+          op.etablissement ?? "",
+          op.aeronef ?? "",
+          op.pilote ?? "",
+          op.temps ?? "",
+          op.mode ?? "",
+        ].map(cell)),
+      ];
+    } else if (type === "etabs") {
+      filename = `finances_etablissements_${date}.csv`;
+      rows = [
+        ["Établissement", "Élèves", "Payés", "Inscriptions (€)", "BIA admis", "Subv. fédé (€)", "Coût vols (€)", "Solde (€)"],
+        ...etabStats.map(r => [
+          r.nom, r.eleves, r.payes, r.ins, r.bia, r.fed, r.couts.toFixed(2), r.solde.toFixed(2),
+        ].map(cell)),
+        // Total row
+        ["TOTAL", eleves.length, totalPaye, recettesInscriptions.toFixed(2), totalBia, recettesFede, coutVolsTotal.toFixed(2), solde.toFixed(2)].map(cell),
+      ];
+    } else {
+      filename = `finances_pilotes_${date}.csv`;
+      rows = [
+        ["Pilote", "Vols", "Heures", "Coût (€)"],
+        ...Object.entries(piloteStats).map(([nom, s]: any) => [
+          nom, s.vols, (s.minutes / 60).toFixed(1), s.cout.toFixed(2),
+        ].map(cell)),
+      ];
+    }
+
+    const bom = "\uFEFF";
+    const csv = bom + rows.map(r => r.join(";")).join("\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = filename; a.click();
+    URL.revokeObjectURL(url);
+    toast.success(`Export ${filename} téléchargé`);
+  }
+
+  if (loading) return <div className="flex items-center justify-center h-64" role="status" aria-label="Chargement des finances…"><Loader2 className="w-6 h-6 animate-spin text-brand-400" aria-hidden="true" /></div>;
 
   return (
     <div>
-      <div className="mb-6">
-        <h1 className="text-xl font-bold text-gray-900">Finances — {new Date().getFullYear()}</h1>
-        <p className="text-sm text-gray-500 mt-0.5">Aero-Club du Bassin d&apos;Arcachon</p>
+      <div className="mb-6 flex items-start justify-between gap-4 flex-wrap">
+        <div>
+          <h1 className="text-xl font-bold text-gray-900">Finances — {new Date().getFullYear()}</h1>
+          {nomClub && <p className="text-sm text-gray-500 mt-0.5">{nomClub}</p>}
+        </div>
+        <div className="flex gap-2">
+          <button onClick={() => exportCSV("operations")} className="btn-secondary btn-sm" title="Exporter toutes les opérations">
+            <Download className="w-3.5 h-3.5" /> Opérations
+          </button>
+          <button onClick={() => exportCSV("etabs")} className="btn-secondary btn-sm" title="Exporter par établissement">
+            <Download className="w-3.5 h-3.5" /> Établissements
+          </button>
+          <button onClick={() => exportCSV("pilotes")} className="btn-secondary btn-sm" title="Exporter par pilote">
+            <Download className="w-3.5 h-3.5" /> Pilotes
+          </button>
+        </div>
       </div>
 
       {/* Tabs */}
@@ -204,7 +330,7 @@ export default function FinancesPage() {
       {tab === "overview" && (
         <div>
           <div className="flex gap-3 flex-wrap mb-6">
-            <div className="card flex-1 min-w-[160px]"><p className="text-xs text-gray-500 mb-1">Inscriptions</p><p className="text-2xl font-bold text-emerald-600">{recettesInscriptions}€</p><p className="text-[11px] text-gray-400">{totalPaye} x {prixInscription}€</p></div>
+            <div className="card flex-1 min-w-[160px]"><p className="text-xs text-gray-500 mb-1">Inscriptions</p><p className="text-2xl font-bold text-emerald-600">{recettesInscriptions.toFixed(2)}€</p><p className="text-[11px] text-gray-400">{totalPaye} élève{totalPaye > 1 ? "s" : ""} payé{totalPaye > 1 ? "s" : ""}</p></div>
             <div className="card flex-1 min-w-[160px]"><p className="text-xs text-gray-500 mb-1">Subventions fede</p><p className="text-2xl font-bold text-emerald-600">{recettesFede}€</p><p className="text-[11px] text-gray-400">{totalBia} x {subFede}€</p></div>
             <div className="card flex-1 min-w-[160px]"><p className="text-xs text-gray-500 mb-1">Cout vols</p><p className="text-2xl font-bold text-red-600">{coutVolsTotal.toFixed(2)}€</p><p className="text-[11px] text-gray-400">{totalVol1 + totalVol2} vols</p></div>
             <div className="card flex-1 min-w-[160px]"><p className="text-xs text-gray-500 mb-1">Solde</p><p className={`text-2xl font-bold ${solde >= 0 ? "text-emerald-600" : "text-red-600"}`}>{solde >= 0 ? "+" : ""}{solde.toFixed(2)}€</p></div>
@@ -213,7 +339,7 @@ export default function FinancesPage() {
           <div className="card mb-4">
             <h2 className="text-sm font-semibold text-gray-900 mb-3 flex items-center gap-2"><School className="w-4 h-4 text-brand-400" /> Par etablissement</h2>
             <div className="overflow-auto"><table className="w-full text-sm min-w-[700px]"><thead><tr className="bg-gray-50">
-              {["Etablissement", "Eleves", "Payes", "Inscriptions", "BIA", "Subv.", "Cout vols", "Solde"].map(h => <th key={h} className="px-3 py-2 text-left text-[10px] font-semibold uppercase text-gray-400">{h}</th>)}
+              {["Etablissement", "Eleves", "Payes", "Inscriptions", "BIA", "Vol 1", "Vol 2", "Subv.", "Cout vols", "Solde"].map(h => <th key={h} className="px-3 py-2 text-left text-[10px] font-semibold uppercase text-gray-400">{h}</th>)}
             </tr></thead><tbody>
               {etabStats.map((r, i) => <tr key={i} className="border-t border-gray-100">
                 <td className="px-3 py-2.5 font-semibold">{r.nom}</td>
@@ -221,6 +347,8 @@ export default function FinancesPage() {
                 <td className="px-3 py-2.5">{r.payes}/{r.eleves}</td>
                 <td className="px-3 py-2.5 text-emerald-600 font-semibold">{r.ins}€</td>
                 <td className="px-3 py-2.5">{r.bia}</td>
+                <td className="px-3 py-2.5 font-semibold">{r.vol1}</td>
+                <td className="px-3 py-2.5 font-semibold">{r.vol2}</td>
                 <td className="px-3 py-2.5 text-emerald-600">{r.fed}€</td>
                 <td className="px-3 py-2.5 text-red-600">{r.couts.toFixed(2)}€</td>
                 <td className={`px-3 py-2.5 font-bold ${r.solde >= 0 ? "text-emerald-600" : "text-red-600"}`}>{r.solde >= 0 ? "+" : ""}{r.solde.toFixed(2)}€</td>
@@ -259,16 +387,18 @@ export default function FinancesPage() {
                   <td className="px-3 py-2.5"><span className={`badge ${op.type.includes("Vol") ? "bg-red-50 text-red-600" : op.type === "Subvention BIA" ? "bg-blue-50 text-blue-600" : op.sens === "depense" ? "bg-orange-50 text-orange-600" : "bg-emerald-50 text-emerald-600"}`}>{op.type}</span></td>
                   <td className="px-3 py-2.5"><span className={`text-xs font-semibold ${op.sens === "recette" ? "text-emerald-600" : "text-red-600"}`}>{op.sens === "recette" ? "+" : "−"}</span></td>
                   <td className={`px-3 py-2.5 font-semibold ${op.sens === "recette" ? "text-emerald-600" : "text-red-600"}`}>{op.sens === "recette" ? "+" : "−"}{op.montant?.toFixed(2)}€</td>
-                  <td className="px-3 py-2.5 text-gray-700 text-xs max-w-[200px] truncate">{op.description}</td>
+                  <td className="px-3 py-2.5 text-gray-700 text-xs">{op.description}</td>
                   <td className="px-3 py-2.5 text-gray-500 text-xs">{op.etablissement || "—"}</td>
                   <td className="px-3 py-2.5 text-gray-500 text-xs">{op.aeronef || "—"}</td>
                   <td className="px-3 py-2.5 text-gray-500 text-xs">{op.pilote || "—"}</td>
                   <td className="px-3 py-2.5 text-gray-500 text-xs">{op.temps ? `${op.temps}min` : "—"}</td>
                   <td className="px-3 py-2.5">
-                    <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                      <button onClick={() => openEdit(op)} className="p-1 rounded hover:bg-gray-200 text-gray-400 hover:text-gray-700" title="Modifier"><Edit className="w-3.5 h-3.5" /></button>
-                      <button onClick={() => setConfirmDelete(op)} className="p-1 rounded hover:bg-red-50 text-gray-400 hover:text-red-600" title="Supprimer"><Trash2 className="w-3.5 h-3.5" /></button>
-                    </div>
+                    {op.source !== "vol_manuel" && (
+                      <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <button onClick={() => openEdit(op)} className="p-1 rounded hover:bg-gray-200 text-gray-400 hover:text-gray-700" title="Modifier"><Edit className="w-3.5 h-3.5" /></button>
+                        <button onClick={() => setConfirmDelete(op)} className="p-1 rounded hover:bg-red-50 text-gray-400 hover:text-red-600" title="Supprimer"><Trash2 className="w-3.5 h-3.5" /></button>
+                      </div>
+                    )}
                   </td>
                 </tr>
               ))}

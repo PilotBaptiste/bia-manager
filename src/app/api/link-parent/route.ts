@@ -37,12 +37,11 @@ export async function POST(req: Request) {
       .eq("prenom", "");
   }
 
-  // Link unlinked children
+  // Always sync parent_id by email — covers null, deleted/recreated accounts, etc.
   const { error } = await supabase
     .from("eleves")
     .update({ parent_id: userId })
-    .eq("parent_email", email)
-    .is("parent_id", null);
+    .eq("parent_email", email);
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 400 });

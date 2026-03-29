@@ -20,8 +20,10 @@ import {
   Save,
   AlertCircle,
   Mail,
+  Check,
 } from "lucide-react";
 import ConfirmModal from "@/components/ConfirmModal";
+import { fromDb } from "@/components/DesiderataGrid";
 
 function Dot({ ok }: { ok: boolean }) {
   return <span className={ok ? "dot-success" : "dot-danger"} />;
@@ -61,6 +63,27 @@ function InfoRow({
       </span>
     </div>
   );
+}
+
+/** Finds the first active (non-cancelled) reservation for a given vol type. */
+function getActiveResa(reservations: any[] | null | undefined, typeVol: number) {
+  if (!reservations) return null;
+  return (
+    reservations.find(
+      (r: any) =>
+        r.type_vol === typeVol &&
+        r.statut !== "annule" &&
+        r.creneau?.statut !== "annule" &&
+        r.creneau?.statut !== "termine",
+    ) || null
+  );
+}
+
+function fmtDay(dateStr: string) {
+  return new Date(dateStr + "T00:00:00").toLocaleDateString("fr-FR", {
+    day: "2-digit",
+    month: "2-digit",
+  });
 }
 
 const emptyForm = {
@@ -123,14 +146,16 @@ export default function ElevesPage() {
   const [formError, setFormError] = useState<string | null>(null);
   const [searchQ, setSearchQ] = useState("");
   const [fEtab, setFEtab] = useState(() => searchParams.get("etablissement") || "all");
-  const [fPaiement, setFPaiement] = useState("all");
-  const [fAttest, setFAttest] = useState("all");
+  const [fPaiement, setFPaiement] = useState(() => searchParams.get("paiement") || "all");
+  const [fAttest, setFAttest] = useState(() => searchParams.get("attestation") || "all");
   const [fVol1, setFVol1] = useState("all");
   const [fBia, setFBia] = useState("all");
-  const [showFilters, setShowFilters] = useState(false);
+  const [showFilters, setShowFilters] = useState(() => !!(searchParams.get("paiement") || searchParams.get("attestation") || searchParams.get("etablissement")));
   const [parentProfiles, setParentProfiles] = useState<Record<string, any>>({});
   const [confirmAction, setConfirmAction] = useState<{ title: string; message: string; variant?: "danger" | "primary"; onConfirm: () => void } | null>(null);
   const [confirmLoading, setConfirmLoading] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [bulkBusy, setBulkBusy] = useState(false);
 
   async function load() {
     const {
@@ -155,17 +180,26 @@ export default function ElevesPage() {
         : prof?.etablissement_id
           ? [prof.etablissement_id]
           : [];
+    const isPiloteRole = prof?.roles?.includes("pilote") && !prof?.roles?.includes("superadmin") && !prof?.roles?.includes("coordinateur") && !prof?.roles?.includes("gerant");
 
     let elevesQuery = supabase
       .from("eleves")
       .select(
-        "*, etablissement:etablissements(*), vol1_aeronef:aeronefs!vol1_aeronef_id(type_aeronef,immatriculation,prix_heure), vol2_aeronef:aeronefs!vol2_aeronef_id(type_aeronef,immatriculation,prix_heure)",
+        "*, etablissement:etablissements(*), vol1_aeronef:aeronefs!vol1_aeronef_id(type_aeronef,immatriculation,prix_heure), vol2_aeronef:aeronefs!vol2_aeronef_id(type_aeronef,immatriculation,prix_heure), reservations(id,statut,type_vol,creneau:creneaux(id,date_vol,heure_debut,heure_fin,statut,pilote:profiles!pilote_id(nom,prenom),aeronef:aeronefs(type_aeronef,immatriculation)))",
       )
       .eq("archive", false)
       .order("nom");
 
     if (isGerant && gerantEtabIds.length > 0) {
       elevesQuery = elevesQuery.in("etablissement_id", gerantEtabIds);
+    } else if (isPiloteRole) {
+      const { data: peData } = await supabase
+        .from("pilote_etablissements")
+        .select("etablissement_id")
+        .eq("pilote_id", user.id);
+      const piloteEtabIds = (peData || []).map((x: any) => x.etablissement_id);
+      // Filter to pilot's établissements (empty list → no results)
+      elevesQuery = elevesQuery.in("etablissement_id", piloteEtabIds.length > 0 ? piloteEtabIds : ["__none__"]);
     }
 
     const [eR, etR, aR, anR, pR, profR] = await Promise.all([
@@ -242,6 +276,9 @@ export default function ElevesPage() {
     (f) => f !== "all",
   ).length;
 
+  // Pilots: read-only access to their établissements, can only edit statuts + vols
+  const isPiloteOnly = !!profile && profile.roles?.includes("pilote") && !profile.roles?.includes("superadmin") && !profile.roles?.includes("coordinateur") && !profile.roles?.includes("gerant");
+
   function calcPrix(aeronefId: string, minutes: string): string {
     if (!aeronefId || !minutes) return "";
     const a = aeronefs.find((x) => x.id === aeronefId);
@@ -285,16 +322,32 @@ export default function ElevesPage() {
     setShowForm(true);
   }
 
+  function parseAdresse(adresse: string | null | undefined) {
+    if (!adresse) return { rue: "", cp: "", ville: "" };
+    // Format saved: "rue, CP ville"  e.g. "5 Rue Jean Pierre, 33260 La Teste"
+    const commaIdx = adresse.indexOf(", ");
+    if (commaIdx === -1) {
+      // Maybe just "CP ville" or just "rue"
+      const m = adresse.match(/^(\d{5})\s+(.+)$/);
+      return m ? { rue: "", cp: m[1], ville: m[2] } : { rue: adresse, cp: "", ville: "" };
+    }
+    const rue = adresse.slice(0, commaIdx);
+    const rest = adresse.slice(commaIdx + 2);
+    const m = rest.match(/^(\d{5})\s+(.+)$/);
+    return m ? { rue, cp: m[1], ville: m[2] } : { rue, cp: "", ville: rest };
+  }
+
   function openEdit(s: any) {
     setEditingId(s.id);
+    const addr = parseAdresse(s.adresse);
     setForm({
       nom: s.nom,
       prenom: s.prenom,
       date_naissance: s.date_naissance,
       lieu_naissance: s.lieu_naissance || "",
-      adresse_rue: s.adresse || "",
-      adresse_ville: "",
-      adresse_cp: "",
+      adresse_rue: addr.rue,
+      adresse_cp: addr.cp,
+      adresse_ville: addr.ville,
       etablissement_id: s.etablissement_id || "",
       classe: s.classe || "",
       parent_nom: s.parent_nom,
@@ -343,19 +396,71 @@ export default function ElevesPage() {
 
   async function handleSave() {
     setFormError(null);
-    if (!form.nom.trim() || !form.prenom.trim() || !form.date_naissance) {
-      setFormError("Nom, prenom et date de naissance obligatoires.");
-      return;
+    // Pilots can only edit, not create
+    if (isPiloteOnly && !editingId) return;
+    if (!isPiloteOnly) {
+      if (!form.nom.trim() || !form.prenom.trim() || !form.date_naissance) {
+        setFormError("Nom, prenom et date de naissance obligatoires.");
+        return;
+      }
+      if (!form.parent_email.trim()) {
+        setFormError("Email parent obligatoire.");
+        return;
+      }
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(form.parent_email.trim())) {
+        setFormError("Format d'email parent invalide.");
+        return;
+      }
+      if (form.date_naissance && new Date(form.date_naissance) > new Date()) {
+        setFormError("La date de naissance ne peut pas être dans le futur.");
+        return;
+      }
     }
-    if (!form.parent_email.trim()) {
-      setFormError("Email parent obligatoire.");
-      return;
-    }
-    if (!anneeId) {
+    if (!anneeId && !isPiloteOnly) {
       setFormError("Aucune annee active.");
       return;
     }
     setSaving(true);
+
+    // Pilot-only payload: only statuts + vols
+    if (isPiloteOnly && editingId) {
+      const pilotePayload: any = {
+        paiement_effectue: form.paiement_effectue,
+        paiement_mode: form.paiement_mode || null,
+        paiement_montant: form.paiement_effectue ? parseFloat(form.paiement_montant) || 80 : null,
+        attestation_signee: form.attestation_signee,
+        attestation_parent_signataire: form.attestation_signee ? (form.attestation_parent_signataire || `${form.parent_prenom} ${form.parent_nom}`) : null,
+        attestation_date: form.attestation_signee ? new Date().toISOString() : null,
+        vol1_effectue: form.vol1_effectue,
+        vol1_temps_minutes: form.vol1_effectue && form.vol1_temps_minutes ? parseInt(form.vol1_temps_minutes) : null,
+        vol1_aeronef_id: form.vol1_aeronef_id || null,
+        vol1_prix: form.vol1_prix ? parseFloat(form.vol1_prix) : null,
+        vol1_pilote_nom: form.vol1_pilote_nom || null,
+        vol1_numero_aerogest: form.vol1_numero_aerogest || null,
+        vol2_autorise: form.vol2_autorise || form.bia_resultat === "Admis" || form.bia_resultat === "Mention",
+        vol2_effectue: form.vol2_effectue,
+        vol2_temps_minutes: form.vol2_effectue && form.vol2_temps_minutes ? parseInt(form.vol2_temps_minutes) : null,
+        vol2_aeronef_id: form.vol2_aeronef_id || null,
+        vol2_prix: form.vol2_prix ? parseFloat(form.vol2_prix) : null,
+        vol2_pilote_nom: form.vol2_pilote_nom || null,
+        vol2_numero_aerogest: form.vol2_numero_aerogest || null,
+        bia_passe: form.bia_passe,
+        bia_resultat: form.bia_resultat || null,
+        bia_date: form.bia_date || null,
+      };
+      const { error: piloteErr } = await supabase.from("eleves").update(pilotePayload).eq("id", editingId);
+      setSaving(false);
+      if (piloteErr) { setFormError(`Erreur: ${piloteErr.message}`); return; }
+      setShowForm(false);
+      if (selected && editingId) {
+        const etab = etablissements.find((e: any) => e.id === selected.etablissement_id) ?? selected.etablissement;
+        setSelected({ ...selected, ...pilotePayload, etablissement: etab ?? selected.etablissement });
+      }
+      load();
+      return;
+    }
+
     const payload: any = {
       nom: form.nom,
       prenom: form.prenom,
@@ -442,16 +547,16 @@ export default function ElevesPage() {
       return;
     }
     setShowForm(false);
-    // Reload the selected student if editing from fiche
     if (selected && editingId) {
-      const { data: updated } = await supabase
+      // Update fiche immediately with saved payload, then re-fetch in background for joins
+      const etab = etablissements.find((e: any) => e.id === payload.etablissement_id) ?? selected.etablissement;
+      setSelected({ ...selected, ...payload, etablissement: etab ?? selected.etablissement });
+      supabase
         .from("eleves")
-        .select(
-          "*, etablissement:etablissements(*), vol1_aeronef:aeronefs!vol1_aeronef_id(type_aeronef,immatriculation,prix_heure), vol2_aeronef:aeronefs!vol2_aeronef_id(type_aeronef,immatriculation,prix_heure)",
-        )
+        .select("*, etablissement:etablissements(*), vol1_aeronef:aeronefs!vol1_aeronef_id(type_aeronef,immatriculation,prix_heure), vol2_aeronef:aeronefs!vol2_aeronef_id(type_aeronef,immatriculation,prix_heure)")
         .eq("id", editingId)
-        .single();
-      if (updated) setSelected(updated);
+        .single()
+        .then(({ data }) => { if (data) setSelected(data); });
     } else {
       setSelected(null);
     }
@@ -511,17 +616,43 @@ export default function ElevesPage() {
     });
   }
 
+  async function doAbandon(id: string, currentValue: boolean) {
+    const newValue = !currentValue;
+    const { error } = await supabase.from("eleves").update({ abandonne: newValue }).eq("id", id);
+    if (error) { toast.error("Erreur lors de la mise à jour"); return; }
+    await logActivity("update", id, { abandonne: newValue, nom: selected?.nom, prenom: selected?.prenom });
+    toast.success(newValue ? "Élève marqué comme abandonné" : "Abandon annulé");
+    // Refresh selected
+    setSelected((prev: any) => prev ? { ...prev, abandonne: newValue } : prev);
+    load();
+  }
+
+  function handleAbandon(id: string, currentValue: boolean) {
+    const s = selected;
+    if (currentValue) {
+      // Undoing abandon — no confirmation needed
+      doAbandon(id, currentValue);
+      return;
+    }
+    setConfirmAction({
+      title: "Marquer comme abandonné",
+      message: `${s?.prenom ?? ""} ${s?.nom ?? ""} ne participera pas au vol.\n\nL'élève reste visible dans le système pour le suivi des subventions BIA.`,
+      variant: "danger",
+      onConfirm: () => doAbandon(id, currentValue),
+    });
+  }
+
   // ══════════════════════════════════════════════════
   // FORM MODAL — defined here so it can be used in both fiche and table views
   // ══════════════════════════════════════════════════
   const formModal = showForm ? (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center p-4"
-      onClick={() => setShowForm(false)}
     >
-      <div className="absolute inset-0 bg-black/40" />
+      <div className="absolute inset-0 bg-black/40" onClick={() => setShowForm(false)} />
       <div
         onClick={(e) => e.stopPropagation()}
+        onMouseDown={(e) => e.stopPropagation()}
         className="relative bg-white rounded-2xl p-6 w-full max-w-3xl shadow-xl max-h-[90vh] overflow-auto"
       >
         <div className="flex items-center justify-between mb-5">
@@ -542,8 +673,8 @@ export default function ElevesPage() {
           </div>
         )}
 
-        {/* Identite */}
-        <div className="mb-5">
+        {/* Identite — hidden for pilots */}
+        {!isPiloteOnly && <div className="mb-5">
           <h4 className="text-xs font-bold uppercase tracking-wider text-gray-400 mb-3">
             Identite
           </h4>
@@ -586,12 +717,12 @@ export default function ElevesPage() {
               />
             </div>
             <div className="sm:col-span-3">
-              <label className="label">Adresse (rue)</label>
+              <label className="label">Adresse postale</label>
               <input
                 value={form.adresse_rue}
                 onChange={(e) => setForm({ ...form, adresse_rue: e.target.value })}
                 className="input"
-                placeholder="16 rue de Tournon"
+                placeholder="5 rue Jean Pierre"
               />
             </div>
             <div>
@@ -638,10 +769,10 @@ export default function ElevesPage() {
               />
             </div>
           </div>
-        </div>
+        </div>}
 
-        {/* Parent */}
-        <div className="mb-5">
+        {/* Parent — hidden for pilots */}
+        {!isPiloteOnly && <div className="mb-5">
           <h4 className="text-xs font-bold uppercase tracking-wider text-gray-400 mb-3">
             Responsable legal
           </h4>
@@ -688,7 +819,7 @@ export default function ElevesPage() {
               />
             </div>
           </div>
-        </div>
+        </div>}
 
         {/* Statuts */}
         <div className="mb-5">
@@ -1109,8 +1240,8 @@ export default function ElevesPage() {
           </div>
         </div>
 
-        {/* Commentaires */}
-        <div className="mb-5">
+        {/* Commentaires — hidden for pilots */}
+        {!isPiloteOnly && <div className="mb-5">
           <h4 className="text-xs font-bold uppercase tracking-wider text-gray-400 mb-3">
             Remarques
           </h4>
@@ -1120,7 +1251,7 @@ export default function ElevesPage() {
             className="input min-h-[80px] resize-y"
             placeholder="Adresse, responsable BIA, infos pilote..."
           />
-        </div>
+        </div>}
 
         <div className="flex justify-end gap-2 pt-4 border-t border-gray-100">
           <button onClick={() => setShowForm(false)} className="btn-secondary">
@@ -1152,6 +1283,7 @@ export default function ElevesPage() {
     const totalPrix =
       (parseFloat(s.vol1_prix) || 0) + (parseFloat(s.vol2_prix) || 0);
     return (
+      <>
       <div>
         {formModal}
         <div className="flex items-center gap-3 mb-5 flex-wrap">
@@ -1162,9 +1294,14 @@ export default function ElevesPage() {
             <ChevronLeft className="w-4 h-4" />
           </button>
           <div className="flex-1 min-w-0">
-            <h2 className="text-xl font-bold text-gray-900 truncate">
-              {s.prenom} {s.nom}
-            </h2>
+            <div className="flex items-center gap-2">
+              <h2 className="text-xl font-bold text-gray-900 truncate">
+                {s.prenom} {s.nom}
+              </h2>
+              {s.abandonne && (
+                <span className="text-xs font-semibold bg-red-100 text-red-600 px-2 py-0.5 rounded-full shrink-0">Abandonné</span>
+              )}
+            </div>
             <p className="text-sm text-gray-500">
               {s.etablissement?.nom || "—"} · {s.classe}
             </p>
@@ -1174,14 +1311,26 @@ export default function ElevesPage() {
               onClick={() => openEdit(s)}
               className="btn-secondary btn-sm"
             >
-              <Edit className="w-3.5 h-3.5" /> Editer
+              <Edit className="w-3.5 h-3.5" /> {isPiloteOnly ? "Modifier statuts" : "Editer"}
             </button>
-            <button
-              onClick={() => handleDelete(s.id)}
-              className="btn-danger btn-sm"
-            >
-              <Trash2 className="w-3.5 h-3.5" />
-            </button>
+            {/* Abandon + Delete — hidden for pilots */}
+            {!isPiloteOnly && (
+              <>
+                <button
+                  onClick={() => handleAbandon(s.id, !!s.abandonne)}
+                  className={`btn-sm ${s.abandonne ? "btn-secondary text-emerald-600 border-emerald-200 hover:bg-emerald-50" : "btn-secondary text-orange-500 border-orange-200 hover:bg-orange-50"}`}
+                  title={s.abandonne ? "Annuler l'abandon" : "Marquer comme abandonné"}
+                >
+                  {s.abandonne ? "↩ Réactiver" : "⚠ Abandon"}
+                </button>
+                <button
+                  onClick={() => handleDelete(s.id)}
+                  className="btn-danger btn-sm"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                </button>
+              </>
+            )}
           </div>
         </div>
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
@@ -1251,6 +1400,48 @@ export default function ElevesPage() {
                 </div>
               </Section>
             )}
+            {(() => {
+              const des = fromDb((s as any).desiderata);
+              const JOURS = ["lundi","mardi","mercredi","jeudi","vendredi","samedi","dimanche"] as const;
+              const LABELS: Record<string, string> = { lundi:"Lun", mardi:"Mar", mercredi:"Mer", jeudi:"Jeu", vendredi:"Ven", samedi:"Sam", dimanche:"Dim" };
+              const hasAny = JOURS.some(j => des[`${j}_matin` as keyof typeof des] || des[`${j}_apm` as keyof typeof des]);
+              if (!hasAny && !des.semaine) return null;
+              return (
+                <Section title="Disponibilités souhaitées">
+                  <table className="text-xs w-full">
+                    <thead>
+                      <tr>
+                        <th className="text-left text-gray-400 font-normal pb-1.5 pr-3 w-10" />
+                        <th className="text-center text-gray-500 font-semibold pb-1.5 px-2">Matin</th>
+                        <th className="text-center text-gray-500 font-semibold pb-1.5 px-2">Après-midi</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {JOURS.map((j) => (
+                        <tr key={j}>
+                          <td className="text-gray-600 font-medium pr-3 py-0.5">{LABELS[j]}</td>
+                          <td className="text-center py-0.5 px-2">
+                            {des[`${j}_matin` as keyof typeof des]
+                              ? <span className="inline-block w-4 h-4 rounded bg-emerald-100 text-emerald-600 text-[10px] font-bold leading-4 text-center">✓</span>
+                              : <span className="inline-block w-4 h-4 rounded bg-gray-100 text-gray-300 text-[10px] leading-4 text-center">–</span>}
+                          </td>
+                          <td className="text-center py-0.5 px-2">
+                            {des[`${j}_apm` as keyof typeof des]
+                              ? <span className="inline-block w-4 h-4 rounded bg-emerald-100 text-emerald-600 text-[10px] font-bold leading-4 text-center">✓</span>
+                              : <span className="inline-block w-4 h-4 rounded bg-gray-100 text-gray-300 text-[10px] leading-4 text-center">–</span>}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  {des.semaine && (
+                    <p className="text-xs text-gray-500 mt-2 pt-2 border-t border-gray-100">
+                      Semaines <span className="font-semibold">{des.semaine}</span> uniquement
+                    </p>
+                  )}
+                </Section>
+              );
+            })()}
           </div>
           <div className="card">
             <Section title="Paiement">
@@ -1393,14 +1584,49 @@ export default function ElevesPage() {
                   )}
                 </>
               ) : (
-                <InfoRow
-                  label="Statut"
-                  value={
-                    s.paiement_effectue && s.attestation_signee
-                      ? "Peut reserver"
-                      : "Conditions non remplies"
+                (() => {
+                  const r = getActiveResa((s as any).reservations, 1);
+                  if (r?.creneau) {
+                    const c = r.creneau;
+                    return (
+                      <>
+                        <InfoRow label="Statut" value="Programmé" accent="text-emerald-600" />
+                        <InfoRow
+                          label="Date"
+                          value={new Date(c.date_vol + "T00:00:00").toLocaleDateString("fr-FR")}
+                        />
+                        {c.heure_debut && (
+                          <InfoRow
+                            label="Horaire"
+                            value={`${c.heure_debut.slice(0, 5)}${c.heure_fin ? " – " + c.heure_fin.slice(0, 5) : ""}`}
+                          />
+                        )}
+                        {c.aeronef && (
+                          <InfoRow
+                            label="Aéronef"
+                            value={`${c.aeronef.type_aeronef} (${c.aeronef.immatriculation})`}
+                          />
+                        )}
+                        {c.pilote && (
+                          <InfoRow
+                            label="Pilote"
+                            value={`${c.pilote.prenom} ${c.pilote.nom}`}
+                          />
+                        )}
+                      </>
+                    );
                   }
-                />
+                  return (
+                    <InfoRow
+                      label="Statut"
+                      value={
+                        s.paiement_effectue && s.attestation_signee
+                          ? "Peut réserver"
+                          : "Conditions non remplies"
+                      }
+                    />
+                  );
+                })()
               )}
             </Section>
             <Section title="BIA">
@@ -1469,11 +1695,40 @@ export default function ElevesPage() {
                   />
                 </>
               ) : s.vol2_autorise ? (
-                <InfoRow
-                  label="Statut"
-                  value="Autorise"
-                  accent="text-amber-600"
-                />
+                (() => {
+                  const r = getActiveResa((s as any).reservations, 2);
+                  if (r?.creneau) {
+                    const c = r.creneau;
+                    return (
+                      <>
+                        <InfoRow label="Statut" value="Programmé" accent="text-emerald-600" />
+                        <InfoRow
+                          label="Date"
+                          value={new Date(c.date_vol + "T00:00:00").toLocaleDateString("fr-FR")}
+                        />
+                        {c.heure_debut && (
+                          <InfoRow
+                            label="Horaire"
+                            value={`${c.heure_debut.slice(0, 5)}${c.heure_fin ? " – " + c.heure_fin.slice(0, 5) : ""}`}
+                          />
+                        )}
+                        {c.aeronef && (
+                          <InfoRow
+                            label="Aéronef"
+                            value={`${c.aeronef.type_aeronef} (${c.aeronef.immatriculation})`}
+                          />
+                        )}
+                        {c.pilote && (
+                          <InfoRow
+                            label="Pilote"
+                            value={`${c.pilote.prenom} ${c.pilote.nom}`}
+                          />
+                        )}
+                      </>
+                    );
+                  }
+                  return <InfoRow label="Statut" value="Autorisé — non programmé" accent="text-amber-600" />;
+                })()
               ) : (
                 <InfoRow label="Statut" value="—" />
               )}
@@ -1492,38 +1747,54 @@ export default function ElevesPage() {
             ) : emailLogs.length === 0 ? (
               <p className="text-sm text-gray-400">Aucun email enregistré</p>
             ) : (
-              <div className="space-y-1.5">
-                {emailLogs.map((log) => {
-                  const statusMap: Record<string, { label: string; cls: string }> = {
-                    envoye: { label: "Envoyé", cls: "bg-blue-50 text-blue-600" },
-                    delivre: { label: "Délivré", cls: "bg-emerald-50 text-emerald-600" },
-                    ouvert: { label: "Ouvert", cls: "bg-green-50 text-green-700" },
-                    clique: { label: "Cliqué", cls: "bg-green-100 text-green-800" },
-                    retarde: { label: "Retardé", cls: "bg-amber-50 text-amber-600" },
-                    rebondi: { label: "Rebondi", cls: "bg-red-50 text-red-600" },
-                    spam: { label: "Spam", cls: "bg-red-100 text-red-700" },
-                    erreur: { label: "Erreur", cls: "bg-red-50 text-red-500" },
-                    supprime: { label: "Supprimé", cls: "bg-gray-100 text-gray-500" },
-                  };
-                  const st = statusMap[log.statut] ?? { label: log.statut, cls: "bg-gray-100 text-gray-500" };
-                  const typeMap: Record<string, string> = {
-                    attestation_ready: "Vol disponible",
-                    booking_confirm: "Réservation confirmée",
-                    booking_cancel: "Annulation réservation",
-                    slot_modified: "Créneau modifié",
-                    slot_cancelled: "Créneau annulé",
-                    invite: "Invitation compte",
-                  };
-                  return (
-                    <div key={log.id} className="flex items-center justify-between gap-2 text-xs py-1.5 border-b border-gray-50 last:border-0">
-                      <div className="flex-1 min-w-0">
-                        <p className="font-medium text-gray-800 truncate">{typeMap[log.type] ?? log.type}</p>
-                        <p className="text-gray-400">{new Date(log.created_at).toLocaleString("fr-FR", { day: "2-digit", month: "2-digit", year: "2-digit", hour: "2-digit", minute: "2-digit" })}</p>
-                      </div>
-                      <span className={`shrink-0 px-2 py-0.5 rounded-full text-[10px] font-bold ${st.cls}`}>{st.label}</span>
-                    </div>
-                  );
-                })}
+              <div className="rounded-lg border border-gray-100 overflow-hidden">
+                <div className="max-h-44 overflow-y-auto">
+                  <table className="w-full text-xs">
+                    <thead className="sticky top-0 bg-gray-50 z-10">
+                      <tr>
+                        <th className="px-3 py-2 text-left text-[10px] font-semibold uppercase tracking-wider text-gray-400">Type</th>
+                        <th className="px-3 py-2 text-left text-[10px] font-semibold uppercase tracking-wider text-gray-400">Date</th>
+                        <th className="px-3 py-2 text-right text-[10px] font-semibold uppercase tracking-wider text-gray-400">Statut</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {emailLogs.map((log) => {
+                        const statusMap: Record<string, { label: string; dot: string }> = {
+                          envoye:   { label: "Envoyé",   dot: "bg-blue-400" },
+                          delivre:  { label: "Délivré",  dot: "bg-emerald-400" },
+                          ouvert:   { label: "Ouvert",   dot: "bg-green-500" },
+                          clique:   { label: "Cliqué",   dot: "bg-green-600" },
+                          retarde:  { label: "Retardé",  dot: "bg-amber-400" },
+                          rebondi:  { label: "Rebondi",  dot: "bg-red-400" },
+                          spam:     { label: "Spam",     dot: "bg-red-500" },
+                          erreur:   { label: "Erreur",   dot: "bg-red-400" },
+                          supprime: { label: "Supprimé", dot: "bg-gray-300" },
+                        };
+                        const st = statusMap[log.statut] ?? { label: log.statut, dot: "bg-gray-300" };
+                        const typeMap: Record<string, string> = {
+                          attestation_ready: "Vol disponible",
+                          booking_confirm: "Réservation confirmée",
+                          booking_cancel: "Annulation réservation",
+                          slot_modified: "Créneau modifié",
+                          slot_cancelled: "Créneau annulé",
+                          invite: "Invitation compte",
+                        };
+                        return (
+                          <tr key={log.id} className="border-t border-gray-50 hover:bg-gray-50/60">
+                            <td className="px-3 py-2 font-medium text-gray-800">{typeMap[log.type] ?? log.type}</td>
+                            <td className="px-3 py-2 text-gray-400">{new Date(log.created_at).toLocaleString("fr-FR", { day: "2-digit", month: "2-digit", year: "2-digit", hour: "2-digit", minute: "2-digit" })}</td>
+                            <td className="px-3 py-2 text-right">
+                              <span className="inline-flex items-center gap-1.5 justify-end">
+                                <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${st.dot}`} />
+                                <span className="text-gray-600 font-medium">{st.label}</span>
+                              </span>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
               </div>
             )}
           </Section>
@@ -1555,7 +1826,53 @@ export default function ElevesPage() {
           );
         })()}
       </div>
+      <ConfirmModal
+        open={!!confirmAction}
+        title={confirmAction?.title ?? ""}
+        message={confirmAction?.message ?? ""}
+        variant={confirmAction?.variant}
+        loading={confirmLoading}
+        onCancel={() => setConfirmAction(null)}
+        onConfirm={async () => {
+          if (!confirmAction) return;
+          setConfirmLoading(true);
+          await confirmAction.onConfirm();
+          setConfirmLoading(false);
+          setConfirmAction(null);
+        }}
+      />
+      </>
     );
+  }
+
+  async function handleBulkPaid() {
+    if (selectedIds.size === 0) return;
+    setBulkBusy(true);
+    const ids = Array.from(selectedIds);
+    await supabase.from("eleves").update({ paiement_effectue: true }).in("id", ids);
+    toast.success(`${ids.length} paiement${ids.length > 1 ? "s" : ""} validé${ids.length > 1 ? "s" : ""}`);
+    setSelectedIds(new Set());
+    setBulkBusy(false);
+    load();
+  }
+
+  async function handleBulkInvite() {
+    if (selectedIds.size === 0) return;
+    const targets = filtered.filter((e) => selectedIds.has(e.id) && e.parent_email);
+    if (targets.length === 0) { toast.error("Aucun élève sélectionné n'a d'email parent"); return; }
+    // Deduplicate by parent_email — a parent with multiple children only gets one invite
+    const unique = Array.from(new Map(targets.map(e => [e.parent_email, e])).values());
+    setBulkBusy(true);
+    const tid = toast.loading(`Envoi de ${unique.length} invitation${unique.length > 1 ? "s" : ""}…`);
+    let ok = 0;
+    for (const e of unique) {
+      const res = await fetch("/api/invite", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email: e.parent_email, nom: e.parent_nom, prenom: e.parent_prenom }) });
+      if (res.ok) ok++;
+    }
+    toast.dismiss(tid);
+    toast.success(`${ok} invitation${ok > 1 ? "s" : ""} envoyée${ok > 1 ? "s" : ""}`);
+    setSelectedIds(new Set());
+    setBulkBusy(false);
   }
 
   // ══════════════════════════════════════════════════
@@ -1690,6 +2007,19 @@ export default function ElevesPage() {
         </div>
       )}
 
+      {selectedIds.size > 0 && (
+        <div className="mb-3 flex items-center gap-3 p-3 rounded-lg bg-brand-50 border border-brand-200 flex-wrap">
+          <span className="text-sm font-semibold text-brand-700">{selectedIds.size} sélectionné{selectedIds.size > 1 ? "s" : ""}</span>
+          <button onClick={handleBulkPaid} disabled={bulkBusy} className="btn-primary btn-sm">
+            {bulkBusy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />} Marquer payé
+          </button>
+          <button onClick={handleBulkInvite} disabled={bulkBusy} className="btn-secondary btn-sm">
+            {bulkBusy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Mail className="w-3.5 h-3.5" />} Envoyer invitation
+          </button>
+          <button onClick={() => setSelectedIds(new Set())} className="text-xs text-gray-500 hover:text-gray-700 ml-auto">Désélectionner tout</button>
+        </div>
+      )}
+
       {loading ? (
         <div className="flex items-center justify-center h-48">
           <Loader2 className="w-6 h-6 animate-spin text-brand-400" />
@@ -1699,6 +2029,12 @@ export default function ElevesPage() {
           <table className="w-full text-sm min-w-[780px]">
             <thead>
               <tr className="bg-gray-50">
+                <th className="px-3 py-2.5 w-8">
+                  <input type="checkbox" className="rounded"
+                    checked={filtered.length > 0 && filtered.every((s) => selectedIds.has(s.id))}
+                    onChange={(e) => setSelectedIds(e.target.checked ? new Set(filtered.map((s) => s.id)) : new Set())}
+                  />
+                </th>
                 {[
                   "Nom",
                   "Prenom",
@@ -1724,7 +2060,7 @@ export default function ElevesPage() {
               {filtered.length === 0 ? (
                 <tr>
                   <td
-                    colSpan={10}
+                    colSpan={11}
                     className="px-3 py-12 text-center text-gray-400"
                   >
                     {eleves.length === 0 ? (
@@ -1748,12 +2084,25 @@ export default function ElevesPage() {
                   <tr
                     key={s.id}
                     onClick={() => setSelected(s)}
-                    className="border-t border-gray-100 hover:bg-gray-50 cursor-pointer"
+                    className={`border-t border-gray-100 hover:bg-gray-50 cursor-pointer ${selectedIds.has(s.id) ? "bg-brand-50/40" : ""}`}
                   >
-                    <td className="px-3 py-2.5 font-semibold text-gray-900">
-                      {s.nom}
+                    <td className="px-3 py-2.5 w-8" onClick={(e) => e.stopPropagation()}>
+                      <input type="checkbox" className="rounded"
+                        checked={selectedIds.has(s.id)}
+                        onChange={(e) => {
+                          const next = new Set(selectedIds);
+                          e.target.checked ? next.add(s.id) : next.delete(s.id);
+                          setSelectedIds(next);
+                        }}
+                      />
                     </td>
-                    <td className="px-3 py-2.5 text-gray-700">{s.prenom}</td>
+                    <td className="px-3 py-2.5 font-semibold text-gray-900">
+                      <span className={s.abandonne ? "line-through text-gray-400" : ""}>{s.nom}</span>
+                      {s.abandonne && <span className="ml-2 inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-orange-100 text-orange-600 uppercase tracking-wide">Abandon</span>}
+                    </td>
+                    <td className="px-3 py-2.5 text-gray-700">
+                      <span className={s.abandonne ? "line-through text-gray-400" : ""}>{s.prenom}</span>
+                    </td>
                     <td className="px-3 py-2.5">
                       <span className="badge bg-brand-50 text-brand-500 truncate max-w-[150px]">
                         {s.etablissement?.nom || "—"}
@@ -1769,7 +2118,18 @@ export default function ElevesPage() {
                       <Dot ok={s.attestation_signee} />
                     </td>
                     <td className="px-3 py-2.5">
-                      <Dot ok={s.vol1_effectue} />
+                      {(() => {
+                        if (s.vol1_effectue) return <Dot ok />;
+                        const r = getActiveResa((s as any).reservations, 1);
+                        if (r?.creneau?.date_vol)
+                          return (
+                            <span className="flex items-center gap-1 text-xs font-medium text-emerald-700 whitespace-nowrap">
+                              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0" />
+                              {fmtDay(r.creneau.date_vol)}
+                            </span>
+                          );
+                        return <Dot ok={false} />;
+                      })()}
                     </td>
                     <td className="px-3 py-2.5">
                       {s.bia_resultat ? (
@@ -1784,9 +2144,17 @@ export default function ElevesPage() {
                       {s.vol2_effectue ? (
                         <Dot ok />
                       ) : s.vol2_autorise ? (
-                        <span className="badge bg-amber-50 text-amber-600">
-                          OK
-                        </span>
+                        (() => {
+                          const r = getActiveResa((s as any).reservations, 2);
+                          if (r?.creneau?.date_vol)
+                            return (
+                              <span className="flex items-center gap-1 text-xs font-medium text-emerald-700 whitespace-nowrap">
+                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0" />
+                                {fmtDay(r.creneau.date_vol)}
+                              </span>
+                            );
+                          return <Dot ok={false} />;
+                        })()
                       ) : (
                         "—"
                       )}

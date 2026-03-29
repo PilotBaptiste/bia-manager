@@ -109,3 +109,4 @@ body {
 /* Dots */
 .dot-success { display:inline-block; width:0.625rem; height:0.625rem; border-radius:9999px; background:#10b981; box-shadow:0 0 0 3px #d1fae5; }
 .dot-danger { display:inline-block; width:0.625rem; height:0.625rem; border-radius:9999px; background:#ef4444; box-shadow:0 0 0 3px #fee2e2; }
+.dot-pending { display:inline-block; width:0.625rem; height:0.625rem; border-radius:9999px; background:#f59e0b; box-shadow:0 0 0 3px #fef3c7; }
