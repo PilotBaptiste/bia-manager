@@ -1001,7 +1001,12 @@ export default function ElevesPage() {
                   type="checkbox"
                   checked={form.bia_passe}
                   onChange={(e) =>
-                    setForm({ ...form, bia_passe: e.target.checked })
+                    setForm({
+                      ...form,
+                      bia_passe: e.target.checked,
+                      // Si on décoche BIA, on efface aussi le résultat et on révoque l'autorisation vol 2
+                      ...(!e.target.checked ? { bia_resultat: "", vol2_autorise: false } : {}),
+                    })
                   }
                 />
                 <span className="text-sm font-semibold text-gray-700">BIA</span>
