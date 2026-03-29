@@ -35,7 +35,9 @@ export default function MessageriePage() {
       setLoading(true);
       const { data: { user } } = await supabase.auth.getUser();
       if (user?.email) setSenderEmail(user.email);
-      const [{ data: etabs }, { data: elevesData }] = await Promise.all([
+      // Get current user profile to check if coordinateur with restricted étabs
+      const [{ data: profData }, { data: etabsAll }, { data: elevesData }] = await Promise.all([
+        user ? supabase.from("profiles").select("roles, etablissement_id, etablissement_ids").eq("id", user.id).single() : Promise.resolve({ data: null }),
         supabase.from("etablissements").select("id, nom").order("nom"),
         supabase.from("eleves")
           .select("id, prenom, nom, parent_email, parent_prenom, etablissement_id, archive")
@@ -43,7 +45,15 @@ export default function MessageriePage() {
           .not("parent_email", "is", null)
           .order("nom"),
       ]);
-      setEtablissements(etabs ?? []);
+      // Restrict to coord's établissements if applicable
+      const isCoord = profData?.roles?.includes("coordinateur") && !profData?.roles?.includes("superadmin");
+      const coordEtabIds: string[] = isCoord
+        ? (profData?.etablissement_ids?.length > 0 ? profData.etablissement_ids : profData?.etablissement_id ? [profData.etablissement_id] : [])
+        : [];
+      const filteredEtabs = coordEtabIds.length > 0
+        ? (etabsAll ?? []).filter((e: any) => coordEtabIds.includes(e.id))
+        : (etabsAll ?? []);
+      setEtablissements(filteredEtabs);
       setEleves(elevesData ?? []);
       setLoading(false);
     }

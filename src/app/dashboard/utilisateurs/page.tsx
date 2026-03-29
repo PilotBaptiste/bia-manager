@@ -80,6 +80,8 @@ export default function UtilisateursPage() {
   const [elevesByParentEmail, setElevesByParentEmail] = useState<Record<string, string[]>>({});
   const [parentNameByEmail, setParentNameByEmail] = useState<Record<string, string>>({});
   const [isSA, setIsSA] = useState(false);
+  const [isCoordReadOnly, setIsCoordReadOnly] = useState(false);
+  const [coordEtabIds, setCoordEtabIds] = useState<string[]>([]);
   const [parentEmails, setParentEmails] = useState<{ email: string; nom: string; prenom: string }[]>([]);
   const [parentDataByEmail, setParentDataByEmail] = useState<Record<string, { nom: string; prenom: string }>>({});
   // Bulk invite state
@@ -106,16 +108,35 @@ export default function UtilisateursPage() {
         .order("nom"),
       supabase
         .from("eleves")
-        .select("prenom, nom, parent_email, parent_nom, parent_prenom"),
+        .select("prenom, nom, parent_email, parent_nom, parent_prenom, etablissement_id"),
       user
-        ? supabase.from("profiles").select("roles").eq("id", user.id).single()
+        ? supabase.from("profiles").select("roles, etablissement_id, etablissement_ids").eq("id", user.id).single()
         : Promise.resolve({ data: null }),
     ]);
-    setUsers(usersRes.data || []);
+    const sa = profRes.data?.roles?.includes("superadmin") ?? false;
+    const coord = !sa && (profRes.data?.roles?.includes("coordinateur") ?? false);
+    const cEtabIds: string[] = coord
+      ? (profRes.data?.etablissement_ids?.length > 0 ? profRes.data.etablissement_ids : profRes.data?.etablissement_id ? [profRes.data.etablissement_id] : [])
+      : [];
+    setIsSA(sa);
+    setIsCoordReadOnly(coord);
+    setCoordEtabIds(cEtabIds);
+    // For coordinateur: filter users to parents whose elèves are in their étabs
+    let usersFiltered = usersRes.data || [];
+    if (coord && cEtabIds.length > 0) {
+      const parentEmailsInEtabs = new Set(
+        (elevesRes.data || [])
+          .filter((e: any) => cEtabIds.includes(e.etablissement_id) && e.parent_email)
+          .map((e: any) => e.parent_email.toLowerCase())
+      );
+      usersFiltered = usersFiltered.filter((u: any) =>
+        u.roles?.includes("parent") && parentEmailsInEtabs.has(u.email?.toLowerCase())
+      );
+    }
+    setUsers(usersFiltered);
     setEtabs(etabsRes.data || []);
-    setIsSA(profRes.data?.roles?.includes("superadmin") ?? false);
     // Fetch auth confirmation status (superadmin only — best-effort)
-    fetch("/api/admin/users-status").then(r => r.json()).then(setAuthStatus).catch(() => {});
+    if (sa) fetch("/api/admin/users-status").then(r => r.json()).then(setAuthStatus).catch(() => {});
     // Build unique parent email list for bulk invite
     const seen = new Set<string>();
     const pList: { email: string; nom: string; prenom: string }[] = [];
@@ -334,32 +355,39 @@ export default function UtilisateursPage() {
     <div>
       <div className="flex items-center justify-between mb-5">
         <div>
-          <h1 className="text-xl font-bold text-gray-900">
-            Utilisateurs & Roles
-          </h1>
+          <div className="flex items-center gap-2">
+            <h1 className="text-xl font-bold text-gray-900">
+              Utilisateurs & Rôles
+            </h1>
+            {isCoordReadOnly && (
+              <span className="badge bg-blue-50 text-blue-600 text-[11px]">Lecture seule</span>
+            )}
+          </div>
           <p className="text-sm text-gray-500 mt-0.5">
-            {users.length} utilisateur{users.length > 1 ? "s" : ""}
+            {users.length} parent{users.length > 1 ? "s" : ""}{isCoordReadOnly ? " — vos établissements" : ` utilisateur${users.length > 1 ? "s" : ""}`}
           </p>
         </div>
-        <div className="flex gap-2">
-          {isSA && (
+        {!isCoordReadOnly && (
+          <div className="flex gap-2">
+            {isSA && (
+              <button
+                onClick={() => { setShowBulkInvite(true); setBulkDone(false); setBulkProgress(0); }}
+                className="btn-secondary btn-sm"
+              >
+                <Mail className="w-3.5 h-3.5" /> Inviter les parents
+              </button>
+            )}
             <button
-              onClick={() => { setShowBulkInvite(true); setBulkDone(false); setBulkProgress(0); }}
-              className="btn-secondary btn-sm"
+              onClick={() => {
+                setCreating(true);
+                setError(null);
+              }}
+              className="btn-primary btn-sm"
             >
-              <Mail className="w-3.5 h-3.5" /> Inviter les parents
+              <UserPlus className="w-3.5 h-3.5" /> Creer un compte
             </button>
-          )}
-          <button
-            onClick={() => {
-              setCreating(true);
-              setError(null);
-            }}
-            className="btn-primary btn-sm"
-          >
-            <UserPlus className="w-3.5 h-3.5" /> Creer un compte
-          </button>
-        </div>
+          </div>
+        )}
       </div>
 
       {success && (
@@ -857,39 +885,45 @@ export default function UtilisateursPage() {
                     })()}
                   </td>
                   <td className="px-3 py-2.5">
-                    <button
-                      onClick={() => {
-                        const emailKey = u.email?.toLowerCase();
-                        const fallback = parentDataByEmail[emailKey] || { nom: "", prenom: "" };
-                        setEditing({
-                          ...u,
-                          nom: u.nom || fallback.nom,
-                          prenom: u.prenom || fallback.prenom,
-                        });
-                        setError(null);
-                      }}
-                      className="flex items-center gap-1 text-xs font-semibold text-brand-500 hover:text-brand-700 bg-brand-50 px-2 py-1 rounded-md"
-                    >
-                      <Edit className="w-3 h-3" /> Éditer
-                    </button>
+                    {!isCoordReadOnly && (
+                      <button
+                        onClick={() => {
+                          const emailKey = u.email?.toLowerCase();
+                          const fallback = parentDataByEmail[emailKey] || { nom: "", prenom: "" };
+                          setEditing({
+                            ...u,
+                            nom: u.nom || fallback.nom,
+                            prenom: u.prenom || fallback.prenom,
+                          });
+                          setError(null);
+                        }}
+                        className="flex items-center gap-1 text-xs font-semibold text-brand-500 hover:text-brand-700 bg-brand-50 px-2 py-1 rounded-md"
+                      >
+                        <Edit className="w-3 h-3" /> Éditer
+                      </button>
+                    )}
                   </td>
                   <td className="px-3 py-2.5">
-                    <button
-                      onClick={() => handleSendInvite(u)}
-                      disabled={sendingInvite === u.id}
-                      className="flex items-center gap-1 text-xs font-semibold text-amber-600 hover:text-amber-700 bg-amber-50 px-2 py-1 rounded-md"
-                    >
-                      {sendingInvite === u.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <Mail className="w-3 h-3" />}
-                      Invitation
-                    </button>
+                    {!isCoordReadOnly && (
+                      <button
+                        onClick={() => handleSendInvite(u)}
+                        disabled={sendingInvite === u.id}
+                        className="flex items-center gap-1 text-xs font-semibold text-amber-600 hover:text-amber-700 bg-amber-50 px-2 py-1 rounded-md"
+                      >
+                        {sendingInvite === u.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <Mail className="w-3 h-3" />}
+                        Invitation
+                      </button>
+                    )}
                   </td>
                   <td className="px-3 py-2.5">
-                    <button
-                      onClick={() => setConfirmDelete(u)}
-                      className="flex items-center gap-1 text-xs font-semibold text-red-500 hover:text-red-700 bg-red-50 px-2 py-1 rounded-md"
-                    >
-                      <Trash2 className="w-3 h-3" /> Supprimer
-                    </button>
+                    {!isCoordReadOnly && (
+                      <button
+                        onClick={() => setConfirmDelete(u)}
+                        className="flex items-center gap-1 text-xs font-semibold text-red-500 hover:text-red-700 bg-red-50 px-2 py-1 rounded-md"
+                      >
+                        <Trash2 className="w-3 h-3" /> Supprimer
+                      </button>
+                    )}
                   </td>
                 </tr>
               );
