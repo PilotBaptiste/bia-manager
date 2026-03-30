@@ -117,7 +117,7 @@ export default function VolsPage() {
           .select("pilote_id, etablissement_id"),
         supabase
           .from("eleves")
-          .select("id, nom, prenom, etablissement_id, desiderata, statut_inscription, vol1_effectue, vol1_numero_aerogest, vol1_prix, vol1_temps_minutes, vol1_pilote_nom, vol1_aeronef_id, vol2_effectue, vol2_numero_aerogest, vol2_prix, vol2_temps_minutes, vol2_pilote_nom, vol2_aeronef_id")
+          .select("id, nom, prenom, etablissement_id, desiderata, abandonne, vol1_effectue, vol1_numero_aerogest, vol1_prix, vol1_temps_minutes, vol1_pilote_nom, vol1_aeronef_id, vol2_effectue, vol2_numero_aerogest, vol2_prix, vol2_temps_minutes, vol2_pilote_nom, vol2_aeronef_id")
           .eq("archive", false)
           .order("nom"),
       ]);
@@ -1022,7 +1022,7 @@ export default function VolsPage() {
                             <div className="px-3 pb-2 bg-brand-50/50">
                               <p className="text-[10px] text-gray-400 mb-1.5">Restreindre à des élèves spécifiques (optionnel) :</p>
                               <div className="flex flex-wrap gap-1">
-                                {etabEleves.filter(el => el.statut_inscription !== "abandon" && !busyEleveIds.has(el.id)).map((el) => {
+                                {etabEleves.filter(el => !el.abandonne && !busyEleveIds.has(el.id)).map((el) => {
                                   const sel = etabElvsSelected.includes(el.id);
                                   const volLabel = el.vol1_effectue ? "V2" : "V1";
                                   return (
@@ -1048,8 +1048,8 @@ export default function VolsPage() {
                                     </button>
                                   );
                                 })}
-                                {etabEleves.filter(el => el.statut_inscription !== "abandon" && busyEleveIds.has(el.id)).length > 0 && (
-                                  <p className="text-[10px] text-gray-400 w-full mt-1">{etabEleves.filter(el => el.statut_inscription !== "abandon" && busyEleveIds.has(el.id)).length} élève(s) déjà positionné(s) sur un vol actif masqué(s)</p>
+                                {etabEleves.filter(el => !el.abandonne && busyEleveIds.has(el.id)).length > 0 && (
+                                  <p className="text-[10px] text-gray-400 w-full mt-1">{etabEleves.filter(el => !el.abandonne && busyEleveIds.has(el.id)).length} élève(s) déjà positionné(s) sur un vol actif masqué(s)</p>
                                 )}
                               </div>
                               {etabElvsSelected.length > 0 && (
