@@ -172,15 +172,15 @@ export default function ElevesPage() {
       .single();
     setProfile(prof);
 
+    const isSARole = prof?.roles?.includes("superadmin");
+    const isCoordRole = prof?.roles?.includes("coordinateur") && !isSARole;
     const isGerant =
-      prof?.roles?.includes("gerant") && !prof?.roles?.includes("superadmin");
-    const gerantEtabIds: string[] =
-      prof?.etablissement_ids?.length > 0
-        ? prof.etablissement_ids
-        : prof?.etablissement_id
-          ? [prof.etablissement_id]
-          : [];
-    const isPiloteRole = prof?.roles?.includes("pilote") && !prof?.roles?.includes("superadmin") && !prof?.roles?.includes("coordinateur") && !prof?.roles?.includes("gerant");
+      prof?.roles?.includes("gerant") && !isSARole && !isCoordRole;
+    const etabIdsFromProfile = (ids: any, id: any): string[] =>
+      ids?.length > 0 ? ids : id ? [id] : [];
+    const coordEtabIds = etabIdsFromProfile(prof?.etablissement_ids, prof?.etablissement_id);
+    const gerantEtabIds = etabIdsFromProfile(prof?.etablissement_ids, prof?.etablissement_id);
+    const isPiloteRole = prof?.roles?.includes("pilote") && !isSARole && !isCoordRole && !isGerant;
 
     let elevesQuery = supabase
       .from("eleves")
@@ -190,7 +190,9 @@ export default function ElevesPage() {
       .eq("archive", false)
       .order("nom");
 
-    if (isGerant && gerantEtabIds.length > 0) {
+    if (isCoordRole && coordEtabIds.length > 0) {
+      elevesQuery = elevesQuery.in("etablissement_id", coordEtabIds);
+    } else if (isGerant && gerantEtabIds.length > 0) {
       elevesQuery = elevesQuery.in("etablissement_id", gerantEtabIds);
     } else if (isPiloteRole) {
       const { data: peData } = await supabase
@@ -198,13 +200,14 @@ export default function ElevesPage() {
         .select("etablissement_id")
         .eq("pilote_id", user.id);
       const piloteEtabIds = (peData || []).map((x: any) => x.etablissement_id);
-      // Filter to pilot's établissements (empty list → no results)
       elevesQuery = elevesQuery.in("etablissement_id", piloteEtabIds.length > 0 ? piloteEtabIds : ["__none__"]);
     }
 
     const [eR, etR, aR, anR, pR, profR] = await Promise.all([
       elevesQuery,
-      supabase.from("etablissements").select("*").eq("actif", true).order("nom"),
+      isCoordRole && coordEtabIds.length > 0
+        ? supabase.from("etablissements").select("*").in("id", coordEtabIds).order("nom")
+        : supabase.from("etablissements").select("*").eq("actif", true).order("nom"),
       supabase.from("aeronefs").select("*").eq("actif", true).order("type_aeronef"),
       supabase.from("annees").select("*").eq("active", true).single(),
       supabase.from("parametres").select("cle,valeur").eq("cle", "prix_inscription").single(),

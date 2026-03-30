@@ -144,26 +144,22 @@ export default function VolsPage() {
 
   const isPilote = profile?.roles?.includes("pilote");
   const isSA = profile?.roles?.includes("superadmin");
-  const isCoord = profile?.roles?.includes("coordinateur");
+  const isCoord = profile?.roles?.includes("coordinateur") && !isSA;
   const isGerant = profile?.roles?.includes("gerant") && !isSA && !isCoord;
-  const gerantEtabIds: string[] =
-    profile?.etablissement_ids?.length > 0
-      ? profile.etablissement_ids
-      : profile?.etablissement_id
-        ? [profile.etablissement_id]
-        : [];
+  const etabIdsFromProfile = (ids: any, id: any): string[] =>
+    ids?.length > 0 ? ids : id ? [id] : [];
+  const coordEtabIds = etabIdsFromProfile(profile?.etablissement_ids, profile?.etablissement_id);
+  const gerantEtabIds = etabIdsFromProfile(profile?.etablissement_ids, profile?.etablissement_id);
   const canCreate = isPilote || isSA;
-  // Priority: SA/coordinateur → all | gérant → their établissements | pilot → all (read-only on others)
+  // SA → all | coordinateur → leurs étabs | gérant → leur étab | pilote → tous (lecture seule sur ceux des autres)
   const displayed =
-    isSA || isCoord
+    isSA
       ? creneaux
-      : isGerant && gerantEtabIds.length > 0
-        ? creneaux.filter(
-            (c) =>
-              !c.etablissement_id ||
-              gerantEtabIds.includes(c.etablissement_id),
-          )
-        : creneaux; // pilotes see all slots, edit rights checked per-slot below
+      : isCoord && coordEtabIds.length > 0
+        ? creneaux.filter((c) => coordEtabIds.includes(c.etablissement_id))
+        : isGerant && gerantEtabIds.length > 0
+          ? creneaux.filter((c) => gerantEtabIds.includes(c.etablissement_id))
+          : creneaux; // pilotes see all slots, edit rights checked per-slot below
 
   const filteredDisplayed = displayed.filter((c) => {
     if (filterPilote && c.pilote_id !== filterPilote) return false;

@@ -13,6 +13,7 @@ export default function EtablissementsPage() {
   const supabase = createClient();
   const [etabs, setEtabs] = useState<Etablissement[]>([]);
   const [isSA, setIsSA] = useState(false);
+  const [isCoord, setIsCoord] = useState(false);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState<Etablissement | null>(null);
@@ -22,11 +23,23 @@ export default function EtablissementsPage() {
 
   async function load() {
     const { data: { user } } = await supabase.auth.getUser();
+    let coordEtabIds: string[] = [];
     if (user) {
-      const { data: prof } = await supabase.from("profiles").select("roles").eq("id", user.id).single();
-      setIsSA(prof?.roles?.includes("superadmin") ?? false);
+      const { data: prof } = await supabase.from("profiles").select("roles, etablissement_ids, etablissement_id").eq("id", user.id).single();
+      const sa = prof?.roles?.includes("superadmin") ?? false;
+      const coord = (prof?.roles?.includes("coordinateur") ?? false) && !sa;
+      setIsSA(sa);
+      setIsCoord(coord);
+      if (coord) {
+        coordEtabIds = prof?.etablissement_ids?.length > 0
+          ? prof.etablissement_ids
+          : prof?.etablissement_id ? [prof.etablissement_id] : [];
+      }
     }
-    const { data } = await supabase.from("etablissements").select("*").order("nom");
+    const query = coordEtabIds.length > 0
+      ? supabase.from("etablissements").select("*").in("id", coordEtabIds).order("nom")
+      : supabase.from("etablissements").select("*").order("nom");
+    const { data } = await query;
     setEtabs(data || []);
     setLoading(false);
   }
@@ -98,7 +111,7 @@ export default function EtablissementsPage() {
           <h1 className="text-xl font-bold text-gray-900">Établissements</h1>
           <p className="text-sm text-gray-500 mt-0.5">{etabs.length} établissement{etabs.length > 1 ? "s" : ""}</p>
         </div>
-        <button onClick={openCreate} className="btn-primary btn-sm"><Plus className="w-3.5 h-3.5" /> Ajouter</button>
+        {!isCoord && <button onClick={openCreate} className="btn-primary btn-sm"><Plus className="w-3.5 h-3.5" /> Ajouter</button>}
       </div>
 
       {/* Modal */}
@@ -199,11 +212,11 @@ export default function EtablissementsPage() {
             {e.email && <p className="text-xs text-gray-500 mb-1">{e.email}</p>}
             {e.telephone && <p className="text-xs text-gray-500 mb-3">{e.telephone}</p>}
             <div className="flex gap-2 pt-3 border-t border-gray-100">
-              {isSA && (
+              {(isSA || isCoord) && (
                 <Link href={`/dashboard/eleves?etablissement=${e.id}`} className="btn-secondary btn-sm flex-1"><Users className="w-3 h-3" /> Élèves</Link>
               )}
-              <button onClick={() => openEdit(e)} className="btn-secondary btn-sm flex-1"><Edit className="w-3 h-3" /> Modifier</button>
-              <button onClick={() => setConfirmDelete(e.id)} className="p-1.5 rounded-lg text-red-400 hover:bg-red-50 hover:text-red-600 transition-colors"><Trash2 className="w-3.5 h-3.5" /></button>
+              {!isCoord && <button onClick={() => openEdit(e)} className="btn-secondary btn-sm flex-1"><Edit className="w-3 h-3" /> Modifier</button>}
+              {!isCoord && <button onClick={() => setConfirmDelete(e.id)} className="p-1.5 rounded-lg text-red-400 hover:bg-red-50 hover:text-red-600 transition-colors"><Trash2 className="w-3.5 h-3.5" /></button>}
             </div>
           </div>
         ))}
