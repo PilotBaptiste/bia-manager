@@ -34,7 +34,10 @@ export default function ParentOnboarding({ userId, defaultPrenom, defaultNom, de
   const router = useRouter();
 
   const [step, setStep] = useState<1 | 2>(1);
-  const [prenom, setPrenom] = useState(defaultPrenom || "");
+  // Si le prénom par défaut est "Parent" (valeur générée auto), on le vide pour forcer la saisie
+  const [prenom, setPrenom] = useState(
+    defaultPrenom?.toLowerCase() === "parent" ? "" : (defaultPrenom || "")
+  );
   const [nom, setNom] = useState(defaultNom || "");
   const [telephone, setTelephone] = useState(defaultTelephone || "");
   const [saving, setSaving] = useState(false);
@@ -89,6 +92,7 @@ export default function ParentOnboarding({ userId, defaultPrenom, defaultNom, de
   async function handleStep1(e: React.FormEvent) {
     e.preventDefault();
     if (!prenom.trim() || !nom.trim()) { setError("Prénom et nom sont requis."); return; }
+    if (prenom.trim().toLowerCase() === "parent") { setError("Veuillez saisir votre vrai prénom (pas \"Parent\")."); return; }
     if (!telephone.trim()) { setError("Le numéro de téléphone est requis."); return; }
     setSaving(true);
     setError(null);
@@ -109,6 +113,17 @@ export default function ParentOnboarding({ userId, defaultPrenom, defaultNom, de
 
   async function handleStep2(e: React.FormEvent) {
     e.preventDefault();
+    // Validate required fields for each child
+    for (const enfant of enfants) {
+      const f = enfantForms[enfant.id];
+      if (!f) continue;
+      const name = `${f.prenom || enfant.prenom} ${f.nom || enfant.nom}`.trim();
+      if (!f.date_naissance) { setError(`Date de naissance requise pour ${name}.`); return; }
+      if (!f.lieu_naissance?.trim()) { setError(`Lieu de naissance requis pour ${name}.`); return; }
+      if (!f.adresse_rue?.trim()) { setError(`Adresse requise pour ${name}.`); return; }
+      if (!f.adresse_cp?.trim()) { setError(`Code postal requis pour ${name}.`); return; }
+      if (!f.adresse_ville?.trim()) { setError(`Ville requise pour ${name}.`); return; }
+    }
     setSavingKids(true);
     for (const enfant of enfants) {
       const f = enfantForms[enfant.id];
@@ -236,6 +251,7 @@ export default function ParentOnboarding({ userId, defaultPrenom, defaultNom, de
             <p className="text-sm text-gray-600">
               Ces informations sont utilisées pour les documents officiels (attestation BIA, inscriptions). Vous pourrez les modifier à tout moment depuis votre profil.
             </p>
+            <p className="text-xs text-red-600 font-medium">Tous les champs marqués * sont obligatoires.</p>
 
             <div className="space-y-4 max-h-[50vh] overflow-y-auto pr-1">
               {enfants.map((enfant) => {
@@ -248,69 +264,76 @@ export default function ParentOnboarding({ userId, defaultPrenom, defaultNom, de
                     </div>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                       <div>
-                        <label className="label">Prénom</label>
+                        <label className="label">Prénom *</label>
                         <input
                           className="input"
                           value={f.prenom ?? ""}
                           onChange={(e) => updateEnfantForm(enfant.id, "prenom", e.target.value)}
+                          required
                         />
                       </div>
                       <div>
-                        <label className="label">Nom</label>
+                        <label className="label">Nom *</label>
                         <input
                           className="input"
                           value={f.nom ?? ""}
                           onChange={(e) => updateEnfantForm(enfant.id, "nom", e.target.value)}
+                          required
                         />
                       </div>
                     </div>
                     <div className="grid grid-cols-1 gap-3">
                       <div>
-                        <label className="label">Date de naissance</label>
+                        <label className="label">Date de naissance *</label>
                         <input
                           className="input"
                           type="date"
                           value={f.date_naissance ?? ""}
                           onChange={(e) => updateEnfantForm(enfant.id, "date_naissance", e.target.value)}
+                          required
                         />
                       </div>
                       <div>
-                        <label className="label">Lieu de naissance</label>
+                        <label className="label">Lieu de naissance *</label>
                         <input
                           className="input"
                           value={f.lieu_naissance ?? ""}
                           onChange={(e) => updateEnfantForm(enfant.id, "lieu_naissance", e.target.value)}
                           placeholder="Ville, Dép."
+                          required
                         />
                       </div>
                     </div>
                     <div>
-                      <label className="label">Adresse</label>
+                      <label className="label">Adresse *</label>
                       <input
                         className="input"
                         value={f.adresse_rue ?? ""}
                         onChange={(e) => updateEnfantForm(enfant.id, "adresse_rue", e.target.value)}
                         placeholder="Numéro et nom de rue"
+                        required
                       />
                     </div>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                       <div>
-                        <label className="label">Code postal</label>
+                        <label className="label">Code postal *</label>
                         <input
                           className="input"
                           value={f.adresse_cp ?? ""}
                           onChange={(e) => updateEnfantForm(enfant.id, "adresse_cp", e.target.value)}
                           placeholder="75000"
                           maxLength={5}
+                          required
                         />
                       </div>
                       <div>
-                        <label className="label">Ville</label>
+                        <label className="label">Ville *</label>
                         <input
                           className="input"
                           value={f.adresse_ville ?? ""}
                           onChange={(e) => updateEnfantForm(enfant.id, "adresse_ville", e.target.value)}
                           placeholder="Paris"
+                          required
                         />
                       </div>
                     </div>
@@ -330,24 +353,17 @@ export default function ParentOnboarding({ userId, defaultPrenom, defaultNom, de
               })}
             </div>
 
-            <div className="flex gap-3">
-              <button
-                type="button"
-                onClick={() => { setDone(true); router.refresh(); }}
-                className="btn-secondary flex-1"
-              >
-                Passer cette étape
-              </button>
-              <button type="submit" disabled={savingKids} className="btn-primary flex-1">
-                {savingKids ? (
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                ) : (
-                  <>
-                    <Check className="w-4 h-4 mr-1" /> Terminer
-                  </>
-                )}
-              </button>
-            </div>
+            {error && <p className="text-sm text-red-600" role="alert">{error}</p>}
+
+            <button type="submit" disabled={savingKids} className="btn-primary w-full">
+              {savingKids ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <>
+                  <Check className="w-4 h-4 mr-1" /> Terminer
+                </>
+              )}
+            </button>
           </form>
         )}
       </div>
