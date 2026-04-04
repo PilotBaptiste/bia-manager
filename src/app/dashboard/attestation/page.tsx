@@ -524,13 +524,14 @@ export default function AttestationPage() {
                 </div>
 
                 <div className="mb-4">
-                  <label className="label">Fait a (ville) *</label>
+                  <label className="label">Fait à — ville de signature *</label>
                   <input
                     value={lieu}
                     onChange={(ev) => setLieu(ev.target.value)}
                     className="input"
-                    placeholder="Arcachon, La Teste-de-Buch..."
+                    placeholder="Saisissez votre ville (ex : Paris, Lyon, Bordeaux…)"
                   />
+                  <p className="text-[11px] text-gray-400 mt-1">Indiquez n'importe quelle ville, celle où vous signez ce document.</p>
                 </div>
 
                 <div className="mb-4">

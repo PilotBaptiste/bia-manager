@@ -7,7 +7,7 @@ const DEFAULT_TEMPLATE = `Je soussigné(e) {PARENT_NOM}, parent/responsable lég
 
 Je déclare avoir pris connaissance des conditions de vol et des mesures de sécurité en vigueur.
 
-Fait à ________________, le {DATE_SIGNATURE}`;
+Fait à {LIEU_SIGNATURE}, le {DATE_SIGNATURE}`;
 
 export default function ParametresPage() {
   const supabase = createClient();
