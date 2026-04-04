@@ -107,7 +107,7 @@ export default function VolsPage() {
           .order("created_at", { ascending: false }),
         supabase
           .from("profiles")
-          .select("id, nom, prenom")
+          .select("id, nom, prenom, email, telephone")
           .contains("roles", ["pilote"])
           .eq("actif", true)
           .order("nom"),
@@ -564,9 +564,9 @@ export default function VolsPage() {
       updated.heure_debut !== showEditSlot.heure_debut ||
       updated.heure_fin !== showEditSlot.heure_fin ||
       updated.aeronef_id !== showEditSlot.aeronef_id;
+    const aeronefObj = aeronefs.find((a: any) => a.id === updated.aeronef_id);
+    const etabObj = etabs.find((e: any) => e.id === updated.etablissement_id);
     if (parents.length > 0 && slotChanged) {
-      const aeronef = aeronefs.find((a: any) => a.id === updated.aeronef_id);
-      const etab = etabs.find((e: any) => e.id === updated.etablissement_id);
       fetch("/api/email", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -576,8 +576,29 @@ export default function VolsPage() {
           date_vol: updated.date_vol,
           heure_debut: updated.heure_debut,
           heure_fin: updated.heure_fin,
-          aeronef: aeronef ? `${aeronef.type_aeronef} (${aeronef.immatriculation})` : "",
-          etablissement: etab?.nom || "",
+          aeronef: aeronefObj ? `${aeronefObj.type_aeronef} (${aeronefObj.immatriculation})` : "",
+          etablissement: etabObj?.nom || "",
+        }),
+      }).catch(() => {});
+    }
+    // Email aux parents si le pilote a changé
+    const pilotChanged = updated.pilote_id !== showEditSlot.pilote_id;
+    if (parents.length > 0 && pilotChanged) {
+      const newPilote = pilotes.find((p: any) => p.id === updated.pilote_id);
+      fetch("/api/email", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          type: "pilot_changed",
+          parents,
+          date_vol: updated.date_vol,
+          heure_debut: updated.heure_debut,
+          heure_fin: updated.heure_fin,
+          aeronef: aeronefObj ? `${aeronefObj.type_aeronef} (${aeronefObj.immatriculation})` : "",
+          etablissement: etabObj?.nom || "",
+          pilote_nom: newPilote ? `${newPilote.prenom} ${newPilote.nom}` : "",
+          pilote_email: newPilote?.email || "",
+          pilote_telephone: newPilote?.telephone || "",
         }),
       }).catch(() => {});
     }
@@ -1363,12 +1384,22 @@ export default function VolsPage() {
                       <button
                         onClick={() => {
                           setShowDetail(null);
+                          // Pre-populate elevesByEtab from existing active reservations
+                          const elevesByEtabFromResas: Record<string, string[]> = {};
+                          for (const res of showDetail.reservations || []) {
+                            if (res.statut === "annule" || !res.eleve?.id) continue;
+                            const eleveData = eleves.find((el: any) => el.id === res.eleve.id);
+                            const etabId = eleveData?.etablissement_id;
+                            if (!etabId) continue;
+                            if (!elevesByEtabFromResas[etabId]) elevesByEtabFromResas[etabId] = [];
+                            elevesByEtabFromResas[etabId].push(res.eleve.id);
+                          }
                           setShowEditSlot({
                             ...showDetail,
                             etablissements: showDetail.etablissement_ids?.length > 0
                               ? showDetail.etablissement_ids
                               : (showDetail.etablissement_id ? [showDetail.etablissement_id] : []),
-                            elevesByEtab: {},
+                            elevesByEtab: elevesByEtabFromResas,
                             eleves_autorises: showDetail.eleves_autorises || [],
                           });
                         }}
@@ -1604,7 +1635,7 @@ export default function VolsPage() {
                     </button>
                   )}
                   <div className="max-h-36 overflow-y-auto">
-                    {(isSA ? etabs : getPiloteEtabsList(profile?.id || "")).map((etab) => {
+                    {etabs.map((etab) => {
                       const editEtabs: string[] = showEditSlot.etablissements || [];
                       const checked = editEtabs.includes(etab.id);
                       const etabEleves = eleves.filter((el) => el.etablissement_id === etab.id);
@@ -1632,7 +1663,7 @@ export default function VolsPage() {
                               <div className="flex flex-wrap gap-1">
                                 {etabEleves.filter(el => {
                                   // Always hide students with abandon status
-                                  if (el.statut_inscription === "abandon") return false;
+                                  if (el.abandonne) return false;
                                   // Keep: not busy, OR already on this specific slot
                                   if (!busyEleveIds.has(el.id)) return true;
                                   return (showEditSlot.reservations || []).some((r: any) => r.statut !== "annule" && r.eleve?.id === el.id);

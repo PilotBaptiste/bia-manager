@@ -63,6 +63,40 @@ function ctaBtn(label: string, url: string) {
   </div>`;
 }
 
+function makeICS(params: {
+  uid: string;
+  date_vol: string;
+  heure_debut: string;
+  heure_fin: string;
+  summary: string;
+  description: string;
+}): string {
+  // Convert "2026-04-15" + "09:30" → "20260415T093000"
+  const toIcsDt = (date: string, time: string) =>
+    date.replace(/-/g, "") + "T" + time.replace(":", "").slice(0, 4) + "00";
+  const dtstart = toIcsDt(params.date_vol, params.heure_debut);
+  const dtend = toIcsDt(params.date_vol, params.heure_fin);
+  const dtstamp = new Date().toISOString().replace(/[-:.]/g, "").slice(0, 15) + "Z";
+  // Escape special chars in ICS
+  const esc = (s: string) => s.replace(/\n/g, "\\n").replace(/,/g, "\\,").replace(/;/g, "\\;");
+  return [
+    "BEGIN:VCALENDAR",
+    "VERSION:2.0",
+    "PRODID:-//BIA Manager//Vol BIA//FR",
+    "CALSCALE:GREGORIAN",
+    "METHOD:PUBLISH",
+    "BEGIN:VEVENT",
+    `UID:${params.uid}@bia-manager`,
+    `DTSTAMP:${dtstamp}`,
+    `DTSTART:${dtstart}`,
+    `DTEND:${dtend}`,
+    `SUMMARY:${esc(params.summary)}`,
+    `DESCRIPTION:${esc(params.description)}`,
+    "END:VEVENT",
+    "END:VCALENDAR",
+  ].join("\r\n");
+}
+
 function fmt(date: string) {
   try {
     return new Date(date).toLocaleDateString("fr-FR", {
@@ -103,7 +137,7 @@ export async function POST(req: Request) {
       }
     }
 
-    const emails: { to: string; subject: string; html: string; eleve_id?: string | null }[] = [];
+    const emails: { to: string; subject: string; html: string; eleve_id?: string | null; attachments?: { filename: string; content: string }[] }[] = [];
 
     // ─────────────────────────────────────────────────
     // BOOKING CONFIRMED — parent reserves a slot
@@ -125,6 +159,22 @@ export async function POST(req: Request) {
         etablissement,
       } = body;
 
+      // Build ICS calendar attachment
+      const icsContent = makeICS({
+        uid: `booking-${parent_email}-${date_vol}-${heure_debut}`.replace(/[^a-zA-Z0-9-]/g, "-"),
+        date_vol,
+        heure_debut: heure_debut?.slice(0, 5) || "00:00",
+        heure_fin: heure_fin?.slice(0, 5) || "00:00",
+        summary: `Vol BIA ${type_vol} — ${eleve_prenom} ${eleve_nom}`,
+        description: [
+          pilote_nom ? `Pilote : ${pilote_nom}` : "",
+          pilote_telephone ? `Tél. pilote : ${pilote_telephone}` : "",
+          aeronef ? `Aéronef : ${aeronef}` : "",
+          etablissement ? `Établissement : ${etablissement}` : "",
+        ].filter(Boolean).join("\n"),
+      });
+      const icsAttachment = { filename: `vol-bia-${date_vol}.ics`, content: Buffer.from(icsContent).toString("base64") };
+
       // To parent — confirmation
       emails.push({
         to: parent_email,
@@ -144,9 +194,11 @@ export async function POST(req: Request) {
             ...(pilote_email ? [{ label: "📧 Pilote", value: pilote_email }] : []),
             ...(etablissement ? [{ label: "🏫 Établissement", value: etablissement }] : []),
           ])}
+          <p style="color:#64748b;font-size:13px">📎 Un fichier <strong>.ics</strong> est joint à cet email — ouvrez-le pour ajouter le vol à votre calendrier (Apple, Google, Outlook…).</p>
           <p style="color:#64748b;font-size:13px">En cas d'empêchement, annulez la réservation au moins <strong>48h avant</strong> le vol depuis votre espace.</p>
           ${ctaBtn("Voir mes réservations", `${APP_URL}/dashboard/reservation`)}
         `, contact),
+        attachments: [icsAttachment],
       });
 
       // To pilot — new booking notification (skip if same address as parent)
@@ -393,6 +445,39 @@ export async function POST(req: Request) {
     }
 
     // ─────────────────────────────────────────────────
+    // PILOT CHANGED — swap de pilote sur un créneau
+    // ─────────────────────────────────────────────────
+    else if (type === "pilot_changed") {
+      const { parents, date_vol, heure_debut, heure_fin, aeronef, etablissement, pilote_nom, pilote_email, pilote_telephone } = body;
+      for (const p of parents || []) {
+        emails.push({
+          to: p.email,
+          eleve_id: p.eleve_id ?? null,
+          subject: `🔄 Changement de pilote — Vol de ${p.eleve_prenom} ${p.eleve_nom} du ${fmt(date_vol)}`,
+          html: wrap(`
+            <h2 style="margin:0 0 4px;font-size:20px;color:#0f172a">Changement de pilote</h2>
+            <p style="color:#64748b;margin:0 0 20px;font-size:14px">Bonjour ${p.prenom || ""},</p>
+            <p style="color:#374151;font-size:14px;margin:0 0 8px">
+              Le pilote assigné au vol de <strong>${p.eleve_prenom} ${p.eleve_nom}</strong> a été modifié.
+              Votre réservation est maintenue, seul le pilote change.
+            </p>
+            ${infoBox([
+              { label: "📅 Date", value: fmt(date_vol) },
+              { label: "⏰ Horaire", value: `${heure_debut?.slice(0, 5)} – ${heure_fin?.slice(0, 5)}` },
+              ...(aeronef ? [{ label: "✈️ Appareil", value: aeronef }] : []),
+              { label: "👨‍✈️ Nouveau pilote", value: pilote_nom || "—" },
+              ...(pilote_telephone ? [{ label: "📞 Téléphone", value: pilote_telephone }] : []),
+              ...(pilote_email ? [{ label: "📧 Email", value: pilote_email }] : []),
+              ...(etablissement ? [{ label: "🏫 Établissement", value: etablissement }] : []),
+            ])}
+            <p style="color:#64748b;font-size:13px">En cas de question, n'hésitez pas à contacter directement votre nouveau pilote.</p>
+            ${ctaBtn("Voir ma réservation", `${APP_URL}/dashboard/reservation`)}
+          `, contact),
+        });
+      }
+    }
+
+    // ─────────────────────────────────────────────────
     // CUSTOM — superadmin free-form email
     // ─────────────────────────────────────────────────
     else if (type === "custom") {
@@ -435,6 +520,7 @@ export async function POST(req: Request) {
           to: e.to,
           subject: e.subject,
           html: e.html,
+          ...(e.attachments ? { attachments: e.attachments } : {}),
         });
         resendId = (result.data as any)?.id ?? null;
       } catch (err: any) {
