@@ -581,26 +581,70 @@ export default function VolsPage() {
         }),
       }).catch(() => {});
     }
-    // Email aux parents si le pilote a changé
+    // Emails swap pilote : parents + ancien pilote + nouveau pilote
     const pilotChanged = updated.pilote_id !== showEditSlot.pilote_id;
-    if (parents.length > 0 && pilotChanged) {
+    if (pilotChanged) {
       const newPilote = pilotes.find((p: any) => p.id === updated.pilote_id);
-      fetch("/api/email", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          type: "pilot_changed",
-          parents,
-          date_vol: updated.date_vol,
-          heure_debut: updated.heure_debut,
-          heure_fin: updated.heure_fin,
-          aeronef: aeronefObj ? `${aeronefObj.type_aeronef} (${aeronefObj.immatriculation})` : "",
-          etablissement: etabObj?.nom || "",
-          pilote_nom: newPilote ? `${newPilote.prenom} ${newPilote.nom}` : "",
-          pilote_email: newPilote?.email || "",
-          pilote_telephone: newPilote?.telephone || "",
-        }),
-      }).catch(() => {});
+      const oldPilote = showEditSlot.pilote; // { nom, prenom, email, telephone } depuis le JOIN
+      const eleves_du_creneau = parents.map((p: any) => `${p.eleve_prenom} ${p.eleve_nom}`);
+      const swapPayload = {
+        date_vol: updated.date_vol,
+        heure_debut: updated.heure_debut,
+        heure_fin: updated.heure_fin,
+        aeronef: aeronefObj ? `${aeronefObj.type_aeronef} (${aeronefObj.immatriculation})` : "",
+        etablissement: etabObj?.nom || "",
+        new_pilote_nom: newPilote ? `${newPilote.prenom} ${newPilote.nom}` : "",
+        new_pilote_email: newPilote?.email || "",
+        new_pilote_telephone: newPilote?.telephone || "",
+        old_pilote_nom: oldPilote ? `${oldPilote.prenom} ${oldPilote.nom}` : "",
+        old_pilote_email: oldPilote?.email || "",
+        eleves_du_creneau,
+      };
+      // Email aux parents
+      if (parents.length > 0) {
+        fetch("/api/email", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ type: "pilot_changed", parents, ...swapPayload }),
+        }).catch(() => {});
+      }
+      // Email au nouveau pilote avec les infos élèves
+      if (newPilote?.email) {
+        fetch("/api/email", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            type: "pilot_swap_new",
+            eleves_details: (showEditSlot.reservations || [])
+              .filter((r: any) => r.statut !== "annule" && r.eleve)
+              .map((r: any) => ({
+                prenom: r.eleve.prenom,
+                nom: r.eleve.nom,
+                parent_nom: r.eleve.parent_nom,
+                parent_prenom: r.eleve.parent_prenom,
+                parent_email: r.eleve.parent_email,
+                parent_telephone: r.eleve.parent_telephone,
+                type_vol: r.type_vol,
+              })),
+            pilote_email: newPilote.email,
+            pilote_prenom: newPilote.prenom,
+            ...swapPayload,
+          }),
+        }).catch(() => {});
+      }
+      // Email à l'ancien pilote — confirmation du swap
+      if (oldPilote?.email) {
+        fetch("/api/email", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            type: "pilot_swap_old",
+            pilote_email: oldPilote.email,
+            pilote_prenom: oldPilote.prenom,
+            ...swapPayload,
+          }),
+        }).catch(() => {});
+      }
     }
     load();
   }

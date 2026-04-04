@@ -445,10 +445,10 @@ export async function POST(req: Request) {
     }
 
     // ─────────────────────────────────────────────────
-    // PILOT CHANGED — swap de pilote sur un créneau
+    // PILOT CHANGED — email aux parents lors d'un swap
     // ─────────────────────────────────────────────────
     else if (type === "pilot_changed") {
-      const { parents, date_vol, heure_debut, heure_fin, aeronef, etablissement, pilote_nom, pilote_email, pilote_telephone } = body;
+      const { parents, date_vol, heure_debut, heure_fin, aeronef, etablissement, new_pilote_nom, new_pilote_email, new_pilote_telephone } = body;
       for (const p of parents || []) {
         emails.push({
           to: p.email,
@@ -465,9 +465,9 @@ export async function POST(req: Request) {
               { label: "📅 Date", value: fmt(date_vol) },
               { label: "⏰ Horaire", value: `${heure_debut?.slice(0, 5)} – ${heure_fin?.slice(0, 5)}` },
               ...(aeronef ? [{ label: "✈️ Appareil", value: aeronef }] : []),
-              { label: "👨‍✈️ Nouveau pilote", value: pilote_nom || "—" },
-              ...(pilote_telephone ? [{ label: "📞 Téléphone", value: pilote_telephone }] : []),
-              ...(pilote_email ? [{ label: "📧 Email", value: pilote_email }] : []),
+              { label: "👨‍✈️ Nouveau pilote", value: new_pilote_nom || "—" },
+              ...(new_pilote_telephone ? [{ label: "📞 Téléphone", value: new_pilote_telephone }] : []),
+              ...(new_pilote_email ? [{ label: "📧 Email", value: new_pilote_email }] : []),
               ...(etablissement ? [{ label: "🏫 Établissement", value: etablissement }] : []),
             ])}
             <p style="color:#64748b;font-size:13px">En cas de question, n'hésitez pas à contacter directement votre nouveau pilote.</p>
@@ -475,6 +475,68 @@ export async function POST(req: Request) {
           `, contact),
         });
       }
+    }
+
+    // ─────────────────────────────────────────────────
+    // PILOT SWAP NEW — email au nouveau pilote avec infos élèves
+    // ─────────────────────────────────────────────────
+    else if (type === "pilot_swap_new") {
+      const { pilote_email, pilote_prenom, date_vol, heure_debut, heure_fin, aeronef, etablissement, eleves_details, old_pilote_nom } = body;
+      const elevesRows = (eleves_details || []).map((el: any) => [
+        { label: "👦 Élève", value: `${el.prenom} ${el.nom} — Vol ${el.type_vol || "?"}` },
+        ...(el.parent_nom || el.parent_prenom ? [{ label: "👨‍👩‍👦 Parent", value: `${el.parent_prenom || ""} ${el.parent_nom || ""}`.trim() }] : []),
+        ...(el.parent_telephone ? [{ label: "📞 Tél. parent", value: el.parent_telephone }] : []),
+        ...(el.parent_email ? [{ label: "📧 Email parent", value: el.parent_email }] : []),
+      ]).flat();
+      emails.push({
+        to: pilote_email,
+        subject: `✈️ Swap — Vous prenez en charge un créneau du ${fmt(date_vol)}`,
+        html: wrap(`
+          <h2 style="margin:0 0 4px;font-size:20px;color:#0f172a">Nouveau créneau à votre charge</h2>
+          <p style="color:#64748b;margin:0 0 20px;font-size:14px">Bonjour ${pilote_prenom || ""},</p>
+          <p style="color:#374151;font-size:14px;margin:0 0 8px">
+            Suite à un swap${old_pilote_nom ? ` avec <strong>${old_pilote_nom}</strong>` : ""}, vous prenez en charge le créneau suivant.
+          </p>
+          ${infoBox([
+            { label: "📅 Date", value: fmt(date_vol) },
+            { label: "⏰ Horaire", value: `${heure_debut?.slice(0, 5)} – ${heure_fin?.slice(0, 5)}` },
+            ...(aeronef ? [{ label: "✈️ Appareil", value: aeronef }] : []),
+            ...(etablissement ? [{ label: "🏫 Établissement", value: etablissement }] : []),
+          ])}
+          <p style="margin:16px 0 8px;font-weight:700;font-size:14px;color:#0f172a">Élève${(eleves_details || []).length > 1 ? "s" : ""} à bord :</p>
+          ${infoBox(elevesRows)}
+          ${ctaBtn("Voir le planning", `${APP_URL}/dashboard/vols`)}
+        `, contact),
+      });
+    }
+
+    // ─────────────────────────────────────────────────
+    // PILOT SWAP OLD — confirmation à l'ancien pilote
+    // ─────────────────────────────────────────────────
+    else if (type === "pilot_swap_old") {
+      const { pilote_email, pilote_prenom, date_vol, heure_debut, heure_fin, aeronef, etablissement, new_pilote_nom, new_pilote_email, new_pilote_telephone, eleves_du_creneau } = body;
+      emails.push({
+        to: pilote_email,
+        subject: `🔄 Swap confirmé — Créneau du ${fmt(date_vol)} transféré`,
+        html: wrap(`
+          <h2 style="margin:0 0 4px;font-size:20px;color:#0f172a">Swap confirmé</h2>
+          <p style="color:#64748b;margin:0 0 20px;font-size:14px">Bonjour ${pilote_prenom || ""},</p>
+          <p style="color:#374151;font-size:14px;margin:0 0 8px">
+            Votre créneau du <strong>${fmt(date_vol)}</strong> a été transféré à <strong>${new_pilote_nom || "un autre pilote"}</strong>.
+            ${(eleves_du_creneau || []).length > 0 ? `Les élèves concernés (${(eleves_du_creneau as string[]).join(", ")}) ont été notifiés par email.` : ""}
+          </p>
+          ${infoBox([
+            { label: "📅 Date", value: fmt(date_vol) },
+            { label: "⏰ Horaire", value: `${heure_debut?.slice(0, 5)} – ${heure_fin?.slice(0, 5)}` },
+            ...(aeronef ? [{ label: "✈️ Appareil", value: aeronef }] : []),
+            ...(etablissement ? [{ label: "🏫 Établissement", value: etablissement }] : []),
+            { label: "👨‍✈️ Nouveau pilote", value: new_pilote_nom || "—" },
+            ...(new_pilote_telephone ? [{ label: "📞 Tél.", value: new_pilote_telephone }] : []),
+            ...(new_pilote_email ? [{ label: "📧 Email", value: new_pilote_email }] : []),
+          ])}
+          ${ctaBtn("Voir le planning", `${APP_URL}/dashboard/vols`)}
+        `, contact),
+      });
     }
 
     // ─────────────────────────────────────────────────
