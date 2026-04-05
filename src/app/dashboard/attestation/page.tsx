@@ -1,6 +1,6 @@
 "use client";
 import { useState, useEffect } from "react";
-import { useRouter } from "next/navigation";
+
 import { createClient } from "@/lib/supabase/client";
 import {
   FileSignature,
@@ -19,7 +19,7 @@ Je declare avoir pris connaissance des conditions de vol et des mesures de secur
 Fait a {LIEU_SIGNATURE}, le {DATE_SIGNATURE}`;
 
 export default function AttestationPage() {
-  const router = useRouter();
+
   const supabase = createClient();
   const [enfants, setEnfants] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -395,6 +395,9 @@ export default function AttestationPage() {
 
       setSaving(false);
       setSigning(null);
+      setLieu("");
+      setNomSaisi("");
+      setCertifie(false);
       // If paiement is also validated → auto-send attestation_ready email (parent action, not admin)
       if (enfant.paiement_effectue) {
         const { data: { user } } = await supabase.auth.getUser();
@@ -412,7 +415,8 @@ export default function AttestationPage() {
           }),
         }).catch(() => {});
       }
-      router.refresh();
+      // Recharger les données pour que le statut signé soit visible côté parent
+      await loadData();
     } catch (err: any) {
       setError(err.message || "Erreur lors de la signature");
       setSaving(false);
