@@ -21,6 +21,7 @@ import {
   AlertCircle,
   Mail,
   Check,
+  Phone,
 } from "lucide-react";
 import ConfirmModal from "@/components/ConfirmModal";
 import { fromDb } from "@/components/DesiderataGrid";
@@ -1371,7 +1372,23 @@ export default function ElevesPage() {
                     <p className="text-[11px] text-gray-400 -mt-1 mb-1 px-1">Mis à jour via le profil parent</p>
                   )}
                   <InfoRow label="Email" value={s.parent_email} />
-                  <InfoRow label="Telephone" value={tel} />
+                  <div className="flex items-center justify-between py-1.5 border-b border-gray-50 last:border-0">
+                    <span className="text-xs text-gray-500">Téléphone</span>
+                    <div className="flex items-center gap-2">
+                      {tel && <span className="text-xs font-medium text-gray-800">{tel}</span>}
+                      {tel ? (
+                        <a
+                          href={`tel:${tel.replace(/\s/g, "")}`}
+                          className="flex items-center gap-1 px-2 py-1 rounded-lg bg-emerald-50 text-emerald-700 hover:bg-emerald-100 transition-colors text-xs font-semibold"
+                          title={`Appeler ${nom}`}
+                        >
+                          <Phone className="w-3 h-3" /> Appeler
+                        </a>
+                      ) : (
+                        <span className="text-xs text-gray-400">—</span>
+                      )}
+                    </div>
+                  </div>
                 </>);
               })()}
               <div className="mt-2">
