@@ -86,19 +86,34 @@ export default function VolsPage() {
       data: { user },
     } = await supabase.auth.getUser();
     if (!user) return;
-    const [profRes, crRes, aRes, eRes, anRes, vhRes, pRes, qRes, peRes, elRes] =
+
+    // Fetch active year first so we can filter creneaux and eleves by it
+    const { data: anData } = await supabase.from("annees").select("id").eq("active", true).single();
+    const activeAnneeId = anData?.id ?? null;
+    if (activeAnneeId) setAnneeId(activeAnneeId);
+
+    let creneauxQuery = supabase
+      .from("creneaux")
+      .select(
+        "*, pilote:profiles!pilote_id(nom,prenom,id,email,telephone), aeronef:aeronefs(*), etablissement:etablissements(nom), reservations(*, eleve:eleves(id,nom,prenom,date_naissance,lieu_naissance,classe,commentaires,vol1_temps_minutes,parent_nom,parent_prenom,parent_email,parent_telephone,etablissement:etablissements(nom)))",
+      )
+      .order("date_vol", { ascending: false })
+      .order("heure_debut", { ascending: true });
+    if (activeAnneeId) creneauxQuery = creneauxQuery.eq("annee_id", activeAnneeId);
+
+    let elevesQuery = supabase
+      .from("eleves")
+      .select("id, nom, prenom, etablissement_id, desiderata, abandonne, vol1_effectue, vol1_numero_aerogest, vol1_prix, vol1_temps_minutes, vol1_pilote_nom, vol1_aeronef_id, vol2_effectue, vol2_numero_aerogest, vol2_prix, vol2_temps_minutes, vol2_pilote_nom, vol2_aeronef_id")
+      .eq("archive", false)
+      .order("nom");
+    if (activeAnneeId) elevesQuery = elevesQuery.eq("annee_id", activeAnneeId);
+
+    const [profRes, crRes, aRes, eRes, vhRes, pRes, qRes, peRes, elRes] =
       await Promise.all([
         supabase.from("profiles").select("*").eq("id", user.id).single(),
-        supabase
-          .from("creneaux")
-          .select(
-            "*, pilote:profiles!pilote_id(nom,prenom,id,email,telephone), aeronef:aeronefs(*), etablissement:etablissements(nom), reservations(*, eleve:eleves(id,nom,prenom,date_naissance,lieu_naissance,classe,commentaires,vol1_temps_minutes,parent_nom,parent_prenom,parent_email,parent_telephone,etablissement:etablissements(nom)))",
-          )
-          .order("date_vol", { ascending: false })
-          .order("heure_debut", { ascending: true }),
+        creneauxQuery,
         supabase.from("aeronefs").select("*").eq("actif", true),
         supabase.from("etablissements").select("*").eq("actif", true),
-        supabase.from("annees").select("*").eq("active", true).single(),
         supabase
           .from("vols_effectues")
           .select(
@@ -115,11 +130,7 @@ export default function VolsPage() {
         supabase
           .from("pilote_etablissements")
           .select("pilote_id, etablissement_id"),
-        supabase
-          .from("eleves")
-          .select("id, nom, prenom, etablissement_id, desiderata, abandonne, vol1_effectue, vol1_numero_aerogest, vol1_prix, vol1_temps_minutes, vol1_pilote_nom, vol1_aeronef_id, vol2_effectue, vol2_numero_aerogest, vol2_prix, vol2_temps_minutes, vol2_pilote_nom, vol2_aeronef_id")
-          .eq("archive", false)
-          .order("nom"),
+        elevesQuery,
       ]);
     setProfile(profRes.data);
     setCreneaux(crRes.data || []);
@@ -134,7 +145,6 @@ export default function VolsPage() {
     setQualifs(qRes.data || []);
     setPiloteEtabs(peRes.data || []);
     setEleves(elRes.data || []);
-    if (anRes.data) setAnneeId(anRes.data.id);
     setLoading(false);
   }
 

@@ -183,6 +183,11 @@ export default function ElevesPage() {
     const gerantEtabIds = etabIdsFromProfile(prof?.etablissement_ids, prof?.etablissement_id);
     const isPiloteRole = prof?.roles?.includes("pilote") && !isSARole && !isCoordRole && !isGerant;
 
+    // Fetch active year first so we can filter queries by it
+    const { data: anData } = await supabase.from("annees").select("id").eq("active", true).single();
+    const activeAnneeId = anData?.id ?? null;
+    if (activeAnneeId) setAnneeId(activeAnneeId);
+
     let elevesQuery = supabase
       .from("eleves")
       .select(
@@ -190,6 +195,8 @@ export default function ElevesPage() {
       )
       .eq("archive", false)
       .order("nom");
+
+    if (activeAnneeId) elevesQuery = elevesQuery.eq("annee_id", activeAnneeId);
 
     if (isCoordRole && coordEtabIds.length > 0) {
       elevesQuery = elevesQuery.in("etablissement_id", coordEtabIds);
@@ -204,20 +211,18 @@ export default function ElevesPage() {
       elevesQuery = elevesQuery.in("etablissement_id", piloteEtabIds.length > 0 ? piloteEtabIds : ["__none__"]);
     }
 
-    const [eR, etR, aR, anR, pR, profR] = await Promise.all([
+    const [eR, etR, aR, pR, profR] = await Promise.all([
       elevesQuery,
       isCoordRole && coordEtabIds.length > 0
         ? supabase.from("etablissements").select("*").in("id", coordEtabIds).order("nom")
         : supabase.from("etablissements").select("*").eq("actif", true).order("nom"),
       supabase.from("aeronefs").select("*").eq("actif", true).order("type_aeronef"),
-      supabase.from("annees").select("*").eq("active", true).single(),
       supabase.from("parametres").select("cle,valeur").eq("cle", "prix_inscription").single(),
       supabase.from("profiles").select("email, nom, prenom, telephone").contains("roles", ["parent"]),
     ]);
     setEleves(eR.data || []);
     setEtablissements(etR.data || []);
     setAeronefs(aR.data || []);
-    if (anR.data) setAnneeId(anR.data.id);
     if (pR.data?.valeur) setDefaultMontant(pR.data.valeur);
     // Build email → profile map for parent name sync
     const pmap: Record<string, any> = {};

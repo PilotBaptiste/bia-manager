@@ -37,8 +37,18 @@ export default function FinancesPage() {
   const [deleting, setDeleting] = useState(false);
 
   async function load() {
+    // Fetch active year first to scope eleves query
+    const { data: anData } = await supabase.from("annees").select("id").eq("active", true).single();
+    const activeAnneeId = anData?.id ?? null;
+
+    let elevesQuery = supabase
+      .from("eleves")
+      .select("*, etablissement:etablissements(nom), vol1_aeronef:aeronefs!vol1_aeronef_id(type_aeronef,immatriculation), vol2_aeronef:aeronefs!vol2_aeronef_id(type_aeronef,immatriculation)")
+      .eq("archive", false);
+    if (activeAnneeId) elevesQuery = elevesQuery.eq("annee_id", activeAnneeId);
+
     const [eR, vR, etR, pR, lR, mR] = await Promise.all([
-      supabase.from("eleves").select("*, etablissement:etablissements(nom), vol1_aeronef:aeronefs!vol1_aeronef_id(type_aeronef,immatriculation), vol2_aeronef:aeronefs!vol2_aeronef_id(type_aeronef,immatriculation)").eq("archive", false),
+      elevesQuery,
       supabase.from("vols_effectues").select("*, creneau:creneaux(date_vol,heure_debut,pilote:profiles!pilote_id(nom,prenom),aeronef:aeronefs(type_aeronef,immatriculation,prix_heure),etablissement:etablissements(nom),reservations(eleve:eleves(nom,prenom)))").order("created_at", { ascending: false }),
       supabase.from("etablissements").select("*").eq("actif", true),
       supabase.from("parametres").select("*"),
