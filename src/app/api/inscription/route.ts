@@ -24,7 +24,8 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: "Code invalide ou établissement inactif" }, { status: 404 });
   }
 
-  // Count current registrations for the active year
+  // Compte uniquement les élèves inscrits via le code (parent_id non null)
+  // pour l'année active — exclut les élèves saisis manuellement par l'admin
   const { data: annee } = await supabase
     .from("annees").select("id").eq("active", true).single();
 
@@ -34,7 +35,8 @@ export async function GET(req: Request) {
       .from("eleves")
       .select("*", { count: "exact", head: true })
       .eq("etablissement_id", etab.id)
-      .eq("annee_id", annee.id);
+      .eq("annee_id", annee.id)
+      .not("parent_id", "is", null); // uniquement les inscriptions via code
     inscritCount = count ?? 0;
   }
 
@@ -84,13 +86,15 @@ export async function POST(req: Request) {
   const { data: annee } = await supabase
     .from("annees").select("id, label").eq("active", true).single();
 
-  // 3. Check student limit
+  // 3. Check student limit — uniquement les inscrits via code (parent_id non null)
+  // Les élèves saisis manuellement par l'admin ne comptent pas dans le quota
   if (etab.nb_eleves_attendus && etab.nb_eleves_attendus > 0 && annee) {
     const { count } = await supabase
       .from("eleves")
       .select("*", { count: "exact", head: true })
       .eq("etablissement_id", etab.id)
-      .eq("annee_id", annee.id);
+      .eq("annee_id", annee.id)
+      .not("parent_id", "is", null); // uniquement inscriptions via code
 
     if ((count ?? 0) + enfants.length > etab.nb_eleves_attendus) {
       return NextResponse.json({
