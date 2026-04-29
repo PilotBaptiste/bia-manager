@@ -93,7 +93,7 @@ export default function ArchivesPage() {
           .from("eleves")
           .select(
             `id, nom, prenom, email, telephone, abandonne,
-             vol1_effectue, vol2_effectue, attestation_signee, paiement_recu,
+             vol1_effectue, vol2_effectue, attestation_signee, paiement_effectue,
              etablissement:etablissements(nom),
              vol1_aeronef:aeronefs!vol1_aeronef_id(type_aeronef, immatriculation),
              vol2_aeronef:aeronefs!vol2_aeronef_id(type_aeronef, immatriculation)`
@@ -130,7 +130,7 @@ export default function ArchivesPage() {
     const vol1 = eleves.filter((e) => e.vol1_effectue).length;
     const vol2 = eleves.filter((e) => e.vol2_effectue).length;
     const attests = eleves.filter((e) => e.attestation_signee).length;
-    const payes = eleves.filter((e) => e.paiement_recu).length;
+    const payes = eleves.filter((e) => e.paiement_effectue).length;
 
     const termines = creneaux.filter((c) => c.statut === "termine").length;
     const totalCreneaux = creneaux.length;
@@ -390,7 +390,7 @@ export default function ArchivesPage() {
                             </div>
                           </td>
                           <td className="px-3 py-3 text-center">
-                            {e.paiement_recu ? (
+                            {e.paiement_effectue ? (
                               <Badge color="bg-emerald-100 text-emerald-700">✓ Reçu</Badge>
                             ) : (
                               <Badge color="bg-gray-100 text-gray-500">En attente</Badge>
