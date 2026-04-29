@@ -3,8 +3,6 @@ import { useState, useEffect } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { Plane, Loader2, Plus, Trash2, Eye, EyeOff, CheckCircle2, AlertCircle, User } from "lucide-react";
 
-const CLASSES = ["2nde", "1ère", "Terminale", "BTS", "Autre"];
-
 const emptyEnfant = { nom: "", prenom: "", date_naissance: "", lieu_naissance: "", classe: "" };
 
 export default function InscriptionCodePage() {
@@ -325,11 +323,9 @@ export default function InscriptionCodePage() {
               </div>
               <div>
                 <label className="block text-xs font-semibold text-gray-500 mb-1">Classe</label>
-                <select value={enfant.classe} onChange={(e) => updateEnfant(idx, "classe", e.target.value)}
-                  className="input-field">
-                  <option value="">— Sélectionner —</option>
-                  {CLASSES.map((c) => <option key={c} value={c}>{c}</option>)}
-                </select>
+                <input type="text" value={enfant.classe}
+                  onChange={(e) => updateEnfant(idx, "classe", e.target.value)}
+                  placeholder="ex : 2nde 3, Terminale B…" className="input-field" />
               </div>
             </div>
           ))}
