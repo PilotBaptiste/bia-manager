@@ -1,7 +1,7 @@
 "use client";
 import { useState, useEffect } from "react";
 import { createClient } from "@/lib/supabase/client";
-import { Settings2, Save, Loader2, FileSignature, Download, Eye, Info, CalendarDays, Plus, CheckCircle2, AlertTriangle } from "lucide-react";
+import { Settings2, Save, Loader2, FileSignature, Download, Eye, Info, CalendarDays, Plus, CheckCircle2, AlertTriangle, Edit, X, LockKeyhole, LockKeyholeOpen } from "lucide-react";
 import { toast } from "sonner";
 
 const DEFAULT_TEMPLATE = `Je soussigné(e) {PARENT_NOM}, parent/responsable légal de {ELEVE_PRENOM} {ELEVE_NOM}, né(e) le {ELEVE_DATE_NAISSANCE} à {ELEVE_LIEU_NAISSANCE}, autorise mon enfant à effectuer un vol découverte au sein de l'Aéro-Club du Bassin d'Arcachon dans le cadre du Brevet d'Initiation Aéronautique (BIA).
@@ -24,6 +24,10 @@ export default function ParametresPage() {
   const [creatingAnnee, setCreatingAnnee] = useState(false);
   const [showNewAnneeForm, setShowNewAnneeForm] = useState(false);
   const [confirmActivate, setConfirmActivate] = useState<any | null>(null);
+  const [confirmClose, setConfirmClose] = useState<any | null>(null);
+  const [editingAnnee, setEditingAnnee] = useState<any | null>(null);
+  const [editForm, setEditForm] = useState({ label: "", date_debut: "", date_fin: "" });
+  const [savingEdit, setSavingEdit] = useState(false);
 
   useEffect(() => {
     async function load() {
@@ -63,11 +67,37 @@ export default function ParametresPage() {
   }
 
   async function handleActivateAnnee(annee: any) {
-    // Désactiver toutes les autres années
     await supabase.from("annees").update({ active: false }).neq("id", annee.id);
     await supabase.from("annees").update({ active: true }).eq("id", annee.id);
     toast.success(`Année ${annee.label} activée — les nouvelles données seront rattachées à cette année`);
     setConfirmActivate(null);
+    const { data } = await supabase.from("annees").select("*").order("date_debut", { ascending: false });
+    setAnnees(data || []);
+  }
+
+  async function handleCloseAnnee(annee: any) {
+    await supabase.from("annees").update({ active: false }).eq("id", annee.id);
+    toast.success(`Année ${annee.label} clôturée — aucune année n'est active`);
+    setConfirmClose(null);
+    const { data } = await supabase.from("annees").select("*").order("date_debut", { ascending: false });
+    setAnnees(data || []);
+  }
+
+  async function handleSaveEditAnnee() {
+    if (!editingAnnee) return;
+    if (!editForm.label.trim() || !editForm.date_debut || !editForm.date_fin) {
+      toast.error("Tous les champs sont obligatoires"); return;
+    }
+    setSavingEdit(true);
+    const { error } = await supabase.from("annees").update({
+      label: editForm.label.trim(),
+      date_debut: editForm.date_debut,
+      date_fin: editForm.date_fin,
+    }).eq("id", editingAnnee.id);
+    setSavingEdit(false);
+    if (error) { toast.error(error.message); return; }
+    toast.success("Année mise à jour");
+    setEditingAnnee(null);
     const { data } = await supabase.from("annees").select("*").order("date_debut", { ascending: false });
     setAnnees(data || []);
   }
@@ -206,6 +236,7 @@ export default function ParametresPage() {
 
       {tab === "annees" && (
         <div className="space-y-4">
+
           {/* Modal confirmation activation */}
           {confirmActivate && (
             <div className="fixed inset-0 z-50 flex items-center justify-center p-4" onClick={() => setConfirmActivate(null)}>
@@ -238,12 +269,43 @@ export default function ParametresPage() {
             </div>
           )}
 
+          {/* Modal confirmation clôture */}
+          {confirmClose && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center p-4" onClick={() => setConfirmClose(null)}>
+              <div className="absolute inset-0 bg-black/40" />
+              <div onClick={e => e.stopPropagation()} className="relative bg-white rounded-2xl p-6 w-full max-w-md shadow-xl">
+                <div className="flex items-center gap-3 mb-4">
+                  <div className="w-10 h-10 rounded-full bg-red-100 flex items-center justify-center shrink-0">
+                    <LockKeyhole className="w-5 h-5 text-red-600" />
+                  </div>
+                  <div>
+                    <p className="font-bold text-gray-900">Clôturer l'année {confirmClose.label} ?</p>
+                    <p className="text-sm text-gray-500">Elle ne sera plus l'année active.</p>
+                  </div>
+                </div>
+                <div className="bg-red-50 border border-red-200 rounded-lg p-3 mb-4 text-sm text-red-800">
+                  <ul className="space-y-1 text-xs">
+                    <li>• Plus aucune année ne sera active — les nouvelles créations seront bloquées</li>
+                    <li>• Vous pourrez la réouvrir ou activer une autre année à tout moment</li>
+                    <li>• Toutes les données sont conservées et consultables dans Archives</li>
+                  </ul>
+                </div>
+                <div className="flex gap-2">
+                  <button onClick={() => setConfirmClose(null)} className="btn-secondary btn-sm flex-1">Annuler</button>
+                  <button onClick={() => handleCloseAnnee(confirmClose)} className="btn-danger btn-sm flex-1">
+                    <LockKeyhole className="w-3.5 h-3.5" /> Clôturer {confirmClose.label}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
           <div className="card">
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-sm font-semibold text-gray-900 flex items-center gap-2">
                 <CalendarDays className="w-4 h-4 text-brand-400" /> Années scolaires
               </h2>
-              <button onClick={() => setShowNewAnneeForm(true)} className="btn-primary btn-sm">
+              <button onClick={() => { setShowNewAnneeForm(true); setEditingAnnee(null); }} className="btn-primary btn-sm">
                 <Plus className="w-3.5 h-3.5" /> Nouvelle année
               </button>
             </div>
@@ -277,25 +339,74 @@ export default function ParametresPage() {
 
             <div className="space-y-2">
               {annees.map((a) => (
-                <div key={a.id} className={`flex items-center justify-between p-3 rounded-xl border ${a.active ? "bg-emerald-50 border-emerald-200" : "bg-gray-50 border-gray-200"}`}>
-                  <div className="flex items-center gap-3">
-                    <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${a.active ? "bg-emerald-100" : "bg-gray-200"}`}>
-                      <CalendarDays className={`w-4 h-4 ${a.active ? "text-emerald-600" : "text-gray-500"}`} />
-                    </div>
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <p className="text-sm font-bold text-gray-900">{a.label}</p>
-                        {a.active && <span className="badge bg-emerald-100 text-emerald-700 text-[10px]">Active</span>}
+                <div key={a.id}>
+                  <div className={`flex items-center justify-between p-3 rounded-xl border ${a.active ? "bg-emerald-50 border-emerald-200" : "bg-gray-50 border-gray-200"} ${editingAnnee?.id === a.id ? "rounded-b-none border-b-0" : ""}`}>
+                    <div className="flex items-center gap-3">
+                      <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${a.active ? "bg-emerald-100" : "bg-gray-200"}`}>
+                        <CalendarDays className={`w-4 h-4 ${a.active ? "text-emerald-600" : "text-gray-500"}`} />
                       </div>
-                      <p className="text-xs text-gray-500">
-                        {new Date(a.date_debut).toLocaleDateString("fr-FR")} → {new Date(a.date_fin).toLocaleDateString("fr-FR")}
-                      </p>
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <p className="text-sm font-bold text-gray-900">{a.label}</p>
+                          {a.active && <span className="badge bg-emerald-100 text-emerald-700 text-[10px]">Active</span>}
+                        </div>
+                        <p className="text-xs text-gray-500">
+                          {new Date(a.date_debut).toLocaleDateString("fr-FR")} → {new Date(a.date_fin).toLocaleDateString("fr-FR")}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      {/* Modifier les dates */}
+                      <button
+                        onClick={() => {
+                          if (editingAnnee?.id === a.id) { setEditingAnnee(null); return; }
+                          setEditingAnnee(a);
+                          setEditForm({ label: a.label, date_debut: a.date_debut, date_fin: a.date_fin });
+                          setShowNewAnneeForm(false);
+                        }}
+                        className="btn-secondary btn-sm"
+                        title="Modifier"
+                      >
+                        {editingAnnee?.id === a.id ? <X className="w-3.5 h-3.5" /> : <Edit className="w-3.5 h-3.5" />}
+                        {editingAnnee?.id === a.id ? "Annuler" : "Modifier"}
+                      </button>
+                      {/* Clôturer / Réouvrir */}
+                      {a.active ? (
+                        <button onClick={() => setConfirmClose(a)} className="btn-secondary btn-sm text-red-600 border-red-200 hover:bg-red-50">
+                          <LockKeyhole className="w-3.5 h-3.5" /> Clôturer
+                        </button>
+                      ) : (
+                        <button onClick={() => setConfirmActivate(a)} className="btn-secondary btn-sm text-emerald-700 border-emerald-300 hover:bg-emerald-50">
+                          <LockKeyholeOpen className="w-3.5 h-3.5" /> Réouvrir
+                        </button>
+                      )}
                     </div>
                   </div>
-                  {!a.active && (
-                    <button onClick={() => setConfirmActivate(a)} className="btn-secondary btn-sm text-amber-700 border-amber-300 hover:bg-amber-50">
-                      <CheckCircle2 className="w-3.5 h-3.5" /> Activer
-                    </button>
+
+                  {/* Formulaire d'édition inline */}
+                  {editingAnnee?.id === a.id && (
+                    <div className="p-4 bg-brand-50 border border-brand-200 border-t-0 rounded-b-xl space-y-3">
+                      <div className="grid grid-cols-3 gap-3">
+                        <div>
+                          <label className="label">Libellé</label>
+                          <input className="input" value={editForm.label} onChange={e => setEditForm({ ...editForm, label: e.target.value })} />
+                        </div>
+                        <div>
+                          <label className="label">Date de début</label>
+                          <input type="date" className="input" value={editForm.date_debut} onChange={e => setEditForm({ ...editForm, date_debut: e.target.value })} />
+                        </div>
+                        <div>
+                          <label className="label">Date de fin</label>
+                          <input type="date" className="input" value={editForm.date_fin} onChange={e => setEditForm({ ...editForm, date_fin: e.target.value })} />
+                        </div>
+                      </div>
+                      <div className="flex justify-end">
+                        <button onClick={handleSaveEditAnnee} disabled={savingEdit} className="btn-primary btn-sm">
+                          {savingEdit ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
+                          Enregistrer
+                        </button>
+                      </div>
+                    </div>
                   )}
                 </div>
               ))}
@@ -304,7 +415,7 @@ export default function ParametresPage() {
 
             <div className="mt-4 p-3 bg-blue-50 border border-blue-200 rounded-lg text-xs text-blue-700">
               <p className="font-semibold mb-1">💡 Fonctionnement multi-année</p>
-              <p>Créez l'année 2027 avant la rentrée, puis activez-la. Les vues Élèves, Vols, Dashboard et Finances n'afficheront que les données de l'année active. Les années passées restent consultables via la section <strong>Archives</strong>.</p>
+              <p>Créez l'année 2027 avant la rentrée, puis réouvrez-la. Les vues Élèves, Vols, Dashboard et Finances n'afficheront que les données de l'année active. Les années passées restent consultables via <strong>Archives</strong>.</p>
             </div>
           </div>
         </div>
