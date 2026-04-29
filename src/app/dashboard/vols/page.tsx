@@ -1,6 +1,7 @@
 "use client";
 import { useState, useEffect, useMemo } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { useYear } from "@/contexts/YearContext";
 import { matchDesiderata } from "@/components/DesiderataGrid";
 import { toast } from "sonner";
 import {
@@ -27,6 +28,9 @@ import ConfirmModal from "@/components/ConfirmModal";
 
 export default function VolsPage() {
   const supabase = createClient();
+  const { selectedAnneeId, activeAnneeId } = useYear();
+  // anneeId = active year used when creating new slots
+  const anneeId = activeAnneeId;
   const [creneaux, setCreneaux] = useState<any[]>([]);
   const [volsHisto, setVolsHisto] = useState<any[]>([]);
   const [aeronefs, setAeronefs] = useState<any[]>([]);
@@ -36,7 +40,6 @@ export default function VolsPage() {
   const [qualifs, setQualifs] = useState<any[]>([]);
   const [piloteEtabs, setPiloteEtabs] = useState<any[]>([]);
   const [profile, setProfile] = useState<any>(null);
-  const [anneeId, setAnneeId] = useState("");
   const [loading, setLoading] = useState(true);
   const [mode, setMode] = useState<"list" | "calendar" | "historique">("list");
   const [calMonth, setCalMonth] = useState(new Date().getMonth());
@@ -86,19 +89,29 @@ export default function VolsPage() {
       data: { user },
     } = await supabase.auth.getUser();
     if (!user) return;
-    const [profRes, crRes, aRes, eRes, anRes, vhRes, pRes, qRes, peRes, elRes] =
+
+    let creneauxQuery = supabase
+      .from("creneaux")
+      .select(
+        "*, pilote:profiles!pilote_id(nom,prenom,id,email,telephone), aeronef:aeronefs(*), etablissement:etablissements(nom), reservations(*, eleve:eleves(id,nom,prenom,date_naissance,lieu_naissance,classe,commentaires,vol1_temps_minutes,parent_nom,parent_prenom,parent_email,parent_telephone,etablissement:etablissements(nom)))",
+      )
+      .order("date_vol", { ascending: false })
+      .order("heure_debut", { ascending: true });
+    if (selectedAnneeId) creneauxQuery = creneauxQuery.eq("annee_id", selectedAnneeId);
+
+    let elevesQuery = supabase
+      .from("eleves")
+      .select("id, nom, prenom, etablissement_id, desiderata, abandonne, vol1_effectue, vol1_numero_aerogest, vol1_prix, vol1_temps_minutes, vol1_pilote_nom, vol1_aeronef_id, vol2_effectue, vol2_numero_aerogest, vol2_prix, vol2_temps_minutes, vol2_pilote_nom, vol2_aeronef_id")
+      .eq("archive", false)
+      .order("nom");
+    if (selectedAnneeId) elevesQuery = elevesQuery.eq("annee_id", selectedAnneeId);
+
+    const [profRes, crRes, aRes, eRes, vhRes, pRes, qRes, peRes, elRes] =
       await Promise.all([
         supabase.from("profiles").select("*").eq("id", user.id).single(),
-        supabase
-          .from("creneaux")
-          .select(
-            "*, pilote:profiles!pilote_id(nom,prenom,id,email,telephone), aeronef:aeronefs(*), etablissement:etablissements(nom), reservations(*, eleve:eleves(id,nom,prenom,date_naissance,lieu_naissance,classe,commentaires,vol1_temps_minutes,parent_nom,parent_prenom,parent_email,parent_telephone,etablissement:etablissements(nom)))",
-          )
-          .order("date_vol", { ascending: false })
-          .order("heure_debut", { ascending: true }),
+        creneauxQuery,
         supabase.from("aeronefs").select("*").eq("actif", true),
         supabase.from("etablissements").select("*").eq("actif", true),
-        supabase.from("annees").select("*").eq("active", true).single(),
         supabase
           .from("vols_effectues")
           .select(
@@ -107,7 +120,7 @@ export default function VolsPage() {
           .order("created_at", { ascending: false }),
         supabase
           .from("profiles")
-          .select("id, nom, prenom")
+          .select("id, nom, prenom, email, telephone")
           .contains("roles", ["pilote"])
           .eq("actif", true)
           .order("nom"),
@@ -115,11 +128,7 @@ export default function VolsPage() {
         supabase
           .from("pilote_etablissements")
           .select("pilote_id, etablissement_id"),
-        supabase
-          .from("eleves")
-          .select("id, nom, prenom, etablissement_id, desiderata, statut_inscription, vol1_effectue, vol1_numero_aerogest, vol1_prix, vol1_temps_minutes, vol1_pilote_nom, vol1_aeronef_id, vol2_effectue, vol2_numero_aerogest, vol2_prix, vol2_temps_minutes, vol2_pilote_nom, vol2_aeronef_id")
-          .eq("archive", false)
-          .order("nom"),
+        elevesQuery,
       ]);
     setProfile(profRes.data);
     setCreneaux(crRes.data || []);
@@ -134,36 +143,31 @@ export default function VolsPage() {
     setQualifs(qRes.data || []);
     setPiloteEtabs(peRes.data || []);
     setEleves(elRes.data || []);
-    if (anRes.data) setAnneeId(anRes.data.id);
     setLoading(false);
   }
 
   useEffect(() => {
-    load();
-  }, []);
+    if (selectedAnneeId) load();
+  }, [selectedAnneeId]);
 
   const isPilote = profile?.roles?.includes("pilote");
   const isSA = profile?.roles?.includes("superadmin");
-  const isCoord = profile?.roles?.includes("coordinateur");
+  const isCoord = profile?.roles?.includes("coordinateur") && !isSA;
   const isGerant = profile?.roles?.includes("gerant") && !isSA && !isCoord;
-  const gerantEtabIds: string[] =
-    profile?.etablissement_ids?.length > 0
-      ? profile.etablissement_ids
-      : profile?.etablissement_id
-        ? [profile.etablissement_id]
-        : [];
+  const etabIdsFromProfile = (ids: any, id: any): string[] =>
+    ids?.length > 0 ? ids : id ? [id] : [];
+  const coordEtabIds = etabIdsFromProfile(profile?.etablissement_ids, profile?.etablissement_id);
+  const gerantEtabIds = etabIdsFromProfile(profile?.etablissement_ids, profile?.etablissement_id);
   const canCreate = isPilote || isSA;
-  // Priority: SA/coordinateur → all | gérant → their établissements | pilot → all (read-only on others)
+  // SA → all | coordinateur → leurs étabs | gérant → leur étab | pilote → tous (lecture seule sur ceux des autres)
   const displayed =
-    isSA || isCoord
+    isSA
       ? creneaux
-      : isGerant && gerantEtabIds.length > 0
-        ? creneaux.filter(
-            (c) =>
-              !c.etablissement_id ||
-              gerantEtabIds.includes(c.etablissement_id),
-          )
-        : creneaux; // pilotes see all slots, edit rights checked per-slot below
+      : isCoord && coordEtabIds.length > 0
+        ? creneaux.filter((c) => coordEtabIds.includes(c.etablissement_id))
+        : isGerant && gerantEtabIds.length > 0
+          ? creneaux.filter((c) => gerantEtabIds.includes(c.etablissement_id))
+          : creneaux; // pilotes see all slots, edit rights checked per-slot below
 
   const filteredDisplayed = displayed.filter((c) => {
     if (filterPilote && c.pilote_id !== filterPilote) return false;
@@ -568,9 +572,9 @@ export default function VolsPage() {
       updated.heure_debut !== showEditSlot.heure_debut ||
       updated.heure_fin !== showEditSlot.heure_fin ||
       updated.aeronef_id !== showEditSlot.aeronef_id;
+    const aeronefObj = aeronefs.find((a: any) => a.id === updated.aeronef_id);
+    const etabObj = etabs.find((e: any) => e.id === updated.etablissement_id);
     if (parents.length > 0 && slotChanged) {
-      const aeronef = aeronefs.find((a: any) => a.id === updated.aeronef_id);
-      const etab = etabs.find((e: any) => e.id === updated.etablissement_id);
       fetch("/api/email", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -580,10 +584,75 @@ export default function VolsPage() {
           date_vol: updated.date_vol,
           heure_debut: updated.heure_debut,
           heure_fin: updated.heure_fin,
-          aeronef: aeronef ? `${aeronef.type_aeronef} (${aeronef.immatriculation})` : "",
-          etablissement: etab?.nom || "",
+          aeronef: aeronefObj ? `${aeronefObj.type_aeronef} (${aeronefObj.immatriculation})` : "",
+          etablissement: etabObj?.nom || "",
         }),
       }).catch(() => {});
+    }
+    // Emails swap pilote : parents + ancien pilote + nouveau pilote
+    const pilotChanged = updated.pilote_id !== showEditSlot.pilote_id;
+    if (pilotChanged) {
+      const newPilote = pilotes.find((p: any) => p.id === updated.pilote_id);
+      const oldPilote = showEditSlot.pilote; // { nom, prenom, email, telephone } depuis le JOIN
+      const eleves_du_creneau = parents.map((p: any) => `${p.eleve_prenom} ${p.eleve_nom}`);
+      const swapPayload = {
+        date_vol: updated.date_vol,
+        heure_debut: updated.heure_debut,
+        heure_fin: updated.heure_fin,
+        aeronef: aeronefObj ? `${aeronefObj.type_aeronef} (${aeronefObj.immatriculation})` : "",
+        etablissement: etabObj?.nom || "",
+        new_pilote_nom: newPilote ? `${newPilote.prenom} ${newPilote.nom}` : "",
+        new_pilote_email: newPilote?.email || "",
+        new_pilote_telephone: newPilote?.telephone || "",
+        old_pilote_nom: oldPilote ? `${oldPilote.prenom} ${oldPilote.nom}` : "",
+        old_pilote_email: oldPilote?.email || "",
+        eleves_du_creneau,
+      };
+      // Email aux parents
+      if (parents.length > 0) {
+        fetch("/api/email", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ type: "pilot_changed", parents, ...swapPayload }),
+        }).catch(() => {});
+      }
+      // Email au nouveau pilote avec les infos élèves
+      if (newPilote?.email) {
+        fetch("/api/email", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            type: "pilot_swap_new",
+            eleves_details: (showEditSlot.reservations || [])
+              .filter((r: any) => r.statut !== "annule" && r.eleve)
+              .map((r: any) => ({
+                prenom: r.eleve.prenom,
+                nom: r.eleve.nom,
+                parent_nom: r.eleve.parent_nom,
+                parent_prenom: r.eleve.parent_prenom,
+                parent_email: r.eleve.parent_email,
+                parent_telephone: r.eleve.parent_telephone,
+                type_vol: r.type_vol,
+              })),
+            pilote_email: newPilote.email,
+            pilote_prenom: newPilote.prenom,
+            ...swapPayload,
+          }),
+        }).catch(() => {});
+      }
+      // Email à l'ancien pilote — confirmation du swap
+      if (oldPilote?.email) {
+        fetch("/api/email", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            type: "pilot_swap_old",
+            pilote_email: oldPilote.email,
+            pilote_prenom: oldPilote.prenom,
+            ...swapPayload,
+          }),
+        }).catch(() => {});
+      }
     }
     load();
   }
@@ -1022,7 +1091,7 @@ export default function VolsPage() {
                             <div className="px-3 pb-2 bg-brand-50/50">
                               <p className="text-[10px] text-gray-400 mb-1.5">Restreindre à des élèves spécifiques (optionnel) :</p>
                               <div className="flex flex-wrap gap-1">
-                                {etabEleves.filter(el => el.statut_inscription !== "abandon" && !busyEleveIds.has(el.id)).map((el) => {
+                                {etabEleves.filter(el => !el.abandonne && !busyEleveIds.has(el.id)).map((el) => {
                                   const sel = etabElvsSelected.includes(el.id);
                                   const volLabel = el.vol1_effectue ? "V2" : "V1";
                                   return (
@@ -1048,8 +1117,8 @@ export default function VolsPage() {
                                     </button>
                                   );
                                 })}
-                                {etabEleves.filter(el => el.statut_inscription !== "abandon" && busyEleveIds.has(el.id)).length > 0 && (
-                                  <p className="text-[10px] text-gray-400 w-full mt-1">{etabEleves.filter(el => el.statut_inscription !== "abandon" && busyEleveIds.has(el.id)).length} élève(s) déjà positionné(s) sur un vol actif masqué(s)</p>
+                                {etabEleves.filter(el => !el.abandonne && busyEleveIds.has(el.id)).length > 0 && (
+                                  <p className="text-[10px] text-gray-400 w-full mt-1">{etabEleves.filter(el => !el.abandonne && busyEleveIds.has(el.id)).length} élève(s) déjà positionné(s) sur un vol actif masqué(s)</p>
                                 )}
                               </div>
                               {etabElvsSelected.length > 0 && (
@@ -1367,12 +1436,22 @@ export default function VolsPage() {
                       <button
                         onClick={() => {
                           setShowDetail(null);
+                          // Pre-populate elevesByEtab from existing active reservations
+                          const elevesByEtabFromResas: Record<string, string[]> = {};
+                          for (const res of showDetail.reservations || []) {
+                            if (res.statut === "annule" || !res.eleve?.id) continue;
+                            const eleveData = eleves.find((el: any) => el.id === res.eleve.id);
+                            const etabId = eleveData?.etablissement_id;
+                            if (!etabId) continue;
+                            if (!elevesByEtabFromResas[etabId]) elevesByEtabFromResas[etabId] = [];
+                            elevesByEtabFromResas[etabId].push(res.eleve.id);
+                          }
                           setShowEditSlot({
                             ...showDetail,
                             etablissements: showDetail.etablissement_ids?.length > 0
                               ? showDetail.etablissement_ids
                               : (showDetail.etablissement_id ? [showDetail.etablissement_id] : []),
-                            elevesByEtab: {},
+                            elevesByEtab: elevesByEtabFromResas,
                             eleves_autorises: showDetail.eleves_autorises || [],
                           });
                         }}
@@ -1608,7 +1687,7 @@ export default function VolsPage() {
                     </button>
                   )}
                   <div className="max-h-36 overflow-y-auto">
-                    {(isSA ? etabs : getPiloteEtabsList(profile?.id || "")).map((etab) => {
+                    {etabs.map((etab) => {
                       const editEtabs: string[] = showEditSlot.etablissements || [];
                       const checked = editEtabs.includes(etab.id);
                       const etabEleves = eleves.filter((el) => el.etablissement_id === etab.id);
@@ -1636,7 +1715,7 @@ export default function VolsPage() {
                               <div className="flex flex-wrap gap-1">
                                 {etabEleves.filter(el => {
                                   // Always hide students with abandon status
-                                  if (el.statut_inscription === "abandon") return false;
+                                  if (el.abandonne) return false;
                                   // Keep: not busy, OR already on this specific slot
                                   if (!busyEleveIds.has(el.id)) return true;
                                   return (showEditSlot.reservations || []).some((r: any) => r.statut !== "annule" && r.eleve?.id === el.id);

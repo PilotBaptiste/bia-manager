@@ -3,6 +3,7 @@ import { useState, useEffect, useMemo } from "react";
 import { useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { toast } from "sonner";
+import { useYear } from "@/contexts/YearContext";
 import type { Eleve, Etablissement } from "@/types";
 import {
   Users,
@@ -21,6 +22,7 @@ import {
   AlertCircle,
   Mail,
   Check,
+  Phone,
 } from "lucide-react";
 import ConfirmModal from "@/components/ConfirmModal";
 import { fromDb } from "@/components/DesiderataGrid";
@@ -128,10 +130,12 @@ const emptyForm = {
 export default function ElevesPage() {
   const supabase = createClient();
   const searchParams = useSearchParams();
+  const { selectedAnneeId, activeAnneeId } = useYear();
+  // anneeId = active year, used when creating new students
+  const anneeId = activeAnneeId;
   const [eleves, setEleves] = useState<any[]>([]);
   const [etablissements, setEtablissements] = useState<Etablissement[]>([]);
   const [aeronefs, setAeronefs] = useState<any[]>([]);
-  const [anneeId, setAnneeId] = useState("");
   const [profileId, setProfileId] = useState("");
   const [profile, setProfile] = useState<any>(null);
   const [defaultMontant, setDefaultMontant] = useState("80");
@@ -172,15 +176,15 @@ export default function ElevesPage() {
       .single();
     setProfile(prof);
 
+    const isSARole = prof?.roles?.includes("superadmin");
+    const isCoordRole = prof?.roles?.includes("coordinateur") && !isSARole;
     const isGerant =
-      prof?.roles?.includes("gerant") && !prof?.roles?.includes("superadmin");
-    const gerantEtabIds: string[] =
-      prof?.etablissement_ids?.length > 0
-        ? prof.etablissement_ids
-        : prof?.etablissement_id
-          ? [prof.etablissement_id]
-          : [];
-    const isPiloteRole = prof?.roles?.includes("pilote") && !prof?.roles?.includes("superadmin") && !prof?.roles?.includes("coordinateur") && !prof?.roles?.includes("gerant");
+      prof?.roles?.includes("gerant") && !isSARole && !isCoordRole;
+    const etabIdsFromProfile = (ids: any, id: any): string[] =>
+      ids?.length > 0 ? ids : id ? [id] : [];
+    const coordEtabIds = etabIdsFromProfile(prof?.etablissement_ids, prof?.etablissement_id);
+    const gerantEtabIds = etabIdsFromProfile(prof?.etablissement_ids, prof?.etablissement_id);
+    const isPiloteRole = prof?.roles?.includes("pilote") && !isSARole && !isCoordRole && !isGerant;
 
     let elevesQuery = supabase
       .from("eleves")
@@ -190,7 +194,11 @@ export default function ElevesPage() {
       .eq("archive", false)
       .order("nom");
 
-    if (isGerant && gerantEtabIds.length > 0) {
+    if (selectedAnneeId) elevesQuery = elevesQuery.eq("annee_id", selectedAnneeId);
+
+    if (isCoordRole && coordEtabIds.length > 0) {
+      elevesQuery = elevesQuery.in("etablissement_id", coordEtabIds);
+    } else if (isGerant && gerantEtabIds.length > 0) {
       elevesQuery = elevesQuery.in("etablissement_id", gerantEtabIds);
     } else if (isPiloteRole) {
       const { data: peData } = await supabase
@@ -198,22 +206,21 @@ export default function ElevesPage() {
         .select("etablissement_id")
         .eq("pilote_id", user.id);
       const piloteEtabIds = (peData || []).map((x: any) => x.etablissement_id);
-      // Filter to pilot's établissements (empty list → no results)
       elevesQuery = elevesQuery.in("etablissement_id", piloteEtabIds.length > 0 ? piloteEtabIds : ["__none__"]);
     }
 
-    const [eR, etR, aR, anR, pR, profR] = await Promise.all([
+    const [eR, etR, aR, pR, profR] = await Promise.all([
       elevesQuery,
-      supabase.from("etablissements").select("*").eq("actif", true).order("nom"),
+      isCoordRole && coordEtabIds.length > 0
+        ? supabase.from("etablissements").select("*").in("id", coordEtabIds).order("nom")
+        : supabase.from("etablissements").select("*").eq("actif", true).order("nom"),
       supabase.from("aeronefs").select("*").eq("actif", true).order("type_aeronef"),
-      supabase.from("annees").select("*").eq("active", true).single(),
       supabase.from("parametres").select("cle,valeur").eq("cle", "prix_inscription").single(),
       supabase.from("profiles").select("email, nom, prenom, telephone").contains("roles", ["parent"]),
     ]);
     setEleves(eR.data || []);
     setEtablissements(etR.data || []);
     setAeronefs(aR.data || []);
-    if (anR.data) setAnneeId(anR.data.id);
     if (pR.data?.valeur) setDefaultMontant(pR.data.valeur);
     // Build email → profile map for parent name sync
     const pmap: Record<string, any> = {};
@@ -225,8 +232,8 @@ export default function ElevesPage() {
   }
 
   useEffect(() => {
-    load();
-  }, []);
+    if (selectedAnneeId) load();
+  }, [selectedAnneeId]);
 
   async function loadEmailLogs(eleve: any) {
     if (!eleve?.parent_email) return;
@@ -438,7 +445,7 @@ export default function ElevesPage() {
         vol1_prix: form.vol1_prix ? parseFloat(form.vol1_prix) : null,
         vol1_pilote_nom: form.vol1_pilote_nom || null,
         vol1_numero_aerogest: form.vol1_numero_aerogest || null,
-        vol2_autorise: form.vol2_autorise || form.bia_resultat === "Admis" || form.bia_resultat === "Mention",
+        vol2_autorise: form.vol2_autorise,
         vol2_effectue: form.vol2_effectue,
         vol2_temps_minutes: form.vol2_effectue && form.vol2_temps_minutes ? parseInt(form.vol2_temps_minutes) : null,
         vol2_aeronef_id: form.vol2_aeronef_id || null,
@@ -508,10 +515,7 @@ export default function ElevesPage() {
       bia_passe: form.bia_passe,
       bia_resultat: form.bia_resultat || null,
       bia_date: form.bia_date || null,
-      vol2_autorise:
-        form.vol2_autorise ||
-        form.bia_resultat === "Admis" ||
-        form.bia_resultat === "Mention",
+      vol2_autorise: form.vol2_autorise,
       commentaires: form.commentaires || null,
     };
     // Only update attestation_url if a new file was uploaded
@@ -1001,7 +1005,12 @@ export default function ElevesPage() {
                   type="checkbox"
                   checked={form.bia_passe}
                   onChange={(e) =>
-                    setForm({ ...form, bia_passe: e.target.checked })
+                    setForm({
+                      ...form,
+                      bia_passe: e.target.checked,
+                      // Si on décoche BIA, on efface aussi le résultat et on révoque l'autorisation vol 2
+                      ...(!e.target.checked ? { bia_resultat: "", vol2_autorise: false } : {}),
+                    })
                   }
                 />
                 <span className="text-sm font-semibold text-gray-700">BIA</span>
@@ -1012,9 +1021,16 @@ export default function ElevesPage() {
                     <label className="label">Resultat</label>
                     <select
                       value={form.bia_resultat}
-                      onChange={(e) =>
-                        setForm({ ...form, bia_resultat: e.target.value })
-                      }
+                      onChange={(e) => {
+                        const r = e.target.value;
+                        setForm({
+                          ...form,
+                          bia_resultat: r,
+                          // Sync vol2_autorise automatically: true if BIA passed, false otherwise.
+                          // Admin can still manually toggle the checkbox below.
+                          vol2_autorise: r === "Admis" || r === "Mention",
+                        });
+                      }}
                       className="select"
                     >
                       <option value="">—</option>
@@ -1363,7 +1379,23 @@ export default function ElevesPage() {
                     <p className="text-[11px] text-gray-400 -mt-1 mb-1 px-1">Mis à jour via le profil parent</p>
                   )}
                   <InfoRow label="Email" value={s.parent_email} />
-                  <InfoRow label="Telephone" value={tel} />
+                  <div className="flex items-center justify-between py-1.5 border-b border-gray-50 last:border-0">
+                    <span className="text-xs text-gray-500">Téléphone</span>
+                    <div className="flex items-center gap-2">
+                      {tel && <span className="text-xs font-medium text-gray-800">{tel}</span>}
+                      {tel ? (
+                        <a
+                          href={`tel:${tel.replace(/\s/g, "")}`}
+                          className="flex items-center gap-1 px-2 py-1 rounded-lg bg-emerald-50 text-emerald-700 hover:bg-emerald-100 transition-colors text-xs font-semibold"
+                          title={`Appeler ${nom}`}
+                        >
+                          <Phone className="w-3 h-3" /> Appeler
+                        </a>
+                      ) : (
+                        <span className="text-xs text-gray-400">—</span>
+                      )}
+                    </div>
+                  </div>
                 </>);
               })()}
               <div className="mt-2">

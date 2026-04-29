@@ -27,6 +27,8 @@ export interface Etablissement {
   contact_prenom: string | null;
   actif: boolean;
   created_at: string;
+  code_inscription: string | null;
+  nb_eleves_attendus: number | null;
 }
 
 export interface Annee {
@@ -37,6 +39,12 @@ export interface Annee {
   active: boolean;
 }
 
+export interface PrixHeureLigne {
+  prix: number;
+  date: string; // ISO date
+  note?: string;
+}
+
 export interface Aeronef {
   id: string;
   immatriculation: string;
@@ -44,6 +52,7 @@ export interface Aeronef {
   nb_places_eleves: number;
   prix_heure: number;
   actif: boolean;
+  prix_heure_historique?: PrixHeureLigne[];
 }
 
 export interface Eleve {

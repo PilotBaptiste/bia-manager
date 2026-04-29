@@ -3,6 +3,7 @@ import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { Users, CheckCircle2, Plane, Euro, Calendar, Clock, School, FileSignature, CalendarPlus, AlertCircle } from "lucide-react";
 import Link from "next/link";
 import ParentOnboarding from "@/components/ParentOnboarding";
+import DashboardSAStats from "@/components/DashboardSAStats";
 
 // ─── Stat Card ──────────────────────────────────────────
 function Stat({ icon: Icon, label, value, sub, color = "bg-brand-50 text-brand-500" }: any) {
@@ -22,6 +23,19 @@ function Stat({ icon: Icon, label, value, sub, color = "bg-brand-50 text-brand-5
 
 // ─── SuperAdmin Dashboard ───────────────────────────────
 async function DashboardSuperAdmin({ supabase }: { supabase: any }) {
+  // Fetch active year to scope all queries
+  const { data: anData } = await supabase.from("annees").select("id, label").eq("active", true).single();
+  const aid = anData?.id ?? null;
+
+  function eleveBase() {
+    const q = supabase.from("eleves").select("*", { count: "exact" }).eq("archive", false);
+    return aid ? q.eq("annee_id", aid) : q;
+  }
+  function creneauBase() {
+    const q = supabase.from("creneaux").select("*", { count: "exact" }).in("statut", ["ouvert", "confirme"]);
+    return aid ? q.eq("annee_id", aid) : q;
+  }
+
   const [
     { count: totalEleves },
     { count: attestations },
@@ -34,20 +48,19 @@ async function DashboardSuperAdmin({ supabase }: { supabase: any }) {
     { count: volsPrevus },
     { data: prochainsCrenaux },
   ] = await Promise.all([
-    supabase.from("eleves").select("*", { count: "exact" }).eq("archive", false),
-    supabase.from("eleves").select("*", { count: "exact" }).eq("attestation_signee", true).eq("archive", false),
-    supabase.from("eleves").select("*", { count: "exact" }).eq("paiement_effectue", true).eq("archive", false),
-    supabase.from("eleves").select("*", { count: "exact" }).eq("paiement_effectue", false).eq("archive", false),
-    supabase.from("eleves").select("*", { count: "exact" }).eq("attestation_signee", false).eq("archive", false),
-    supabase.from("eleves").select("*", { count: "exact" }).eq("vol1_effectue", true).eq("archive", false),
-    supabase.from("eleves").select("*", { count: "exact" }).eq("vol2_effectue", true).eq("archive", false),
-    supabase.from("eleves").select("*", { count: "exact" }).eq("vol2_autorise", true).eq("archive", false),
-    supabase.from("creneaux").select("*", { count: "exact" }).in("statut", ["ouvert", "confirme"]),
-    supabase.from("creneaux")
-      .select("*, pilote:profiles!pilote_id(nom, prenom), aeronef:aeronefs(type_aeronef, immatriculation), reservations(id, statut, eleve:eleves(nom, prenom))")
-      .in("statut", ["ouvert", "confirme"])
-      .order("date_vol")
-      .limit(5),
+    eleveBase(),
+    eleveBase().eq("attestation_signee", true),
+    eleveBase().eq("paiement_effectue", true),
+    eleveBase().eq("paiement_effectue", false),
+    eleveBase().eq("attestation_signee", false),
+    eleveBase().eq("vol1_effectue", true),
+    eleveBase().eq("vol2_effectue", true),
+    eleveBase().eq("vol2_autorise", true),
+    creneauBase(),
+    (aid
+      ? supabase.from("creneaux").select("*, pilote:profiles!pilote_id(nom, prenom), aeronef:aeronefs(type_aeronef, immatriculation), reservations(id, statut, eleve:eleves(nom, prenom))").in("statut", ["ouvert", "confirme"]).eq("annee_id", aid).order("date_vol").limit(5)
+      : supabase.from("creneaux").select("*, pilote:profiles!pilote_id(nom, prenom), aeronef:aeronefs(type_aeronef, immatriculation), reservations(id, statut, eleve:eleves(nom, prenom))").in("statut", ["ouvert", "confirme"]).order("date_vol").limit(5)
+    ),
   ]);
 
   const total = totalEleves || 0;
@@ -58,7 +71,7 @@ async function DashboardSuperAdmin({ supabase }: { supabase: any }) {
   return (
     <div>
       <div className="mb-6">
-        <h1 className="text-xl font-bold text-gray-900">Tableau de bord — {new Date().getFullYear()}</h1>
+        <h1 className="text-xl font-bold text-gray-900">Tableau de bord — {anData?.label ?? new Date().getFullYear()}</h1>
         <p className="text-sm text-gray-500 mt-1">Aéro-Club du Bassin d&apos;Arcachon · SuperAdmin</p>
       </div>
       <div className="flex gap-3 flex-wrap mb-6">
@@ -564,7 +577,7 @@ export default async function DashboardPage() {
   const supabase = await createServerSupabaseClient();
   const roles = profile.roles || [];
 
-  if (roles.includes("superadmin")) return <DashboardSuperAdmin supabase={supabase} />;
+  if (roles.includes("superadmin")) return <DashboardSAStats />;
   if (roles.includes("coordinateur")) return <DashboardCoordinateur supabase={supabase} profile={profile} />;
   if (roles.includes("pilote")) return <DashboardPilote supabase={supabase} profile={profile} />;
   if (roles.includes("gerant")) return <DashboardGerant supabase={supabase} profile={profile} />;
