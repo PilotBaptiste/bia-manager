@@ -1,6 +1,7 @@
 "use client";
 import { useState, useEffect, useMemo } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { useYear } from "@/contexts/YearContext";
 import { matchDesiderata } from "@/components/DesiderataGrid";
 import { toast } from "sonner";
 import {
@@ -27,6 +28,9 @@ import ConfirmModal from "@/components/ConfirmModal";
 
 export default function VolsPage() {
   const supabase = createClient();
+  const { selectedAnneeId, activeAnneeId } = useYear();
+  // anneeId = active year used when creating new slots
+  const anneeId = activeAnneeId;
   const [creneaux, setCreneaux] = useState<any[]>([]);
   const [volsHisto, setVolsHisto] = useState<any[]>([]);
   const [aeronefs, setAeronefs] = useState<any[]>([]);
@@ -36,7 +40,6 @@ export default function VolsPage() {
   const [qualifs, setQualifs] = useState<any[]>([]);
   const [piloteEtabs, setPiloteEtabs] = useState<any[]>([]);
   const [profile, setProfile] = useState<any>(null);
-  const [anneeId, setAnneeId] = useState("");
   const [loading, setLoading] = useState(true);
   const [mode, setMode] = useState<"list" | "calendar" | "historique">("list");
   const [calMonth, setCalMonth] = useState(new Date().getMonth());
@@ -87,11 +90,6 @@ export default function VolsPage() {
     } = await supabase.auth.getUser();
     if (!user) return;
 
-    // Fetch active year first so we can filter creneaux and eleves by it
-    const { data: anData } = await supabase.from("annees").select("id").eq("active", true).single();
-    const activeAnneeId = anData?.id ?? null;
-    if (activeAnneeId) setAnneeId(activeAnneeId);
-
     let creneauxQuery = supabase
       .from("creneaux")
       .select(
@@ -99,14 +97,14 @@ export default function VolsPage() {
       )
       .order("date_vol", { ascending: false })
       .order("heure_debut", { ascending: true });
-    if (activeAnneeId) creneauxQuery = creneauxQuery.eq("annee_id", activeAnneeId);
+    if (selectedAnneeId) creneauxQuery = creneauxQuery.eq("annee_id", selectedAnneeId);
 
     let elevesQuery = supabase
       .from("eleves")
       .select("id, nom, prenom, etablissement_id, desiderata, abandonne, vol1_effectue, vol1_numero_aerogest, vol1_prix, vol1_temps_minutes, vol1_pilote_nom, vol1_aeronef_id, vol2_effectue, vol2_numero_aerogest, vol2_prix, vol2_temps_minutes, vol2_pilote_nom, vol2_aeronef_id")
       .eq("archive", false)
       .order("nom");
-    if (activeAnneeId) elevesQuery = elevesQuery.eq("annee_id", activeAnneeId);
+    if (selectedAnneeId) elevesQuery = elevesQuery.eq("annee_id", selectedAnneeId);
 
     const [profRes, crRes, aRes, eRes, vhRes, pRes, qRes, peRes, elRes] =
       await Promise.all([
@@ -149,8 +147,8 @@ export default function VolsPage() {
   }
 
   useEffect(() => {
-    load();
-  }, []);
+    if (selectedAnneeId) load();
+  }, [selectedAnneeId]);
 
   const isPilote = profile?.roles?.includes("pilote");
   const isSA = profile?.roles?.includes("superadmin");

@@ -1,6 +1,7 @@
 "use client";
 import { useState, useEffect, useMemo } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { useYear } from "@/contexts/YearContext";
 import {
   Archive,
   Users,
@@ -14,7 +15,6 @@ import {
   Clock,
   TrendingUp,
   FileSignature,
-  ChevronDown,
 } from "lucide-react";
 
 // ─── Stat card ───────────────────────────────────────────────────────────────
@@ -56,32 +56,14 @@ function Badge({ children, color }: { children: React.ReactNode; color: string }
 
 export default function ArchivesPage() {
   const supabase = createClient();
+  // Archives utilise le même sélecteur global que les autres pages
+  const { annees, selectedAnneeId, selectedAnnee, activeAnneeId, loading: yearLoading } = useYear();
 
-  const [annees, setAnnees] = useState<any[]>([]);
-  const [selectedAnneeId, setSelectedAnneeId] = useState<string>("");
   const [eleves, setEleves] = useState<any[]>([]);
   const [creneaux, setCreneaux] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
   const [loadingData, setLoadingData] = useState(false);
   const [tab, setTab] = useState<"eleves" | "vols">("eleves");
   const [search, setSearch] = useState("");
-
-  // ── Load years on mount ────────────────────────────────────────────────────
-  useEffect(() => {
-    async function loadAnnees() {
-      const { data } = await supabase
-        .from("annees")
-        .select("*")
-        .order("date_debut", { ascending: false });
-      const list = data || [];
-      setAnnees(list);
-      // Default: active year, or first in list
-      const active = list.find((a: any) => a.active);
-      setSelectedAnneeId(active?.id || list[0]?.id || "");
-      setLoading(false);
-    }
-    loadAnnees();
-  }, []);
 
   // ── Load eleves + creneaux when year changes ───────────────────────────────
   useEffect(() => {
@@ -121,8 +103,6 @@ export default function ArchivesPage() {
     }
     loadData();
   }, [selectedAnneeId]);
-
-  const selectedAnnee = annees.find((a) => a.id === selectedAnneeId);
 
   // ── Stats ─────────────────────────────────────────────────────────────────
   const stats = useMemo(() => {
@@ -177,7 +157,7 @@ export default function ArchivesPage() {
   }, [creneaux, search]);
 
   // ── Render ────────────────────────────────────────────────────────────────
-  if (loading) {
+  if (yearLoading) {
     return (
       <div className="flex items-center justify-center h-[50vh]">
         <Loader2 className="w-6 h-6 animate-spin text-brand-500" />
@@ -203,31 +183,13 @@ export default function ArchivesPage() {
   return (
     <div className="space-y-6">
       {/* ── Header ── */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-brand-50 flex items-center justify-center">
-            <Archive className="w-5 h-5 text-brand-500" />
-          </div>
-          <div>
-            <h1 className="text-xl font-bold text-gray-900">Archives</h1>
-            <p className="text-sm text-gray-500">Consultation par année scolaire — lecture seule</p>
-          </div>
+      <div className="flex items-center gap-3">
+        <div className="w-10 h-10 rounded-xl bg-brand-50 flex items-center justify-center">
+          <Archive className="w-5 h-5 text-brand-500" />
         </div>
-
-        {/* Year selector */}
-        <div className="relative">
-          <select
-            value={selectedAnneeId}
-            onChange={(e) => { setSelectedAnneeId(e.target.value); setSearch(""); }}
-            className="appearance-none pl-4 pr-10 py-2.5 rounded-xl border border-gray-200 bg-white text-sm font-semibold text-gray-800 shadow-sm focus:outline-none focus:ring-2 focus:ring-brand-300 cursor-pointer"
-          >
-            {annees.map((a) => (
-              <option key={a.id} value={a.id}>
-                {a.label}{a.active ? " (active)" : ""}
-              </option>
-            ))}
-          </select>
-          <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
+        <div>
+          <h1 className="text-xl font-bold text-gray-900">Archives — {selectedAnnee?.label ?? "—"}</h1>
+          <p className="text-sm text-gray-500">Consultez l'année scolaire depuis le sélecteur dans la sidebar</p>
         </div>
       </div>
 

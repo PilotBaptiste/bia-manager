@@ -3,6 +3,7 @@ import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { Users, CheckCircle2, Plane, Euro, Calendar, Clock, School, FileSignature, CalendarPlus, AlertCircle } from "lucide-react";
 import Link from "next/link";
 import ParentOnboarding from "@/components/ParentOnboarding";
+import DashboardSAStats from "@/components/DashboardSAStats";
 
 // ─── Stat Card ──────────────────────────────────────────
 function Stat({ icon: Icon, label, value, sub, color = "bg-brand-50 text-brand-500" }: any) {
@@ -576,7 +577,7 @@ export default async function DashboardPage() {
   const supabase = await createServerSupabaseClient();
   const roles = profile.roles || [];
 
-  if (roles.includes("superadmin")) return <DashboardSuperAdmin supabase={supabase} />;
+  if (roles.includes("superadmin")) return <DashboardSAStats />;
   if (roles.includes("coordinateur")) return <DashboardCoordinateur supabase={supabase} profile={profile} />;
   if (roles.includes("pilote")) return <DashboardPilote supabase={supabase} profile={profile} />;
   if (roles.includes("gerant")) return <DashboardGerant supabase={supabase} profile={profile} />;

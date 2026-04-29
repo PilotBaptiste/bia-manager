@@ -3,6 +3,7 @@ import { useState, useEffect, useMemo } from "react";
 import { useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { toast } from "sonner";
+import { useYear } from "@/contexts/YearContext";
 import type { Eleve, Etablissement } from "@/types";
 import {
   Users,
@@ -129,10 +130,12 @@ const emptyForm = {
 export default function ElevesPage() {
   const supabase = createClient();
   const searchParams = useSearchParams();
+  const { selectedAnneeId, activeAnneeId } = useYear();
+  // anneeId = active year, used when creating new students
+  const anneeId = activeAnneeId;
   const [eleves, setEleves] = useState<any[]>([]);
   const [etablissements, setEtablissements] = useState<Etablissement[]>([]);
   const [aeronefs, setAeronefs] = useState<any[]>([]);
-  const [anneeId, setAnneeId] = useState("");
   const [profileId, setProfileId] = useState("");
   const [profile, setProfile] = useState<any>(null);
   const [defaultMontant, setDefaultMontant] = useState("80");
@@ -183,11 +186,6 @@ export default function ElevesPage() {
     const gerantEtabIds = etabIdsFromProfile(prof?.etablissement_ids, prof?.etablissement_id);
     const isPiloteRole = prof?.roles?.includes("pilote") && !isSARole && !isCoordRole && !isGerant;
 
-    // Fetch active year first so we can filter queries by it
-    const { data: anData } = await supabase.from("annees").select("id").eq("active", true).single();
-    const activeAnneeId = anData?.id ?? null;
-    if (activeAnneeId) setAnneeId(activeAnneeId);
-
     let elevesQuery = supabase
       .from("eleves")
       .select(
@@ -196,7 +194,7 @@ export default function ElevesPage() {
       .eq("archive", false)
       .order("nom");
 
-    if (activeAnneeId) elevesQuery = elevesQuery.eq("annee_id", activeAnneeId);
+    if (selectedAnneeId) elevesQuery = elevesQuery.eq("annee_id", selectedAnneeId);
 
     if (isCoordRole && coordEtabIds.length > 0) {
       elevesQuery = elevesQuery.in("etablissement_id", coordEtabIds);
@@ -234,8 +232,8 @@ export default function ElevesPage() {
   }
 
   useEffect(() => {
-    load();
-  }, []);
+    if (selectedAnneeId) load();
+  }, [selectedAnneeId]);
 
   async function loadEmailLogs(eleve: any) {
     if (!eleve?.parent_email) return;
