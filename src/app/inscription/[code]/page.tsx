@@ -39,7 +39,14 @@ export default function InscriptionCodePage() {
         setEtabError(d.error ?? "Code invalide");
       } else {
         const d = await res.json();
-        setEtabInfo(d);
+        // Aplatir la réponse : l'API retourne { etab: { nom, ville }, inscritCount, limit, isFull }
+        setEtabInfo({
+          nom: d.etab?.nom ?? d.nom ?? "",
+          ville: d.etab?.ville ?? d.ville ?? "",
+          inscritCount: d.inscritCount ?? 0,
+          limit: d.limit ?? 0,
+          isFull: d.isFull ?? false,
+        });
       }
       setLoadingEtab(false);
     }
@@ -217,9 +224,9 @@ export default function InscriptionCodePage() {
           <p className="text-white/70 text-xs font-semibold uppercase tracking-wider mb-1">Inscription pour</p>
           <p className="text-white font-bold text-lg">{etabInfo?.nom}</p>
           {etabInfo?.ville && <p className="text-white/60 text-sm">{etabInfo.ville}</p>}
-          {etabInfo?.limit && etabInfo.limit > 0 && (
+          {(etabInfo?.limit ?? 0) > 0 && (
             <p className="text-white/50 text-xs mt-1">
-              {etabInfo.inscritCount} / {etabInfo.limit} places utilisées
+              {etabInfo!.inscritCount} / {etabInfo!.limit} places utilisées
             </p>
           )}
         </div>
