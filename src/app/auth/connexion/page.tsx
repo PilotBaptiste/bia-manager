@@ -2,7 +2,8 @@
 import { useState, useEffect, Suspense } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Plane, Eye, EyeOff, Loader2, CheckCircle } from "lucide-react";
+import { Plane, Eye, EyeOff, Loader2, CheckCircle, UserPlus } from "lucide-react";
+import Link from "next/link";
 
 function ConnexionInner() {
   const [email, setEmail] = useState("");
@@ -207,6 +208,18 @@ function ConnexionInner() {
                   Mot de passe oublié ?
                 </button>
               </form>
+
+              {/* Séparateur parent */}
+              <div className="mt-8 pt-6 border-t border-gray-100">
+                <p className="text-xs text-gray-400 text-center mb-3">Première connexion ? Vous êtes parent d&apos;élève ?</p>
+                <Link
+                  href="/inscription"
+                  className="flex items-center justify-center gap-2 w-full py-2.5 rounded-xl border border-brand-200 bg-brand-50 text-brand-600 text-sm font-semibold hover:bg-brand-100 transition-colors"
+                >
+                  <UserPlus className="w-4 h-4" />
+                  Inscrire mon enfant avec mon code établissement
+                </Link>
+              </div>
             </>
           )}
         </div>
