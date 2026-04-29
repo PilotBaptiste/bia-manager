@@ -326,8 +326,8 @@ export default function EtablissementsPage() {
             {e.email && <p className="text-xs text-gray-500 mb-1">{e.email}</p>}
             {e.telephone && <p className="text-xs text-gray-500">{e.telephone}</p>}
 
-            {/* Code inscription */}
-            {(isSA || !isCoord) && (
+            {/* Code inscription — visible par SA (génération) et coordinateurs (lecture) */}
+            {(isSA || e.code_inscription) && (
               <div className="mt-3 pt-3 border-t border-gray-100">
                 {e.code_inscription ? (
                   <div className="flex items-center justify-between">
@@ -337,29 +337,30 @@ export default function EtablissementsPage() {
                     </div>
                     <div className="flex gap-1.5">
                       <button
-                        onClick={() => copyLink(e.code_inscription, e.id)}
+                        onClick={() => copyLink(e.code_inscription!, e.id)}
                         className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-gray-700 transition-colors"
-                        title="Copier le lien"
+                        title="Copier le lien d'inscription"
                       >
                         {copiedId === e.id ? <Check className="w-3.5 h-3.5 text-emerald-500" /> : <Copy className="w-3.5 h-3.5" />}
                       </button>
                       <button
                         onClick={() => { setCodeModal(e); setNbEleves(String(e.nb_eleves_attendus || "")); }}
                         className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-gray-700 transition-colors"
-                        title="Gérer le code"
+                        title="Voir / gérer"
                       >
                         <Link2 className="w-3.5 h-3.5" />
                       </button>
                     </div>
                   </div>
-                ) : isSA ? (
+                ) : (
+                  /* Pas de code — seul le SA peut en générer un */
                   <button
                     onClick={() => { setCodeModal(e); setNbEleves(""); }}
                     className="flex items-center gap-1.5 text-xs text-brand-500 font-semibold hover:underline"
                   >
                     <Link2 className="w-3 h-3" /> Générer un code d'inscription
                   </button>
-                ) : null}
+                )}
               </div>
             )}
 
