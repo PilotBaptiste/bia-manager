@@ -92,7 +92,7 @@ export default function ArchivesPage() {
         supabase
           .from("eleves")
           .select(
-            `id, nom, prenom, email, telephone, abandonne,
+            `id, nom, prenom, parent_email, parent_telephone, abandonne,
              vol1_effectue, vol2_effectue, attestation_signee, paiement_effectue,
              etablissement:etablissements(nom),
              vol1_aeronef:aeronefs!vol1_aeronef_id(type_aeronef, immatriculation),
@@ -158,7 +158,7 @@ export default function ArchivesPage() {
       (e) =>
         e.nom?.toLowerCase().includes(q) ||
         e.prenom?.toLowerCase().includes(q) ||
-        e.email?.toLowerCase().includes(q) ||
+        e.parent_email?.toLowerCase().includes(q) ||
         e.etablissement?.nom?.toLowerCase().includes(q)
     );
   }, [eleves, search]);
@@ -379,8 +379,8 @@ export default function ArchivesPage() {
                             <div className="font-semibold text-gray-900">
                               {e.prenom} {e.nom}
                             </div>
-                            {e.email && (
-                              <div className="text-xs text-gray-400 mt-0.5">{e.email}</div>
+                            {e.parent_email && (
+                              <div className="text-xs text-gray-400 mt-0.5">{e.parent_email}</div>
                             )}
                           </td>
                           <td className="px-4 py-3">
