@@ -223,22 +223,22 @@ export default function EtablissementsPage() {
             </div>
             <p className="text-sm text-gray-500 mb-4"><strong>{codeModal.nom}</strong></p>
 
-            {(codeModal as any).code_inscription ? (
+            {codeModal.code_inscription ? (
               <>
                 <div className="bg-gray-50 rounded-xl p-4 text-center mb-4">
                   <p className="text-xs text-gray-400 mb-1">Code d'inscription</p>
                   <p className="text-3xl font-mono font-bold tracking-widest text-gray-900">
-                    {(codeModal as any).code_inscription}
+                    {codeModal.code_inscription}
                   </p>
                 </div>
                 <button
-                  onClick={() => copyLink((codeModal as any).code_inscription, codeModal.id)}
+                  onClick={() => copyLink(codeModal.code_inscription, codeModal.id)}
                   className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl border border-gray-200 text-sm font-semibold text-gray-700 hover:bg-gray-50 mb-3"
                 >
                   {copiedId === codeModal.id ? <><Check className="w-4 h-4 text-emerald-500" /> Lien copié !</> : <><Copy className="w-4 h-4" /> Copier le lien d'inscription</>}
                 </button>
                 <p className="text-xs text-gray-400 mb-4 break-all text-center">
-                  {typeof window !== "undefined" ? `${window.location.origin}/inscription/${(codeModal as any).code_inscription}` : ""}
+                  {typeof window !== "undefined" ? `${window.location.origin}/inscription/${codeModal.code_inscription}` : ""}
                 </p>
               </>
             ) : (
@@ -254,7 +254,7 @@ export default function EtablissementsPage() {
                 min="0"
                 value={nbEleves}
                 onChange={(e) => setNbEleves(e.target.value)}
-                placeholder={String((codeModal as any).nb_eleves_attendus || "0")}
+                placeholder={String(codeModal.nb_eleves_attendus || "0")}
                 className="input"
               />
             </div>
@@ -267,10 +267,10 @@ export default function EtablissementsPage() {
                   className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl bg-brand-500 text-white text-sm font-semibold hover:bg-brand-600 disabled:opacity-60"
                 >
                   {savingCode ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
-                  {(codeModal as any).code_inscription ? "Régénérer" : "Générer le code"}
+                  {codeModal.code_inscription ? "Régénérer" : "Générer le code"}
                 </button>
               )}
-              {(codeModal as any).code_inscription && (
+              {codeModal.code_inscription && (
                 <button
                   onClick={() => handleSaveLimit(codeModal)}
                   disabled={savingCode}
@@ -329,22 +329,22 @@ export default function EtablissementsPage() {
             {/* Code inscription */}
             {(isSA || !isCoord) && (
               <div className="mt-3 pt-3 border-t border-gray-100">
-                {(e as any).code_inscription ? (
+                {e.code_inscription ? (
                   <div className="flex items-center justify-between">
                     <div>
                       <p className="text-[10px] font-bold uppercase tracking-wider text-gray-400">Code inscription</p>
-                      <p className="font-mono font-bold text-sm text-gray-900 tracking-widest">{(e as any).code_inscription}</p>
+                      <p className="font-mono font-bold text-sm text-gray-900 tracking-widest">{e.code_inscription}</p>
                     </div>
                     <div className="flex gap-1.5">
                       <button
-                        onClick={() => copyLink((e as any).code_inscription, e.id)}
+                        onClick={() => copyLink(e.code_inscription, e.id)}
                         className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-gray-700 transition-colors"
                         title="Copier le lien"
                       >
                         {copiedId === e.id ? <Check className="w-3.5 h-3.5 text-emerald-500" /> : <Copy className="w-3.5 h-3.5" />}
                       </button>
                       <button
-                        onClick={() => { setCodeModal(e); setNbEleves(String((e as any).nb_eleves_attendus || "")); }}
+                        onClick={() => { setCodeModal(e); setNbEleves(String(e.nb_eleves_attendus || "")); }}
                         className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-gray-700 transition-colors"
                         title="Gérer le code"
                       >

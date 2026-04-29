@@ -445,7 +445,7 @@ export default function ElevesPage() {
         vol1_prix: form.vol1_prix ? parseFloat(form.vol1_prix) : null,
         vol1_pilote_nom: form.vol1_pilote_nom || null,
         vol1_numero_aerogest: form.vol1_numero_aerogest || null,
-        vol2_autorise: form.vol2_autorise || form.bia_resultat === "Admis" || form.bia_resultat === "Mention",
+        vol2_autorise: form.vol2_autorise,
         vol2_effectue: form.vol2_effectue,
         vol2_temps_minutes: form.vol2_effectue && form.vol2_temps_minutes ? parseInt(form.vol2_temps_minutes) : null,
         vol2_aeronef_id: form.vol2_aeronef_id || null,
@@ -515,10 +515,7 @@ export default function ElevesPage() {
       bia_passe: form.bia_passe,
       bia_resultat: form.bia_resultat || null,
       bia_date: form.bia_date || null,
-      vol2_autorise:
-        form.vol2_autorise ||
-        form.bia_resultat === "Admis" ||
-        form.bia_resultat === "Mention",
+      vol2_autorise: form.vol2_autorise,
       commentaires: form.commentaires || null,
     };
     // Only update attestation_url if a new file was uploaded
@@ -1024,9 +1021,16 @@ export default function ElevesPage() {
                     <label className="label">Resultat</label>
                     <select
                       value={form.bia_resultat}
-                      onChange={(e) =>
-                        setForm({ ...form, bia_resultat: e.target.value })
-                      }
+                      onChange={(e) => {
+                        const r = e.target.value;
+                        setForm({
+                          ...form,
+                          bia_resultat: r,
+                          // Sync vol2_autorise automatically: true if BIA passed, false otherwise.
+                          // Admin can still manually toggle the checkbox below.
+                          vol2_autorise: r === "Admis" || r === "Mention",
+                        });
+                      }}
                       className="select"
                     >
                       <option value="">—</option>

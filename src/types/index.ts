@@ -27,6 +27,8 @@ export interface Etablissement {
   contact_prenom: string | null;
   actif: boolean;
   created_at: string;
+  code_inscription: string | null;
+  nb_eleves_attendus: number | null;
 }
 
 export interface Annee {
