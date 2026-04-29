@@ -85,7 +85,7 @@ export default function ArchivesPage() {
         supabase
           .from("creneaux")
           .select(
-            `id, date_vol, heure_debut, heure_fin, statut, type_vol,
+            `id, date_vol, heure_debut, heure_fin, statut,
              etablissement:etablissements(nom),
              pilote:profiles!pilote_id(nom, prenom),
              aeronef:aeronefs(type_aeronef, immatriculation, prix_heure),
