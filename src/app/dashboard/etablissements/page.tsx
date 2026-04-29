@@ -3,11 +3,16 @@
 import { useState, useEffect } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { toast } from "sonner";
-import { School, Plus, Edit, Trash2, Loader2, X, User, Users } from "lucide-react";
+import { School, Plus, Edit, Trash2, Loader2, X, User, Users, Link2, Copy, RefreshCw, QrCode, Check } from "lucide-react";
 import Link from "next/link";
 import type { Etablissement } from "@/types";
 
 const emptyForm = { nom: "", ville: "", adresse: "", code_postal: "", telephone: "", email: "", contact_prenom: "", contact_nom: "", actif: true };
+
+function generateCode(len = 8): string {
+  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // pas de I/O/0/1 ambigus
+  return Array.from({ length: len }, () => chars[Math.floor(Math.random() * chars.length)]).join("");
+}
 
 export default function EtablissementsPage() {
   const supabase = createClient();
@@ -20,6 +25,10 @@ export default function EtablissementsPage() {
   const [form, setForm] = useState(emptyForm);
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [codeModal, setCodeModal] = useState<Etablissement | null>(null);
+  const [nbEleves, setNbEleves] = useState("");
+  const [savingCode, setSavingCode] = useState(false);
+  const [copiedId, setCopiedId] = useState<string | null>(null);
 
   async function load() {
     const { data: { user } } = await supabase.auth.getUser();
@@ -81,6 +90,37 @@ export default function EtablissementsPage() {
     setSaving(false);
     setShowForm(false);
     load();
+  }
+
+  async function handleGenerateCode(etab: Etablissement) {
+    setSavingCode(true);
+    const code = generateCode(8);
+    const nb = parseInt(nbEleves) || null;
+    await supabase.from("etablissements").update({
+      code_inscription: code,
+      nb_eleves_attendus: nb,
+    }).eq("id", etab.id);
+    setSavingCode(false);
+    toast.success(`Code généré : ${code}`);
+    setCodeModal(null);
+    load();
+  }
+
+  async function handleSaveLimit(etab: Etablissement) {
+    setSavingCode(true);
+    const nb = parseInt(nbEleves) || null;
+    await supabase.from("etablissements").update({ nb_eleves_attendus: nb }).eq("id", etab.id);
+    setSavingCode(false);
+    toast.success("Limite mise à jour");
+    setCodeModal(null);
+    load();
+  }
+
+  function copyLink(code: string, id: string) {
+    const url = `${window.location.origin}/inscription/${code}`;
+    navigator.clipboard.writeText(url);
+    setCopiedId(id);
+    setTimeout(() => setCopiedId(null), 2000);
   }
 
   async function handleDelete(id: string) {
@@ -170,6 +210,80 @@ export default function EtablissementsPage() {
         </div>
       )}
 
+      {/* Code modal */}
+      {codeModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/40" onClick={() => setCodeModal(null)} />
+          <div className="relative bg-white rounded-2xl p-6 w-full max-w-sm shadow-xl">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="font-bold text-gray-900 flex items-center gap-2">
+                <Link2 className="w-4 h-4 text-brand-500" /> Lien d'inscription
+              </h3>
+              <button onClick={() => setCodeModal(null)} className="p-1.5 rounded-lg hover:bg-gray-100"><X className="w-4 h-4" /></button>
+            </div>
+            <p className="text-sm text-gray-500 mb-4"><strong>{codeModal.nom}</strong></p>
+
+            {(codeModal as any).code_inscription ? (
+              <>
+                <div className="bg-gray-50 rounded-xl p-4 text-center mb-4">
+                  <p className="text-xs text-gray-400 mb-1">Code d'inscription</p>
+                  <p className="text-3xl font-mono font-bold tracking-widest text-gray-900">
+                    {(codeModal as any).code_inscription}
+                  </p>
+                </div>
+                <button
+                  onClick={() => copyLink((codeModal as any).code_inscription, codeModal.id)}
+                  className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl border border-gray-200 text-sm font-semibold text-gray-700 hover:bg-gray-50 mb-3"
+                >
+                  {copiedId === codeModal.id ? <><Check className="w-4 h-4 text-emerald-500" /> Lien copié !</> : <><Copy className="w-4 h-4" /> Copier le lien d'inscription</>}
+                </button>
+                <p className="text-xs text-gray-400 mb-4 break-all text-center">
+                  {typeof window !== "undefined" ? `${window.location.origin}/inscription/${(codeModal as any).code_inscription}` : ""}
+                </p>
+              </>
+            ) : (
+              <div className="bg-amber-50 rounded-xl p-3 mb-4 text-sm text-amber-700">
+                Aucun code généré — cliquez sur "Générer" pour créer le lien d'inscription.
+              </div>
+            )}
+
+            <div className="mb-4">
+              <label className="label">Nombre max d'élèves <span className="font-normal text-gray-400">(0 = illimité)</span></label>
+              <input
+                type="number"
+                min="0"
+                value={nbEleves}
+                onChange={(e) => setNbEleves(e.target.value)}
+                placeholder={String((codeModal as any).nb_eleves_attendus || "0")}
+                className="input"
+              />
+            </div>
+
+            <div className="flex gap-2">
+              {isSA && (
+                <button
+                  onClick={() => handleGenerateCode(codeModal)}
+                  disabled={savingCode}
+                  className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl bg-brand-500 text-white text-sm font-semibold hover:bg-brand-600 disabled:opacity-60"
+                >
+                  {savingCode ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
+                  {(codeModal as any).code_inscription ? "Régénérer" : "Générer le code"}
+                </button>
+              )}
+              {(codeModal as any).code_inscription && (
+                <button
+                  onClick={() => handleSaveLimit(codeModal)}
+                  disabled={savingCode}
+                  className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl border border-gray-200 text-sm font-semibold text-gray-700 hover:bg-gray-50 disabled:opacity-60"
+                >
+                  Enregistrer la limite
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Confirm delete */}
       {confirmDelete && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
@@ -210,8 +324,46 @@ export default function EtablissementsPage() {
               </div>
             )}
             {e.email && <p className="text-xs text-gray-500 mb-1">{e.email}</p>}
-            {e.telephone && <p className="text-xs text-gray-500 mb-3">{e.telephone}</p>}
-            <div className="flex gap-2 pt-3 border-t border-gray-100">
+            {e.telephone && <p className="text-xs text-gray-500">{e.telephone}</p>}
+
+            {/* Code inscription */}
+            {(isSA || !isCoord) && (
+              <div className="mt-3 pt-3 border-t border-gray-100">
+                {(e as any).code_inscription ? (
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-[10px] font-bold uppercase tracking-wider text-gray-400">Code inscription</p>
+                      <p className="font-mono font-bold text-sm text-gray-900 tracking-widest">{(e as any).code_inscription}</p>
+                    </div>
+                    <div className="flex gap-1.5">
+                      <button
+                        onClick={() => copyLink((e as any).code_inscription, e.id)}
+                        className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-gray-700 transition-colors"
+                        title="Copier le lien"
+                      >
+                        {copiedId === e.id ? <Check className="w-3.5 h-3.5 text-emerald-500" /> : <Copy className="w-3.5 h-3.5" />}
+                      </button>
+                      <button
+                        onClick={() => { setCodeModal(e); setNbEleves(String((e as any).nb_eleves_attendus || "")); }}
+                        className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-gray-700 transition-colors"
+                        title="Gérer le code"
+                      >
+                        <Link2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </div>
+                ) : isSA ? (
+                  <button
+                    onClick={() => { setCodeModal(e); setNbEleves(""); }}
+                    className="flex items-center gap-1.5 text-xs text-brand-500 font-semibold hover:underline"
+                  >
+                    <Link2 className="w-3 h-3" /> Générer un code d'inscription
+                  </button>
+                ) : null}
+              </div>
+            )}
+
+            <div className="flex gap-2 pt-3 border-t border-gray-100 mt-3">
               {(isSA || isCoord) && (
                 <Link href={`/dashboard/eleves?etablissement=${e.id}`} className="btn-secondary btn-sm flex-1"><Users className="w-3 h-3" /> Élèves</Link>
               )}

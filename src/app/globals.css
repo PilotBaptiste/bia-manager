@@ -104,6 +104,8 @@ body {
   .label { display:block; font-size:0.6875rem; font-weight:600; text-transform:uppercase; letter-spacing:0.05em; color:#6b7280; margin-bottom:0.25rem; }
   .select { width:100%; border-radius:0.5rem; border:1px solid #e5e7eb; background:white; padding:0.5rem 0.75rem; font-size:0.875rem; outline:none; font-family:inherit; box-sizing:border-box; }
   .select:focus { border-color:var(--color-brand-400); box-shadow:0 0 0 3px rgba(43,94,143,0.12); }
+  .input-field { width:100%; border-radius:0.625rem; border:1px solid #e5e7eb; background:white; padding:0.625rem 0.75rem; font-size:0.875rem; outline:none; font-family:inherit; box-sizing:border-box; transition:border-color .15s; }
+  .input-field:focus { border-color:#3b82f6; box-shadow:0 0 0 3px rgba(59,130,246,0.12); }
 }
 
 /* Dots */
