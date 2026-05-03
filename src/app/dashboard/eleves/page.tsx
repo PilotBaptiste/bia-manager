@@ -1925,9 +1925,11 @@ export default function ElevesPage() {
           <button onClick={handleExport} className="btn-secondary btn-sm">
             <Download className="w-3.5 h-3.5" /> Export
           </button>
-          <button onClick={openCreate} className="btn-primary btn-sm">
-            <Plus className="w-3.5 h-3.5" /> Inscrire
-          </button>
+          {!isPiloteOnly && (
+            <button onClick={openCreate} className="btn-primary btn-sm">
+              <Plus className="w-3.5 h-3.5" /> Inscrire
+            </button>
+          )}
         </div>
       </div>
 
@@ -2099,12 +2101,14 @@ export default function ElevesPage() {
                       <div className="flex flex-col items-center gap-2">
                         <Users className="w-8 h-8 text-gray-300" />
                         <p>Aucun eleve</p>
-                        <button
-                          onClick={openCreate}
-                          className="btn-primary btn-sm mt-2"
-                        >
-                          <Plus className="w-3.5 h-3.5" /> Inscrire
-                        </button>
+                        {!isPiloteOnly && (
+                          <button
+                            onClick={openCreate}
+                            className="btn-primary btn-sm mt-2"
+                          >
+                            <Plus className="w-3.5 h-3.5" /> Inscrire
+                          </button>
+                        )}
                       </div>
                     ) : (
                       "Aucun resultat"
