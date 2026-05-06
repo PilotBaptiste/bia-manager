@@ -83,7 +83,7 @@ function getNav(roles: string[]) {
     "Établissements",
     "School",
     "/dashboard/etablissements",
-    ["superadmin", "coordinateur"],
+    ["superadmin", "coordinateur", "gerant"],
   );
   add("pilotes", "Pilotes", "UserCheck", "/dashboard/pilotes", ["superadmin"]);
   add("aeronefs", "Aéronefs", "Settings", "/dashboard/aeronefs", [

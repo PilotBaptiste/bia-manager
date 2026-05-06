@@ -3,8 +3,6 @@ import { useState, useEffect } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { Plane, Loader2, Plus, Trash2, Eye, EyeOff, CheckCircle2, AlertCircle, User } from "lucide-react";
 
-const CLASSES = ["2nde", "1ère", "Terminale", "BTS", "Autre"];
-
 const emptyEnfant = { nom: "", prenom: "", date_naissance: "", lieu_naissance: "", classe: "" };
 
 export default function InscriptionCodePage() {
@@ -39,7 +37,14 @@ export default function InscriptionCodePage() {
         setEtabError(d.error ?? "Code invalide");
       } else {
         const d = await res.json();
-        setEtabInfo(d);
+        // Aplatir la réponse : l'API retourne { etab: { nom, ville }, inscritCount, limit, isFull }
+        setEtabInfo({
+          nom: d.etab?.nom ?? d.nom ?? "",
+          ville: d.etab?.ville ?? d.ville ?? "",
+          inscritCount: d.inscritCount ?? 0,
+          limit: d.limit ?? 0,
+          isFull: d.isFull ?? false,
+        });
       }
       setLoadingEtab(false);
     }
@@ -217,9 +222,9 @@ export default function InscriptionCodePage() {
           <p className="text-white/70 text-xs font-semibold uppercase tracking-wider mb-1">Inscription pour</p>
           <p className="text-white font-bold text-lg">{etabInfo?.nom}</p>
           {etabInfo?.ville && <p className="text-white/60 text-sm">{etabInfo.ville}</p>}
-          {etabInfo?.limit && etabInfo.limit > 0 && (
+          {(etabInfo?.limit ?? 0) > 0 && (
             <p className="text-white/50 text-xs mt-1">
-              {etabInfo.inscritCount} / {etabInfo.limit} places utilisées
+              {etabInfo!.inscritCount} / {etabInfo!.limit} places utilisées
             </p>
           )}
         </div>
@@ -318,11 +323,9 @@ export default function InscriptionCodePage() {
               </div>
               <div>
                 <label className="block text-xs font-semibold text-gray-500 mb-1">Classe</label>
-                <select value={enfant.classe} onChange={(e) => updateEnfant(idx, "classe", e.target.value)}
-                  className="input-field">
-                  <option value="">— Sélectionner —</option>
-                  {CLASSES.map((c) => <option key={c} value={c}>{c}</option>)}
-                </select>
+                <input type="text" value={enfant.classe}
+                  onChange={(e) => updateEnfant(idx, "classe", e.target.value)}
+                  placeholder="ex : 2nde 3, Terminale B…" className="input-field" />
               </div>
             </div>
           ))}

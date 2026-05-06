@@ -19,6 +19,7 @@ export default function EtablissementsPage() {
   const [etabs, setEtabs] = useState<Etablissement[]>([]);
   const [isSA, setIsSA] = useState(false);
   const [isCoord, setIsCoord] = useState(false);
+  const [isGerant, setIsGerant] = useState(false);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState<Etablissement | null>(null);
@@ -32,21 +33,24 @@ export default function EtablissementsPage() {
 
   async function load() {
     const { data: { user } } = await supabase.auth.getUser();
-    let coordEtabIds: string[] = [];
+    let filteredEtabIds: string[] = [];
     if (user) {
       const { data: prof } = await supabase.from("profiles").select("roles, etablissement_ids, etablissement_id").eq("id", user.id).single();
       const sa = prof?.roles?.includes("superadmin") ?? false;
       const coord = (prof?.roles?.includes("coordinateur") ?? false) && !sa;
+      const gerant = (prof?.roles?.includes("gerant") ?? false) && !sa;
       setIsSA(sa);
       setIsCoord(coord);
-      if (coord) {
-        coordEtabIds = prof?.etablissement_ids?.length > 0
+      setIsGerant(gerant);
+      // Coordinateurs et gérants voient uniquement leurs établissements
+      if (coord || gerant) {
+        filteredEtabIds = prof?.etablissement_ids?.length > 0
           ? prof.etablissement_ids
           : prof?.etablissement_id ? [prof.etablissement_id] : [];
       }
     }
-    const query = coordEtabIds.length > 0
-      ? supabase.from("etablissements").select("*").in("id", coordEtabIds).order("nom")
+    const query = filteredEtabIds.length > 0
+      ? supabase.from("etablissements").select("*").in("id", filteredEtabIds).order("nom")
       : supabase.from("etablissements").select("*").order("nom");
     const { data } = await query;
     setEtabs(data || []);
@@ -151,7 +155,7 @@ export default function EtablissementsPage() {
           <h1 className="text-xl font-bold text-gray-900">Établissements</h1>
           <p className="text-sm text-gray-500 mt-0.5">{etabs.length} établissement{etabs.length > 1 ? "s" : ""}</p>
         </div>
-        {!isCoord && <button onClick={openCreate} className="btn-primary btn-sm"><Plus className="w-3.5 h-3.5" /> Ajouter</button>}
+        {isSA && <button onClick={openCreate} className="btn-primary btn-sm"><Plus className="w-3.5 h-3.5" /> Ajouter</button>}
       </div>
 
       {/* Modal */}
@@ -259,8 +263,9 @@ export default function EtablissementsPage() {
               />
             </div>
 
-            <div className="flex gap-2">
-              {isSA && (
+            <div className="flex gap-2 flex-wrap">
+              {/* SA et gérant peuvent générer/régénérer un code */}
+              {(isSA || isGerant) && (
                 <button
                   onClick={() => handleGenerateCode(codeModal)}
                   disabled={savingCode}
@@ -277,6 +282,23 @@ export default function EtablissementsPage() {
                   className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl border border-gray-200 text-sm font-semibold text-gray-700 hover:bg-gray-50 disabled:opacity-60"
                 >
                   Enregistrer la limite
+                </button>
+              )}
+              {/* Supprimer le code (désactive les inscriptions) */}
+              {(isSA || isGerant) && codeModal.code_inscription && (
+                <button
+                  onClick={async () => {
+                    setSavingCode(true);
+                    await supabase.from("etablissements").update({ code_inscription: null }).eq("id", codeModal.id);
+                    setSavingCode(false);
+                    toast.success("Code supprimé — les inscriptions sont désactivées");
+                    setCodeModal(null);
+                    load();
+                  }}
+                  disabled={savingCode}
+                  className="w-full flex items-center justify-center gap-1.5 py-2 rounded-xl border border-red-200 text-sm font-semibold text-red-600 hover:bg-red-50 disabled:opacity-60 mt-1"
+                >
+                  <Trash2 className="w-3.5 h-3.5" /> Supprimer le code
                 </button>
               )}
             </div>
@@ -326,8 +348,8 @@ export default function EtablissementsPage() {
             {e.email && <p className="text-xs text-gray-500 mb-1">{e.email}</p>}
             {e.telephone && <p className="text-xs text-gray-500">{e.telephone}</p>}
 
-            {/* Code inscription */}
-            {(isSA || !isCoord) && (
+            {/* Code inscription — SA et gérant peuvent générer ; coordinateurs peuvent voir */}
+            {(isSA || isGerant || e.code_inscription) && (
               <div className="mt-3 pt-3 border-t border-gray-100">
                 {e.code_inscription ? (
                   <div className="flex items-center justify-between">
@@ -337,9 +359,9 @@ export default function EtablissementsPage() {
                     </div>
                     <div className="flex gap-1.5">
                       <button
-                        onClick={() => copyLink(e.code_inscription, e.id)}
+                        onClick={() => copyLink(e.code_inscription!, e.id)}
                         className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-gray-700 transition-colors"
-                        title="Copier le lien"
+                        title="Copier le lien d'inscription"
                       >
                         {copiedId === e.id ? <Check className="w-3.5 h-3.5 text-emerald-500" /> : <Copy className="w-3.5 h-3.5" />}
                       </button>
@@ -352,23 +374,24 @@ export default function EtablissementsPage() {
                       </button>
                     </div>
                   </div>
-                ) : isSA ? (
+                ) : (
+                  /* Pas encore de code — SA et gérant peuvent en créer un */
                   <button
                     onClick={() => { setCodeModal(e); setNbEleves(""); }}
                     className="flex items-center gap-1.5 text-xs text-brand-500 font-semibold hover:underline"
                   >
                     <Link2 className="w-3 h-3" /> Générer un code d'inscription
                   </button>
-                ) : null}
+                )}
               </div>
             )}
 
             <div className="flex gap-2 pt-3 border-t border-gray-100 mt-3">
-              {(isSA || isCoord) && (
+              {(isSA || isCoord || isGerant) && (
                 <Link href={`/dashboard/eleves?etablissement=${e.id}`} className="btn-secondary btn-sm flex-1"><Users className="w-3 h-3" /> Élèves</Link>
               )}
-              {!isCoord && <button onClick={() => openEdit(e)} className="btn-secondary btn-sm flex-1"><Edit className="w-3 h-3" /> Modifier</button>}
-              {!isCoord && <button onClick={() => setConfirmDelete(e.id)} className="p-1.5 rounded-lg text-red-400 hover:bg-red-50 hover:text-red-600 transition-colors"><Trash2 className="w-3.5 h-3.5" /></button>}
+              {isSA && <button onClick={() => openEdit(e)} className="btn-secondary btn-sm flex-1"><Edit className="w-3 h-3" /> Modifier</button>}
+              {isSA && <button onClick={() => setConfirmDelete(e.id)} className="p-1.5 rounded-lg text-red-400 hover:bg-red-50 hover:text-red-600 transition-colors"><Trash2 className="w-3.5 h-3.5" /></button>}
             </div>
           </div>
         ))}
