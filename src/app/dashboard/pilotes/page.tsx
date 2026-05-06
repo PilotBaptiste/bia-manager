@@ -1,7 +1,7 @@
 "use client";
 import { useState, useEffect } from "react";
 import { createClient } from "@/lib/supabase/client";
-import { UserCheck, Loader2, Plane, Edit, X, Save, School } from "lucide-react";
+import { UserCheck, Loader2, Plane, Edit, X, Save, School, GraduationCap } from "lucide-react";
 
 export default function PilotesPage() {
   const supabase = createClient();
@@ -92,6 +92,16 @@ export default function PilotesPage() {
       await supabase
         .from("pilote_etablissements")
         .insert({ pilote_id: piloteId, etablissement_id: etabId });
+    setSaving(false);
+    load();
+  }
+
+  async function toggleFI(pilote: any) {
+    setSaving(true);
+    await supabase
+      .from("profiles")
+      .update({ qualification_fi: !pilote.qualification_fi })
+      .eq("id", pilote.id);
     setSaving(false);
     load();
   }
@@ -241,23 +251,46 @@ export default function PilotesPage() {
                       <UserCheck className="w-5 h-5 text-brand-500" />
                     </div>
                     <div>
-                      <p className="text-sm font-semibold text-gray-900">
-                        {p.prenom} {p.nom}
-                      </p>
+                      <div className="flex items-center gap-2">
+                        <p className="text-sm font-semibold text-gray-900">
+                          {p.prenom} {p.nom}
+                        </p>
+                        {p.qualification_fi && (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-violet-100 text-violet-700 border border-violet-200">
+                            <GraduationCap className="w-3 h-3" /> FI
+                          </span>
+                        )}
+                      </div>
                       <p className="text-xs text-gray-500">
                         {p.email} · {p.telephone || "—"}
                       </p>
                     </div>
                   </div>
-                  <button
-                    onClick={() => {
-                      setEditing({ ...p });
-                      setError(null);
-                    }}
-                    className="btn-secondary btn-sm"
-                  >
-                    <Edit className="w-3 h-3" /> Editer
-                  </button>
+                  <div className="flex items-center gap-2">
+                    {/* Toggle qualification FI */}
+                    <button
+                      onClick={() => toggleFI(p)}
+                      disabled={saving}
+                      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold border-2 transition-all ${
+                        p.qualification_fi
+                          ? "border-violet-400 bg-violet-50 text-violet-700"
+                          : "border-gray-200 text-gray-400 hover:border-violet-300 hover:text-violet-500"
+                      }`}
+                      title="Qualification Flight Instructor — vol unique 55 min"
+                    >
+                      <GraduationCap className="w-3.5 h-3.5" />
+                      {p.qualification_fi ? "FI ✓" : "FI"}
+                    </button>
+                    <button
+                      onClick={() => {
+                        setEditing({ ...p });
+                        setError(null);
+                      }}
+                      className="btn-secondary btn-sm"
+                    >
+                      <Edit className="w-3 h-3" /> Editer
+                    </button>
+                  </div>
                 </div>
 
                 {/* Machines */}

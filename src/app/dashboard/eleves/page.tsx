@@ -113,6 +113,7 @@ const emptyForm = {
   vol1_prix: "",
   vol1_pilote_nom: "",
   vol1_numero_aerogest: "",
+  vol_fi_mode: false,
   vol2_autorise: false,
   vol2_effectue: false,
   vol2_temps_minutes: "",
@@ -366,6 +367,7 @@ export default function ElevesPage() {
       paiement_montant: String(s.paiement_montant || 80),
       attestation_signee: s.attestation_signee,
       attestation_parent_signataire: s.attestation_parent_signataire || "",
+      vol_fi_mode: s.vol_fi_mode || false,
       vol1_effectue: s.vol1_effectue,
       vol1_temps_minutes: String(s.vol1_temps_minutes || ""),
       vol1_aeronef_id: s.vol1_aeronef_id || "",
@@ -439,19 +441,21 @@ export default function ElevesPage() {
         attestation_signee: form.attestation_signee,
         attestation_parent_signataire: form.attestation_signee ? (form.attestation_parent_signataire || `${form.parent_prenom} ${form.parent_nom}`) : null,
         attestation_date: form.attestation_signee ? new Date().toISOString() : null,
+        vol_fi_mode: form.vol_fi_mode,
         vol1_effectue: form.vol1_effectue,
         vol1_temps_minutes: form.vol1_effectue && form.vol1_temps_minutes ? parseInt(form.vol1_temps_minutes) : null,
         vol1_aeronef_id: form.vol1_aeronef_id || null,
         vol1_prix: form.vol1_prix ? parseFloat(form.vol1_prix) : null,
         vol1_pilote_nom: form.vol1_pilote_nom || null,
         vol1_numero_aerogest: form.vol1_numero_aerogest || null,
-        vol2_autorise: form.vol2_autorise,
-        vol2_effectue: form.vol2_effectue,
-        vol2_temps_minutes: form.vol2_effectue && form.vol2_temps_minutes ? parseInt(form.vol2_temps_minutes) : null,
-        vol2_aeronef_id: form.vol2_aeronef_id || null,
-        vol2_prix: form.vol2_prix ? parseFloat(form.vol2_prix) : null,
-        vol2_pilote_nom: form.vol2_pilote_nom || null,
-        vol2_numero_aerogest: form.vol2_numero_aerogest || null,
+        // En mode FI : vol2 est automatiquement complété avec les mêmes données
+        vol2_autorise: form.vol_fi_mode ? form.vol1_effectue : form.vol2_autorise,
+        vol2_effectue: form.vol_fi_mode ? form.vol1_effectue : form.vol2_effectue,
+        vol2_temps_minutes: form.vol_fi_mode ? null : (form.vol2_effectue && form.vol2_temps_minutes ? parseInt(form.vol2_temps_minutes) : null),
+        vol2_aeronef_id: form.vol_fi_mode ? null : (form.vol2_aeronef_id || null),
+        vol2_prix: form.vol_fi_mode ? null : (form.vol2_prix ? parseFloat(form.vol2_prix) : null),
+        vol2_pilote_nom: form.vol_fi_mode ? null : (form.vol2_pilote_nom || null),
+        vol2_numero_aerogest: form.vol_fi_mode ? null : (form.vol2_numero_aerogest || null),
         bia_passe: form.bia_passe,
         bia_resultat: form.bia_resultat || null,
         bia_date: form.bia_date || null,
@@ -494,28 +498,24 @@ export default function ElevesPage() {
       attestation_date: form.attestation_signee
         ? new Date().toISOString()
         : null,
+      vol_fi_mode: form.vol_fi_mode,
       vol1_effectue: form.vol1_effectue,
-      vol1_temps_minutes:
-        form.vol1_effectue && form.vol1_temps_minutes
-          ? parseInt(form.vol1_temps_minutes)
-          : null,
+      vol1_temps_minutes: form.vol1_effectue && form.vol1_temps_minutes ? parseInt(form.vol1_temps_minutes) : null,
       vol1_aeronef_id: form.vol1_aeronef_id || null,
       vol1_prix: form.vol1_prix ? parseFloat(form.vol1_prix) : null,
       vol1_pilote_nom: form.vol1_pilote_nom || null,
       vol1_numero_aerogest: form.vol1_numero_aerogest || null,
-      vol2_effectue: form.vol2_effectue,
-      vol2_temps_minutes:
-        form.vol2_effectue && form.vol2_temps_minutes
-          ? parseInt(form.vol2_temps_minutes)
-          : null,
-      vol2_aeronef_id: form.vol2_aeronef_id || null,
-      vol2_prix: form.vol2_prix ? parseFloat(form.vol2_prix) : null,
-      vol2_pilote_nom: form.vol2_pilote_nom || null,
-      vol2_numero_aerogest: form.vol2_numero_aerogest || null,
+      // Mode FI : vol2 auto-complété avec le vol FI, sinon champs normaux
+      vol2_autorise: form.vol_fi_mode ? form.vol1_effectue : form.vol2_autorise,
+      vol2_effectue: form.vol_fi_mode ? form.vol1_effectue : form.vol2_effectue,
+      vol2_temps_minutes: form.vol_fi_mode ? null : (form.vol2_effectue && form.vol2_temps_minutes ? parseInt(form.vol2_temps_minutes) : null),
+      vol2_aeronef_id: form.vol_fi_mode ? null : (form.vol2_aeronef_id || null),
+      vol2_prix: form.vol_fi_mode ? null : (form.vol2_prix ? parseFloat(form.vol2_prix) : null),
+      vol2_pilote_nom: form.vol_fi_mode ? null : (form.vol2_pilote_nom || null),
+      vol2_numero_aerogest: form.vol_fi_mode ? null : (form.vol2_numero_aerogest || null),
       bia_passe: form.bia_passe,
       bia_resultat: form.bia_resultat || null,
       bia_date: form.bia_date || null,
-      vol2_autorise: form.vol2_autorise,
       commentaires: form.commentaires || null,
     };
     // Only update attestation_url if a new file was uploaded
@@ -1058,12 +1058,46 @@ export default function ElevesPage() {
 
         {/* Vols */}
         <div className="mb-5">
-          <h4 className="text-xs font-bold uppercase tracking-wider text-gray-400 mb-3">
-            Vols decouverte
-          </h4>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            {/* Vol 1 */}
-            <div className="p-3 rounded-lg border border-gray-200">
+          <div className="flex items-center justify-between mb-3">
+            <h4 className="text-xs font-bold uppercase tracking-wider text-gray-400">
+              Vols decouverte
+            </h4>
+            {/* Toggle mode Vol FI */}
+            <button
+              type="button"
+              onClick={() => setForm({
+                ...form,
+                vol_fi_mode: !form.vol_fi_mode,
+                // Reset vol2 si on bascule en mode FI
+                ...(!form.vol_fi_mode ? {
+                  vol2_effectue: false, vol2_autorise: false,
+                  vol2_temps_minutes: "", vol2_aeronef_id: "",
+                  vol2_prix: "", vol2_pilote_nom: "", vol2_numero_aerogest: "",
+                } : {}),
+                // Suggérer 55 min par défaut en mode FI
+                ...(!form.vol_fi_mode && !form.vol1_temps_minutes ? { vol1_temps_minutes: "55" } : {}),
+              })}
+              className={`flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-bold border-2 transition-all ${
+                form.vol_fi_mode
+                  ? "border-violet-400 bg-violet-50 text-violet-700"
+                  : "border-gray-200 text-gray-400 hover:border-violet-300 hover:text-violet-500"
+              }`}
+              title="Qualification Flight Instructor : un seul vol de 55 min remplace Vol 1 + Vol 2"
+            >
+              🎓 Mode Vol FI {form.vol_fi_mode ? "✓" : ""}
+            </button>
+          </div>
+
+          {/* Bandeau info mode FI */}
+          {form.vol_fi_mode && (
+            <div className="mb-3 p-3 bg-violet-50 border border-violet-200 rounded-lg text-xs text-violet-800">
+              <strong>Mode Flight Instructor activé</strong> — Un seul vol de 55 min remplace les deux vols découverte. Vol 2 sera automatiquement marqué comme effectué.
+            </div>
+          )}
+
+          <div className={`grid grid-cols-1 ${form.vol_fi_mode ? "" : "sm:grid-cols-2"} gap-3`}>
+            {/* Vol FI ou Vol 1 */}
+            <div className={`p-3 rounded-lg border ${form.vol_fi_mode ? "border-violet-200 bg-violet-50/30" : "border-gray-200"}`}>
               <label className="flex items-center gap-2 cursor-pointer mb-3">
                 <input
                   type="checkbox"
@@ -1073,7 +1107,7 @@ export default function ElevesPage() {
                   }
                 />
                 <span className="text-sm font-semibold text-gray-700">
-                  Vol 1 effectue
+                  {form.vol_fi_mode ? "🎓 Vol FI effectué (55 min)" : "Vol 1 effectue"}
                 </span>
               </label>
               {form.vol1_effectue && (
@@ -1152,7 +1186,13 @@ export default function ElevesPage() {
                 </>
               )}
             </div>
-            {/* Vol 2 */}
+            {/* Vol 2 — masqué en mode FI (géré automatiquement) */}
+            {form.vol_fi_mode ? (
+              <div className="p-3 rounded-lg border border-violet-200 bg-violet-50/40 flex items-center gap-2 text-sm text-violet-700">
+                <span className="text-lg">🎓</span>
+                <span><strong>Vol 2 automatique</strong> — Le vol FI remplace les deux vols. Vol 2 sera marqué effectué à la sauvegarde.</span>
+              </div>
+            ) : (
             <div className="p-3 rounded-lg border border-gray-200">
               <label className="flex items-center gap-2 cursor-pointer mb-2">
                 <input
@@ -1253,6 +1293,7 @@ export default function ElevesPage() {
                 </>
               )}
             </div>
+            )}
           </div>
         </div>
 
