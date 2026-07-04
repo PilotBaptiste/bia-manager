@@ -860,21 +860,45 @@ export default function VolsPage() {
       }
     }
 
+    // Update eleves whose type_vol changed (same ID, different type)
+    for (const e of editHistoElevesLocal) {
+      if (!origIds.has(e.id)) continue; // handled below in "Add new"
+      const orig = editHistoElevesOrig.find((x: any) => x.id === e.id);
+      const newTypeVol = e.type_vol || 1;
+      const oldTypeVol = orig?.type_vol || 1;
+      if (newTypeVol === oldTypeVol) continue; // unchanged
+      // Type changed → update reservation + reset old fields + set new fields
+      if (orig?.reservation_id) {
+        await supabase.from("reservations").update({ type_vol: newTypeVol }).eq("id", orig.reservation_id);
+      }
+      // Clear old vol fields
+      if (oldTypeVol === 2) {
+        await supabase.from("eleves").update({ vol2_effectue: false, vol2_numero_aerogest: null, vol2_temps_minutes: null, vol2_aeronef_id: null, vol2_prix: null, vol2_pilote_nom: null }).eq("id", e.id);
+      } else {
+        await supabase.from("eleves").update({ vol1_effectue: false, vol1_numero_aerogest: null, vol1_temps_minutes: null, vol1_aeronef_id: null, vol1_prix: null, vol1_pilote_nom: null }).eq("id", e.id);
+      }
+      // Write new vol fields
+      if (newTypeVol === 2) {
+        await supabase.from("eleves").update({ vol2_effectue: true, vol2_temps_minutes: tempsMin, vol2_aeronef_id: aeronefId, vol2_prix: prixParEleve, vol2_pilote_nom: piloteNom, vol2_numero_aerogest: numAerogest }).eq("id", e.id);
+      } else {
+        await supabase.from("eleves").update({ vol1_effectue: true, vol1_temps_minutes: tempsMin, vol1_aeronef_id: aeronefId, vol1_prix: prixParEleve, vol1_pilote_nom: piloteNom, vol1_numero_aerogest: numAerogest }).eq("id", e.id);
+      }
+    }
+
     // Add new eleves
     for (const e of editHistoElevesLocal) {
-      if (!origIds.has(e.id)) {
-        const typeVol = e.type_vol || 1;
-        const { data: existing } = await supabase.from("reservations").select("id").eq("creneau_id", creneauId).eq("eleve_id", e.id).maybeSingle();
-        if (existing) {
-          await supabase.from("reservations").update({ statut: "effectue", type_vol: typeVol }).eq("id", existing.id);
-        } else {
-          await supabase.from("reservations").insert({ creneau_id: creneauId, eleve_id: e.id, type_vol: typeVol, statut: "effectue" });
-        }
-        if (typeVol === 2) {
-          await supabase.from("eleves").update({ vol2_effectue: true, vol2_temps_minutes: tempsMin, vol2_aeronef_id: aeronefId, vol2_prix: prixParEleve, vol2_pilote_nom: piloteNom, vol2_numero_aerogest: numAerogest }).eq("id", e.id);
-        } else {
-          await supabase.from("eleves").update({ vol1_effectue: true, vol1_temps_minutes: tempsMin, vol1_aeronef_id: aeronefId, vol1_prix: prixParEleve, vol1_pilote_nom: piloteNom, vol1_numero_aerogest: numAerogest }).eq("id", e.id);
-        }
+      if (origIds.has(e.id)) continue; // already handled above
+      const typeVol = e.type_vol || 1;
+      const { data: existing } = await supabase.from("reservations").select("id").eq("creneau_id", creneauId).eq("eleve_id", e.id).maybeSingle();
+      if (existing) {
+        await supabase.from("reservations").update({ statut: "effectue", type_vol: typeVol }).eq("id", existing.id);
+      } else {
+        await supabase.from("reservations").insert({ creneau_id: creneauId, eleve_id: e.id, type_vol: typeVol, statut: "effectue" });
+      }
+      if (typeVol === 2) {
+        await supabase.from("eleves").update({ vol2_effectue: true, vol2_temps_minutes: tempsMin, vol2_aeronef_id: aeronefId, vol2_prix: prixParEleve, vol2_pilote_nom: piloteNom, vol2_numero_aerogest: numAerogest }).eq("id", e.id);
+      } else {
+        await supabase.from("eleves").update({ vol1_effectue: true, vol1_temps_minutes: tempsMin, vol1_aeronef_id: aeronefId, vol1_prix: prixParEleve, vol1_pilote_nom: piloteNom, vol1_numero_aerogest: numAerogest }).eq("id", e.id);
       }
     }
 
@@ -1892,38 +1916,64 @@ export default function VolsPage() {
                   {editHistoElevesLocal.length === 0 && (
                     <p className="text-xs text-gray-400 italic">Aucun élève lié</p>
                   )}
-                  {editHistoElevesLocal.map((e: any) => (
-                    <div key={e.id} className="flex items-center justify-between bg-gray-50 rounded-lg px-3 py-1.5 text-sm">
-                      <span className="font-medium">{e.prenom} {e.nom} <span className="text-[10px] font-normal text-gray-400 ml-1">Vol {e.type_vol || 1}</span></span>
-                      <button
-                        type="button"
-                        onClick={() => setEditHistoElevesLocal((prev) => prev.filter((x) => x.id !== e.id))}
-                        className="text-red-400 hover:text-red-600 p-0.5 rounded"
-                        title="Retirer de ce vol"
-                      >
-                        <X className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-                  ))}
+                  {editHistoElevesLocal.map((e: any) => {
+                    const tv = e.type_vol || 1;
+                    return (
+                      <div key={e.id} className="flex items-center justify-between bg-gray-50 rounded-lg px-3 py-1.5 text-sm">
+                        <span className="font-medium">{e.prenom} {e.nom}</span>
+                        <div className="flex items-center gap-2">
+                          {/* Toggle Vol 1 / Vol 2 */}
+                          <button
+                            type="button"
+                            onClick={() => setEditHistoElevesLocal((prev) =>
+                              prev.map((x) => x.id === e.id ? { ...x, type_vol: tv === 1 ? 2 : 1 } : x)
+                            )}
+                            className={`text-[11px] font-bold px-2.5 py-0.5 rounded-full border-2 transition-all ${tv === 2 ? "border-emerald-400 bg-emerald-50 text-emerald-700" : "border-brand-300 bg-brand-50 text-brand-700"}`}
+                            title="Cliquer pour changer le type de vol"
+                          >
+                            Vol {tv}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setEditHistoElevesLocal((prev) => prev.filter((x) => x.id !== e.id))}
+                            className="text-red-400 hover:text-red-600 p-0.5 rounded"
+                            title="Retirer de ce vol"
+                          >
+                            <X className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
                 <div className="flex gap-2">
                   <select
                     value={addHistoEleveId}
-                    onChange={(e) => setAddHistoEleveId(e.target.value)}
+                    onChange={(e) => {
+                      setAddHistoEleveId(e.target.value);
+                      // Auto-détecter le type de vol selon l'état de l'élève
+                      const found = eleves.find((el: any) => el.id === e.target.value);
+                      if (found) {
+                        const detected: 1 | 2 = (found.vol1_effectue && found.vol2_autorise && !found.vol2_effectue) ? 2 : 1;
+                        setAddHistoEleveTypeVol(detected);
+                      }
+                    }}
                     className="input flex-1 text-sm"
                   >
                     <option value="">— Ajouter un élève</option>
                     {eleves
                       .filter((e: any) => !editHistoElevesLocal.some((x: any) => x.id === e.id))
                       .sort((a: any, b: any) => `${a.prenom} ${a.nom}`.localeCompare(`${b.prenom} ${b.nom}`))
-                      .map((e: any) => (
-                        <option key={e.id} value={e.id}>{e.prenom} {e.nom}</option>
-                      ))}
+                      .map((e: any) => {
+                        const tv = (e.vol1_effectue && e.vol2_autorise && !e.vol2_effectue) ? "Vol 2" : "Vol 1";
+                        return <option key={e.id} value={e.id}>{e.prenom} {e.nom} — {tv}</option>;
+                      })}
                   </select>
                   <select
                     value={addHistoEleveTypeVol}
                     onChange={(e) => setAddHistoEleveTypeVol(parseInt(e.target.value) as 1 | 2)}
                     className="input w-20 text-sm"
+                    title="Type de vol (auto-détecté, modifiable)"
                   >
                     <option value={1}>Vol 1</option>
                     <option value={2}>Vol 2</option>
