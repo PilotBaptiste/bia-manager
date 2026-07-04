@@ -867,17 +867,26 @@ export default function VolsPage() {
       const newTypeVol = e.type_vol || 1;
       const oldTypeVol = orig?.type_vol || 1;
       if (newTypeVol === oldTypeVol) continue; // unchanged
-      // Type changed → update reservation + reset old fields + set new fields
+      // Update la réservation
       if (orig?.reservation_id) {
         await supabase.from("reservations").update({ type_vol: newTypeVol }).eq("id", orig.reservation_id);
       }
-      // Clear old vol fields
+      // Récupérer l'état actuel de l'élève pour comparer les numéros Aérogest
+      const eleveState = eleves.find((el: any) => el.id === e.id);
+      // Effacer les anciens champs UNIQUEMENT si c'est ce vol qui les a écrits
+      // (identifié par le numéro Aérogest correspondant à ce vol)
       if (oldTypeVol === 2) {
-        await supabase.from("eleves").update({ vol2_effectue: false, vol2_numero_aerogest: null, vol2_temps_minutes: null, vol2_aeronef_id: null, vol2_prix: null, vol2_pilote_nom: null }).eq("id", e.id);
+        const wasThisFlight = numAerogest && eleveState?.vol2_numero_aerogest === numAerogest;
+        if (wasThisFlight) {
+          await supabase.from("eleves").update({ vol2_effectue: false, vol2_numero_aerogest: null, vol2_temps_minutes: null, vol2_aeronef_id: null, vol2_prix: null, vol2_pilote_nom: null }).eq("id", e.id);
+        }
       } else {
-        await supabase.from("eleves").update({ vol1_effectue: false, vol1_numero_aerogest: null, vol1_temps_minutes: null, vol1_aeronef_id: null, vol1_prix: null, vol1_pilote_nom: null }).eq("id", e.id);
+        const wasThisFlight = numAerogest && eleveState?.vol1_numero_aerogest === numAerogest;
+        if (wasThisFlight) {
+          await supabase.from("eleves").update({ vol1_effectue: false, vol1_numero_aerogest: null, vol1_temps_minutes: null, vol1_aeronef_id: null, vol1_prix: null, vol1_pilote_nom: null }).eq("id", e.id);
+        }
       }
-      // Write new vol fields
+      // Écrire les nouveaux champs vol
       if (newTypeVol === 2) {
         await supabase.from("eleves").update({ vol2_effectue: true, vol2_temps_minutes: tempsMin, vol2_aeronef_id: aeronefId, vol2_prix: prixParEleve, vol2_pilote_nom: piloteNom, vol2_numero_aerogest: numAerogest }).eq("id", e.id);
       } else {
