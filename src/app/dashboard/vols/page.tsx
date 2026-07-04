@@ -101,7 +101,7 @@ export default function VolsPage() {
 
     let elevesQuery = supabase
       .from("eleves")
-      .select("id, nom, prenom, etablissement_id, desiderata, abandonne, vol1_effectue, vol1_numero_aerogest, vol1_prix, vol1_temps_minutes, vol1_pilote_nom, vol1_aeronef_id, vol2_effectue, vol2_numero_aerogest, vol2_prix, vol2_temps_minutes, vol2_pilote_nom, vol2_aeronef_id")
+      .select("id, nom, prenom, etablissement_id, desiderata, abandonne, vol2_autorise, vol1_effectue, vol1_numero_aerogest, vol1_prix, vol1_temps_minutes, vol1_pilote_nom, vol1_aeronef_id, vol2_effectue, vol2_numero_aerogest, vol2_prix, vol2_temps_minutes, vol2_pilote_nom, vol2_aeronef_id")
       .eq("archive", false)
       .order("nom");
     if (selectedAnneeId) elevesQuery = elevesQuery.eq("annee_id", selectedAnneeId);
@@ -1091,9 +1091,18 @@ export default function VolsPage() {
                             <div className="px-3 pb-2 bg-brand-50/50">
                               <p className="text-[10px] text-gray-400 mb-1.5">Restreindre à des élèves spécifiques (optionnel) :</p>
                               <div className="flex flex-wrap gap-1">
-                                {etabEleves.filter(el => !el.abandonne && !busyEleveIds.has(el.id)).map((el) => {
+                                {etabEleves.filter(el => {
+                                  if (el.abandonne) return false;
+                                  if (busyEleveIds.has(el.id)) return false;
+                                  // Masquer les élèves qui ont tout fait (Vol 2 effectué, ou Vol FI effectué)
+                                  if (el.vol2_effectue) return false;
+                                  // Masquer les élèves bloqués : Vol 1 fait mais pas de BIA → ne peuvent pas faire Vol 2
+                                  if (el.vol1_effectue && !el.vol2_autorise) return false;
+                                  return true;
+                                }).map((el) => {
                                   const sel = etabElvsSelected.includes(el.id);
-                                  const volLabel = el.vol1_effectue ? "V2" : "V1";
+                                  // V2 uniquement si vol1 fait ET vol2_autorise (BIA obtenu)
+                                  const volLabel = (el.vol1_effectue && el.vol2_autorise) ? "V2" : "V1";
                                   return (
                                     <button
                                       key={el.id}
@@ -1361,42 +1370,43 @@ export default function VolsPage() {
                 const q = addEleveSearch.toLowerCase();
                 const available = eleves.filter((e: any) => {
                   if (alreadyIn.has(e.id)) return false;
+                  if (e.abandonne) return false;
+                  // Masquer les élèves qui ont tout effectué
+                  if (e.vol2_effectue) return false;
+                  // Masquer les élèves bloqués : Vol 1 fait mais pas BIA → ne peuvent pas faire Vol 2
+                  if (e.vol1_effectue && !e.vol2_autorise) return false;
                   if (showDetail.etablissement_id && e.etablissement_id !== showDetail.etablissement_id) return false;
                   if (q && !`${e.prenom} ${e.nom}`.toLowerCase().includes(q)) return false;
                   return true;
                 });
                 return (
                   <div className="mt-2 p-3 bg-brand-50/40 border border-brand-100 rounded-lg space-y-2">
-                    <div className="flex gap-2">
-                      <input
-                        autoFocus
-                        value={addEleveSearch}
-                        onChange={e => setAddEleveSearch(e.target.value)}
-                        placeholder="Rechercher un élève..."
-                        className="flex-1 px-2.5 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-300 bg-white"
-                      />
-                      <select
-                        value={addEleveTypeVol}
-                        onChange={e => setAddEleveTypeVol(Number(e.target.value) as 1 | 2)}
-                        className="px-2 py-1.5 text-sm border border-gray-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-brand-300"
-                      >
-                        <option value={1}>Vol 1</option>
-                        <option value={2}>Vol 2</option>
-                      </select>
-                    </div>
+                    <input
+                      autoFocus
+                      value={addEleveSearch}
+                      onChange={e => setAddEleveSearch(e.target.value)}
+                      placeholder="Rechercher un élève..."
+                      className="w-full px-2.5 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-300 bg-white"
+                    />
+                    <p className="text-[10px] text-gray-400">Le type de vol (Vol 1 ou Vol 2) est détecté automatiquement selon l'état de l'élève.</p>
                     <div className="max-h-36 overflow-y-auto space-y-1">
                       {available.length === 0 ? (
                         <p className="text-xs text-gray-400 py-1">Aucun élève disponible</p>
                       ) : available.map((e: any) => {
+                        // Auto-détecter le type de vol selon l'état de l'élève
+                        const detectedTypeVol: 1 | 2 = (e.vol1_effectue && e.vol2_autorise && !e.vol2_effectue) ? 2 : 1;
                         const match = matchDesiderata(e.desiderata, showDetail.date_vol, showDetail.heure_debut);
                         return (
                           <button
                             key={e.id}
-                            onClick={() => handleAddEleve(e.id, addEleveTypeVol)}
+                            onClick={() => handleAddEleve(e.id, detectedTypeVol)}
                             className="w-full flex items-center justify-between px-2.5 py-1.5 text-sm rounded-lg bg-white border border-gray-100 hover:border-brand-200 hover:bg-brand-50 transition-all text-left"
                           >
                             <span className="font-medium text-gray-900 flex items-center gap-1.5">
                               {e.prenom} {e.nom}
+                              <span className={`text-[8px] font-bold px-1.5 py-0.5 rounded-full ${detectedTypeVol === 2 ? "bg-emerald-100 text-emerald-700" : "bg-brand-100 text-brand-700"}`}>
+                                Vol {detectedTypeVol}
+                              </span>
                               {match === "match" && <span className="bg-emerald-500 text-white text-[9px] font-bold px-1.5 py-0.5 rounded-full leading-none">DISPO</span>}
                               {match === "no-match" && <span className="bg-orange-400 text-white text-[9px] font-bold px-1.5 py-0.5 rounded-full leading-none">INDISPO</span>}
                             </span>
@@ -1523,6 +1533,22 @@ export default function VolsPage() {
                 {showClose.aeronef?.type_aeronef} (
                 {showClose.aeronef?.immatriculation})
               </p>
+              {/* Récap élèves + type de vol — vérification avant clôture */}
+              {(showClose.reservations || []).filter((r: any) => r.statut !== "annule").length > 0 && (
+                <div className="mt-2 pt-2 border-t border-gray-200 space-y-1">
+                  {(showClose.reservations || [])
+                    .filter((r: any) => r.statut !== "annule")
+                    .map((r: any) => (
+                      <div key={r.id} className="flex items-center justify-between text-xs">
+                        <span className="text-gray-700">{r.eleve?.prenom} {r.eleve?.nom}</span>
+                        <span className={`font-bold px-2 py-0.5 rounded-full ${r.type_vol === 2 ? "bg-emerald-100 text-emerald-700" : "bg-brand-100 text-brand-700"}`}>
+                          Vol {r.type_vol || 1}
+                        </span>
+                      </div>
+                    ))}
+                  <p className="text-[10px] text-gray-400 pt-1">Le type de vol détermine dans quel champ les données seront enregistrées.</p>
+                </div>
+              )}
             </div>
             {error && (
               <div className="mb-4 p-3 rounded-lg bg-red-50 text-sm text-red-700" role="alert" aria-live="assertive">
@@ -1714,14 +1740,15 @@ export default function VolsPage() {
                               <p className="text-[10px] text-gray-400 mb-1.5">Restreindre à des élèves spécifiques (optionnel) :</p>
                               <div className="flex flex-wrap gap-1">
                                 {etabEleves.filter(el => {
-                                  // Always hide students with abandon status
                                   if (el.abandonne) return false;
+                                  if (el.vol2_effectue) return false;
+                                  if (el.vol1_effectue && !el.vol2_autorise) return false;
                                   // Keep: not busy, OR already on this specific slot
                                   if (!busyEleveIds.has(el.id)) return true;
                                   return (showEditSlot.reservations || []).some((r: any) => r.statut !== "annule" && r.eleve?.id === el.id);
                                 }).map((el) => {
                                   const sel = etabElvsSelected.includes(el.id);
-                                  const volLabel = el.vol1_effectue ? "V2" : "V1";
+                                  const volLabel = (el.vol1_effectue && el.vol2_autorise) ? "V2" : "V1";
                                   return (
                                     <button
                                       key={el.id}
