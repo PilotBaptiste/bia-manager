@@ -257,7 +257,7 @@ export default function ReservationPage() {
       !hasActiveVol1
     )
       return true;
-    if (e.vol2_autorise && !e.vol2_effectue && !hasActiveVol2) return true;
+    if (e.vol2_autorise && e.vol1_effectue && !e.vol2_effectue && !hasActiveVol2) return true;
     return false;
   });
 
