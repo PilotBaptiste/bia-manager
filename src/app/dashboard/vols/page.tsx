@@ -39,6 +39,7 @@ export default function VolsPage() {
   const [pilotes, setPilotes] = useState<any[]>([]);
   const [qualifs, setQualifs] = useState<any[]>([]);
   const [piloteEtabs, setPiloteEtabs] = useState<any[]>([]);
+  const [biaExamDate, setBiaExamDate] = useState<string>("");
   const [profile, setProfile] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [mode, setMode] = useState<"list" | "calendar" | "historique">("list");
@@ -101,12 +102,12 @@ export default function VolsPage() {
 
     let elevesQuery = supabase
       .from("eleves")
-      .select("id, nom, prenom, etablissement_id, desiderata, abandonne, bia_resultat, bia_date, vol2_autorise, vol1_effectue, vol1_numero_aerogest, vol1_prix, vol1_temps_minutes, vol1_pilote_nom, vol1_aeronef_id, vol2_effectue, vol2_numero_aerogest, vol2_prix, vol2_temps_minutes, vol2_pilote_nom, vol2_aeronef_id")
+      .select("id, nom, prenom, etablissement_id, desiderata, abandonne, bia_resultat, vol2_autorise, vol1_effectue, vol1_numero_aerogest, vol1_prix, vol1_temps_minutes, vol1_pilote_nom, vol1_aeronef_id, vol2_effectue, vol2_numero_aerogest, vol2_prix, vol2_temps_minutes, vol2_pilote_nom, vol2_aeronef_id")
       .eq("archive", false)
       .order("nom");
     if (selectedAnneeId) elevesQuery = elevesQuery.eq("annee_id", selectedAnneeId);
 
-    const [profRes, crRes, aRes, eRes, vhRes, pRes, qRes, peRes, elRes] =
+    const [profRes, crRes, aRes, eRes, vhRes, pRes, qRes, peRes, elRes, paramRes] =
       await Promise.all([
         supabase.from("profiles").select("*").eq("id", user.id).single(),
         creneauxQuery,
@@ -129,6 +130,7 @@ export default function VolsPage() {
           .from("pilote_etablissements")
           .select("pilote_id, etablissement_id"),
         elevesQuery,
+        supabase.from("parametres").select("cle, valeur").eq("cle", "date_examen_bia").maybeSingle(),
       ]);
     setProfile(profRes.data);
     setCreneaux(crRes.data || []);
@@ -143,6 +145,7 @@ export default function VolsPage() {
     setQualifs(qRes.data || []);
     setPiloteEtabs(peRes.data || []);
     setEleves(elRes.data || []);
+    setBiaExamDate(paramRes.data?.valeur || "");
     setLoading(false);
   }
 
@@ -1134,7 +1137,7 @@ export default function VolsPage() {
                                   // Pour les non-SA : masquer les élèves dont la date BIA est passée sans avoir fait Vol 1
                                   if (!isSA) {
                                     const today = new Date().toISOString().split("T")[0];
-                                    if (!el.vol1_effectue && el.bia_date && el.bia_date < today) return false;
+                                    if (!el.vol1_effectue && biaExamDate && biaExamDate < today) return false;
                                   }
                                   return true;
                                 }).map((el) => {
@@ -1413,7 +1416,7 @@ export default function VolsPage() {
                   if (e.bia_resultat === "Non admis") return false;
                   if (!isSA) {
                     const today = new Date().toISOString().split("T")[0];
-                    if (!e.vol1_effectue && e.bia_date && e.bia_date < today) return false;
+                    if (!e.vol1_effectue && biaExamDate && biaExamDate < today) return false;
                   }
                   if (showDetail.etablissement_id && e.etablissement_id !== showDetail.etablissement_id) return false;
                   if (q && !`${e.prenom} ${e.nom}`.toLowerCase().includes(q)) return false;
@@ -1786,7 +1789,7 @@ export default function VolsPage() {
                                   if (el.bia_resultat === "Non admis") return false;
                                   if (!isSA) {
                                     const today = new Date().toISOString().split("T")[0];
-                                    if (!el.vol1_effectue && el.bia_date && el.bia_date < today) return false;
+                                    if (!el.vol1_effectue && biaExamDate && biaExamDate < today) return false;
                                   }
                                   // Keep: not busy, OR already on this specific slot
                                   if (!busyEleveIds.has(el.id)) return true;

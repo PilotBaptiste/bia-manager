@@ -80,10 +80,18 @@ export async function POST(req: Request) {
   // ── Vol 1 eligible ──────────────────────────────────
   const today = new Date().toISOString().split("T")[0];
 
+  // Récupérer la date d'examen BIA de l'année en cours
+  const { data: biaParam } = await supabase
+    .from("parametres")
+    .select("valeur")
+    .eq("cle", "date_examen_bia")
+    .maybeSingle();
+  const biaExamDate: string = biaParam?.valeur || "";
+
   const { data: elevesVol1 } = await applyScope(
     supabase
       .from("eleves")
-      .select("id, prenom, nom, parent_email, parent_prenom, etablissement_id, bia_resultat, bia_date, reservations(id, statut, type_vol)")
+      .select("id, prenom, nom, parent_email, parent_prenom, etablissement_id, bia_resultat, reservations(id, statut, type_vol)")
       .eq("archive", false)
       .eq("abandonne", false)
       .eq("paiement_effectue", true)
@@ -95,8 +103,8 @@ export async function POST(req: Request) {
   const vol1Eligible = (elevesVol1 ?? []).filter((e: any) => {
     // Non admis : BIA échoué, plus éligibles
     if (e.bia_resultat === "Non admis") return false;
-    // Date BIA passée sans Vol 1 : plus éligibles
-    if (e.bia_date && e.bia_date < today) return false;
+    // Date BIA de l'année passée : plus éligibles pour Vol 1
+    if (biaExamDate && biaExamDate < today) return false;
     const activeVol1 = (e.reservations ?? []).some(
       (r: any) => r.type_vol === 1 && r.statut !== "annule",
     );

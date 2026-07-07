@@ -28,6 +28,7 @@ export default function ParametresPage() {
   const [editingAnnee, setEditingAnnee] = useState<any | null>(null);
   const [editForm, setEditForm] = useState({ label: "", date_debut: "", date_fin: "" });
   const [savingEdit, setSavingEdit] = useState(false);
+  const [dateExamenBia, setDateExamenBia] = useState("");
 
   useEffect(() => {
     async function load() {
@@ -39,6 +40,8 @@ export default function ParametresPage() {
       setParams(pR.data || []);
       const tpl = (pR.data || []).find((p: any) => p.cle === "template_attestation");
       if (tpl) setTemplateText(tpl.valeur);
+      const biaDate = (pR.data || []).find((p: any) => p.cle === "date_examen_bia");
+      if (biaDate) setDateExamenBia(biaDate.valeur);
       setAttestations(eR.data || []);
       setAnnees(anR.data || []);
       setLoading(false);
@@ -111,6 +114,13 @@ export default function ParametresPage() {
     setSaving(true);
     for (const p of params) {
       await supabase.from("parametres").update({ valeur: p.valeur }).eq("cle", p.cle);
+    }
+    // Upsert date_examen_bia (peut ne pas exister encore dans la table)
+    if (dateExamenBia) {
+      await supabase.from("parametres").upsert(
+        { cle: "date_examen_bia", valeur: dateExamenBia, description: "Date de l'examen BIA de l'année en cours" },
+        { onConflict: "cle" }
+      );
     }
     setSaving(false);
     setSaved(true);
@@ -225,6 +235,23 @@ export default function ParametresPage() {
                 <input value={p.valeur} onChange={e => updateParam(p.cle, e.target.value)} className="input" />
               </div>
             ))}
+          </div>
+          <div className="card">
+            <h2 className="text-sm font-semibold text-gray-900 mb-4 flex items-center gap-2">
+              <CalendarDays className="w-4 h-4 text-brand-400" /> Dates importantes
+            </h2>
+            <div className="mb-3">
+              <label className="label">Date de l'examen BIA</label>
+              <input
+                type="date"
+                value={dateExamenBia}
+                onChange={e => setDateExamenBia(e.target.value)}
+                className="input"
+              />
+              <p className="text-[11px] text-gray-400 mt-1">
+                Après cette date, les élèves n'ayant pas effectué leur Vol 1 disparaissent automatiquement des pickers pilote (plus éligibles). Le superadmin garde l'accès complet.
+              </p>
+            </div>
           </div>
           <div className="md:col-span-2 flex justify-end">
             <button onClick={handleSave} disabled={saving} className="btn-primary">
