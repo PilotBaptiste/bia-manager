@@ -101,7 +101,7 @@ export default function VolsPage() {
 
     let elevesQuery = supabase
       .from("eleves")
-      .select("id, nom, prenom, etablissement_id, desiderata, abandonne, vol2_autorise, vol1_effectue, vol1_numero_aerogest, vol1_prix, vol1_temps_minutes, vol1_pilote_nom, vol1_aeronef_id, vol2_effectue, vol2_numero_aerogest, vol2_prix, vol2_temps_minutes, vol2_pilote_nom, vol2_aeronef_id")
+      .select("id, nom, prenom, etablissement_id, desiderata, abandonne, bia_resultat, bia_date, vol2_autorise, vol1_effectue, vol1_numero_aerogest, vol1_prix, vol1_temps_minutes, vol1_pilote_nom, vol1_aeronef_id, vol2_effectue, vol2_numero_aerogest, vol2_prix, vol2_temps_minutes, vol2_pilote_nom, vol2_aeronef_id")
       .eq("archive", false)
       .order("nom");
     if (selectedAnneeId) elevesQuery = elevesQuery.eq("annee_id", selectedAnneeId);
@@ -1127,15 +1127,19 @@ export default function VolsPage() {
                                 {etabEleves.filter(el => {
                                   if (el.abandonne) return false;
                                   if (busyEleveIds.has(el.id)) return false;
-                                  // Masquer les élèves qui ont tout fait (Vol 2 effectué, ou Vol FI effectué)
                                   if (el.vol2_effectue) return false;
-                                  // Masquer les élèves bloqués : Vol 1 fait mais pas de BIA → ne peuvent pas faire Vol 2
                                   if (el.vol1_effectue && !el.vol2_autorise) return false;
+                                  // Masquer les Non admis (BIA échoué)
+                                  if (el.bia_resultat === "Non admis") return false;
+                                  // Pour les non-SA : masquer les élèves dont la date BIA est passée sans avoir fait Vol 1
+                                  if (!isSA) {
+                                    const today = new Date().toISOString().split("T")[0];
+                                    if (!el.vol1_effectue && el.bia_date && el.bia_date < today) return false;
+                                  }
                                   return true;
                                 }).map((el) => {
                                   const sel = etabElvsSelected.includes(el.id);
-                                  // V2 uniquement si vol1 fait ET vol2_autorise (BIA obtenu)
-                                  const volLabel = (el.vol1_effectue && el.vol2_autorise) ? "V2" : "V1";
+                                  const volLabel = (el.vol1_effectue && el.vol2_autorise) ? "BIA ✓ · V2" : "V1";
                                   return (
                                     <button
                                       key={el.id}
@@ -1404,10 +1408,13 @@ export default function VolsPage() {
                 const available = eleves.filter((e: any) => {
                   if (alreadyIn.has(e.id)) return false;
                   if (e.abandonne) return false;
-                  // Masquer les élèves qui ont tout effectué
                   if (e.vol2_effectue) return false;
-                  // Masquer les élèves bloqués : Vol 1 fait mais pas BIA → ne peuvent pas faire Vol 2
                   if (e.vol1_effectue && !e.vol2_autorise) return false;
+                  if (e.bia_resultat === "Non admis") return false;
+                  if (!isSA) {
+                    const today = new Date().toISOString().split("T")[0];
+                    if (!e.vol1_effectue && e.bia_date && e.bia_date < today) return false;
+                  }
                   if (showDetail.etablissement_id && e.etablissement_id !== showDetail.etablissement_id) return false;
                   if (q && !`${e.prenom} ${e.nom}`.toLowerCase().includes(q)) return false;
                   return true;
@@ -1776,12 +1783,17 @@ export default function VolsPage() {
                                   if (el.abandonne) return false;
                                   if (el.vol2_effectue) return false;
                                   if (el.vol1_effectue && !el.vol2_autorise) return false;
+                                  if (el.bia_resultat === "Non admis") return false;
+                                  if (!isSA) {
+                                    const today = new Date().toISOString().split("T")[0];
+                                    if (!el.vol1_effectue && el.bia_date && el.bia_date < today) return false;
+                                  }
                                   // Keep: not busy, OR already on this specific slot
                                   if (!busyEleveIds.has(el.id)) return true;
                                   return (showEditSlot.reservations || []).some((r: any) => r.statut !== "annule" && r.eleve?.id === el.id);
                                 }).map((el) => {
                                   const sel = etabElvsSelected.includes(el.id);
-                                  const volLabel = (el.vol1_effectue && el.vol2_autorise) ? "V2" : "V1";
+                                  const volLabel = (el.vol1_effectue && el.vol2_autorise) ? "BIA ✓ · V2" : "V1";
                                   return (
                                     <button
                                       key={el.id}
@@ -2258,14 +2270,12 @@ export default function VolsPage() {
             <div className="flex flex-col gap-6">
               <SectionList slots={mySlots} label="Mes créneaux" />
               {othersSlots.length > 0 && (
-                <details>
-                  <summary className="text-xs font-semibold text-gray-500 uppercase tracking-wider cursor-pointer select-none py-2 px-1 hover:text-gray-700 flex items-center gap-2">
-                    <span>Créneaux des autres pilotes ({othersSlots.filter(c => !["termine","annule"].includes(c.statut)).length} actifs)</span>
-                  </summary>
-                  <div className="mt-3">
-                    <SectionList slots={othersSlots} />
-                  </div>
-                </details>
+                <div>
+                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider py-2 px-1">
+                    Planning général — autres pilotes ({othersSlots.filter(c => !["termine","annule"].includes(c.statut)).length} actifs)
+                  </p>
+                  <SectionList slots={othersSlots} />
+                </div>
               )}
             </div>
           );

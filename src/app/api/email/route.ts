@@ -194,6 +194,11 @@ export async function POST(req: Request) {
             ...(pilote_email ? [{ label: "📧 Pilote", value: pilote_email }] : []),
             ...(etablissement ? [{ label: "🏫 Établissement", value: etablissement }] : []),
           ])}
+          <div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;padding:14px 16px;margin:16px 0">
+            <p style="margin:0;color:#1e40af;font-size:13px;font-weight:700">📍 Lieu du vol</p>
+            <p style="margin:6px 0 0;color:#1d4ed8;font-size:13px">Aéro-Club du Bassin d'Arcachon<br>Aérodrome de Villemarie<br>33260 La Teste de Buch</p>
+            <p style="margin:10px 0 0;color:#1e40af;font-size:13px;font-weight:700">⏰ Merci de vous présenter <strong>15 minutes avant</strong> l'heure prévue du vol.</p>
+          </div>
           <p style="color:#64748b;font-size:13px">📎 Un fichier <strong>.ics</strong> est joint à cet email — ouvrez-le pour ajouter le vol à votre calendrier (Apple, Google, Outlook…).</p>
           <p style="color:#64748b;font-size:13px">En cas d'empêchement, annulez la réservation au moins <strong>48h avant</strong> le vol depuis votre espace.</p>
           ${ctaBtn("Voir mes réservations", `${APP_URL}/dashboard/reservation`)}
