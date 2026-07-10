@@ -105,7 +105,7 @@ export default function VolsPage() {
       .select(
         "*, pilote:profiles!pilote_id(nom,prenom,id,email,telephone), aeronef:aeronefs(*), etablissement:etablissements(nom), reservations(*, eleve:eleves(id,nom,prenom,date_naissance,lieu_naissance,classe,commentaires,vol1_temps_minutes,parent_nom,parent_prenom,parent_email,parent_telephone,etablissement:etablissements(nom)))",
       )
-      .order("date_vol", { ascending: false })
+      .order("date_vol", { ascending: true })
       .order("heure_debut", { ascending: true });
     if (selectedAnneeId) creneauxQuery = creneauxQuery.eq("annee_id", selectedAnneeId);
 
@@ -474,6 +474,8 @@ export default function VolsPage() {
           date_vol: slot?.date_vol,
           heure_debut: slot?.heure_debut,
           pilote_nom: pilotNom,
+          pilote_email: slot?.pilote?.email || "",
+          pilote_telephone: slot?.pilote?.telephone || "",
           motif: motif || undefined,
         }),
       }).catch(() => {});
@@ -510,6 +512,8 @@ export default function VolsPage() {
           date_vol: slot?.date_vol,
           heure_debut: slot?.heure_debut,
           pilote_nom: pilotNom,
+          pilote_email: slot?.pilote?.email || "",
+          pilote_telephone: slot?.pilote?.telephone || "",
           motif: motif || undefined,
         }),
       }).catch(() => {});
@@ -2303,9 +2307,35 @@ export default function VolsPage() {
 
       {/* CALENDAR */}
       {mode === "calendar" && (() => {
-        const today = new Date();
-        today.setHours(0, 0, 0, 0);
-        const todayStr = today.toISOString().split("T")[0];
+        // Helper timezone-safe : utilise l'heure locale (pas UTC)
+        const localDateStr = (d: Date) =>
+          `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+
+        const todayLocal = new Date();
+        todayLocal.setHours(0, 0, 0, 0);
+        const todayStr = localDateStr(todayLocal);
+
+        const statBg: Record<string, string> = {
+          ouvert: "bg-amber-50 border-amber-200",
+          confirme: "bg-brand-50 border-brand-200",
+          termine: "bg-emerald-50 border-emerald-200",
+          annule: "bg-red-50 border-red-200 opacity-60",
+          complet: "bg-blue-50 border-blue-200",
+        };
+        const statText: Record<string, string> = {
+          ouvert: "text-amber-700",
+          confirme: "text-brand-700",
+          termine: "text-emerald-700",
+          annule: "text-red-600",
+          complet: "text-blue-700",
+        };
+
+        const ViewToggle = ({ current }: { current: "week" | "month" }) => (
+          <div className="flex rounded-lg overflow-hidden border border-gray-200 text-xs font-semibold shrink-0">
+            <button onClick={() => setCalView("week")} className={`px-2.5 py-1 ${current === "week" ? "bg-brand-500 text-white" : "bg-white text-gray-500 hover:bg-gray-50"}`}>Sem.</button>
+            <button onClick={() => setCalView("month")} className={`px-2.5 py-1 ${current === "month" ? "bg-brand-500 text-white" : "bg-white text-gray-500 hover:bg-gray-50"}`}>Mois</button>
+          </div>
+        );
 
         // ── VUE SEMAINE ──────────────────────────────────
         if (calView === "week") {
@@ -2314,121 +2344,119 @@ export default function VolsPage() {
             d.setDate(calWeekStart.getDate() + i);
             return d;
           });
-          const weekStart = weekDays[0];
-          const weekEnd = weekDays[6];
           const fmtWeek = (d: Date) => d.toLocaleDateString("fr-FR", { day: "numeric", month: "short" });
-          const jours = ["Lun", "Mar", "Mer", "Jeu", "Ven", "Sam", "Dim"];
+          const joursLong = ["Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi", "Dimanche"];
+          const joursShort = ["Lun", "Mar", "Mer", "Jeu", "Ven", "Sam", "Dim"];
 
           const slotsByDay: Record<string, any[]> = {};
           filteredDisplayed.forEach((c) => {
-            const dateStr = c.date_vol;
-            if (!slotsByDay[dateStr]) slotsByDay[dateStr] = [];
-            slotsByDay[dateStr].push(c);
+            const ds = c.date_vol; // already "YYYY-MM-DD" from DB
+            if (!slotsByDay[ds]) slotsByDay[ds] = [];
+            slotsByDay[ds].push(c);
           });
+
+          const goToday = () => {
+            const d = new Date();
+            const day = d.getDay();
+            const diff = day === 0 ? -6 : 1 - day;
+            d.setDate(d.getDate() + diff);
+            d.setHours(0, 0, 0, 0);
+            setCalWeekStart(new Date(d));
+          };
+
+          const SlotCard = ({ f }: { f: any }) => {
+            const nbEleves = (f.reservations || []).filter((r: any) => r.statut !== "annule").length;
+            const capacity = f.aeronef?.nb_places_eleves ?? 1;
+            const isFull = nbEleves >= capacity;
+            return (
+              <button
+                onClick={() => setShowDetail(f)}
+                className={`w-full text-left rounded-xl border p-2.5 hover:shadow-md active:scale-95 transition-all ${statBg[f.statut] || "bg-gray-50 border-gray-200"}`}
+              >
+                <p className={`text-xs font-bold ${statText[f.statut] || "text-gray-700"}`}>
+                  {f.heure_debut?.slice(0, 5)} – {f.heure_fin?.slice(0, 5)}
+                </p>
+                {f.pilote && <p className="text-[11px] text-gray-600 mt-0.5 font-medium truncate">👤 {f.pilote.prenom} {f.pilote.nom}</p>}
+                {f.aeronef && <p className="text-[11px] text-gray-500 truncate">✈ {f.aeronef.type_aeronef}</p>}
+                <p className={`text-[10px] mt-1 font-semibold ${isFull ? "text-blue-600" : "text-gray-400"}`}>
+                  {nbEleves}/{capacity} élève{capacity > 1 ? "s" : ""}
+                </p>
+              </button>
+            );
+          };
 
           return (
             <div className="card p-0 overflow-hidden">
-              {/* Header semaine */}
-              <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100 bg-white">
-                <button
-                  onClick={() => { const d = new Date(calWeekStart); d.setDate(d.getDate() - 7); setCalWeekStart(d); }}
-                  className="p-2 rounded-lg bg-brand-50 text-brand-600 hover:bg-brand-100 font-bold text-base"
-                >‹</button>
-                <div className="flex items-center gap-3">
-                  <span className="text-sm font-bold text-gray-900">
-                    {fmtWeek(weekStart)} – {fmtWeek(weekEnd)} {weekEnd.getFullYear()}
+              {/* Header */}
+              <div className="flex items-center justify-between px-3 py-3 border-b border-gray-100 bg-white gap-2">
+                <button onClick={() => { const d = new Date(calWeekStart); d.setDate(d.getDate() - 7); setCalWeekStart(new Date(d)); }}
+                  className="p-2 rounded-lg bg-brand-50 text-brand-600 hover:bg-brand-100 font-bold text-base shrink-0">‹</button>
+                <div className="flex flex-col items-center gap-1 min-w-0">
+                  <span className="text-sm font-bold text-gray-900 text-center">
+                    {fmtWeek(weekDays[0])} – {fmtWeek(weekDays[6])} {weekDays[6].getFullYear()}
                   </span>
-                  <button
-                    onClick={() => {
-                      const d = new Date();
-                      const day = d.getDay();
-                      const diff = day === 0 ? -6 : 1 - day;
-                      d.setDate(d.getDate() + diff);
-                      d.setHours(0, 0, 0, 0);
-                      setCalWeekStart(d);
-                    }}
-                    className="text-xs px-2.5 py-1 rounded-md bg-gray-100 text-gray-600 hover:bg-gray-200 font-medium"
-                  >Aujourd'hui</button>
-                  <div className="flex rounded-lg overflow-hidden border border-gray-200 text-xs font-semibold">
-                    <button onClick={() => setCalView("week")} className="px-3 py-1 bg-brand-500 text-white">Semaine</button>
-                    <button onClick={() => setCalView("month")} className="px-3 py-1 bg-white text-gray-500 hover:bg-gray-50">Mois</button>
+                  <div className="flex items-center gap-2">
+                    <button onClick={goToday} className="text-xs px-2 py-0.5 rounded-md bg-gray-100 text-gray-600 hover:bg-gray-200 font-medium">Aujourd'hui</button>
+                    <ViewToggle current="week" />
                   </div>
                 </div>
-                <button
-                  onClick={() => { const d = new Date(calWeekStart); d.setDate(d.getDate() + 7); setCalWeekStart(d); }}
-                  className="p-2 rounded-lg bg-brand-50 text-brand-600 hover:bg-brand-100 font-bold text-base"
-                >›</button>
+                <button onClick={() => { const d = new Date(calWeekStart); d.setDate(d.getDate() + 7); setCalWeekStart(new Date(d)); }}
+                  className="p-2 rounded-lg bg-brand-50 text-brand-600 hover:bg-brand-100 font-bold text-base shrink-0">›</button>
               </div>
 
-              {/* Grille semaine */}
-              <div className="grid grid-cols-7 border-b border-gray-100">
-                {weekDays.map((day, i) => {
-                  const dateStr = day.toISOString().split("T")[0];
-                  const isToday = dateStr === todayStr;
-                  return (
-                    <div key={i} className={`text-center py-2 border-r last:border-r-0 border-gray-100 ${isToday ? "bg-brand-50" : "bg-gray-50"}`}>
-                      <p className={`text-[11px] font-bold uppercase tracking-wide ${isToday ? "text-brand-600" : "text-gray-400"}`}>{jours[i]}</p>
-                      <p className={`text-lg font-bold mt-0.5 ${isToday ? "text-brand-600" : "text-gray-700"}`}>{day.getDate()}</p>
-                    </div>
-                  );
-                })}
+              {/* DESKTOP : grille 7 colonnes */}
+              <div className="hidden sm:block">
+                <div className="grid grid-cols-7 border-b border-gray-100">
+                  {weekDays.map((day, i) => {
+                    const ds = localDateStr(day);
+                    const isToday = ds === todayStr;
+                    return (
+                      <div key={i} className={`text-center py-2 border-r last:border-r-0 border-gray-100 ${isToday ? "bg-brand-50" : "bg-gray-50"}`}>
+                        <p className={`text-[11px] font-bold uppercase ${isToday ? "text-brand-600" : "text-gray-400"}`}>{joursShort[i]}</p>
+                        <p className={`text-lg font-bold mt-0.5 ${isToday ? "text-brand-600" : "text-gray-700"}`}>{day.getDate()}</p>
+                      </div>
+                    );
+                  })}
+                </div>
+                <div className="grid grid-cols-7 divide-x divide-gray-100 min-h-[280px]">
+                  {weekDays.map((day, i) => {
+                    const ds = localDateStr(day);
+                    const isToday = ds === todayStr;
+                    const slots = (slotsByDay[ds] || []).slice().sort((a: any, b: any) => (a.heure_debut || "").localeCompare(b.heure_debut || ""));
+                    return (
+                      <div key={i} className={`p-1.5 space-y-1.5 ${isToday ? "bg-brand-50/30" : "bg-white"}`}>
+                        {slots.length === 0 && <div className="h-full flex items-center justify-center"><span className="text-[10px] text-gray-200">—</span></div>}
+                        {slots.map((f: any, fi: number) => <SlotCard key={fi} f={f} />)}
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
 
-              <div className="grid grid-cols-7 divide-x divide-gray-100 min-h-[300px]">
+              {/* MOBILE : liste verticale par jour */}
+              <div className="sm:hidden divide-y divide-gray-100">
                 {weekDays.map((day, i) => {
-                  const dateStr = day.toISOString().split("T")[0];
-                  const isToday = dateStr === todayStr;
-                  const slots = (slotsByDay[dateStr] || []).slice().sort((a: any, b: any) => (a.heure_debut || "").localeCompare(b.heure_debut || ""));
+                  const ds = localDateStr(day);
+                  const isToday = ds === todayStr;
+                  const slots = (slotsByDay[ds] || []).slice().sort((a: any, b: any) => (a.heure_debut || "").localeCompare(b.heure_debut || ""));
                   return (
-                    <div key={i} className={`p-2 space-y-2 ${isToday ? "bg-brand-50/30" : "bg-white"}`}>
-                      {slots.length === 0 && (
-                        <div className="h-full flex items-center justify-center">
-                          <span className="text-[10px] text-gray-300 select-none">—</span>
+                    <div key={i} className={isToday ? "bg-brand-50/20" : ""}>
+                      <div className={`flex items-center gap-2 px-4 py-2.5 ${isToday ? "bg-brand-50" : "bg-gray-50/60"}`}>
+                        <span className={`w-7 h-7 rounded-full flex items-center justify-center text-sm font-bold ${isToday ? "bg-brand-500 text-white" : "bg-gray-200 text-gray-600"}`}>
+                          {day.getDate()}
+                        </span>
+                        <span className={`text-sm font-semibold ${isToday ? "text-brand-700" : "text-gray-600"}`}>
+                          {joursLong[i]}
+                        </span>
+                        {isToday && <span className="text-[10px] font-bold text-brand-500 bg-brand-100 px-1.5 py-0.5 rounded-full ml-auto">Aujourd'hui</span>}
+                      </div>
+                      {slots.length === 0 ? (
+                        <p className="text-xs text-gray-300 px-4 py-3">Aucun créneau</p>
+                      ) : (
+                        <div className="p-3 space-y-2">
+                          {slots.map((f: any, fi: number) => <SlotCard key={fi} f={f} />)}
                         </div>
                       )}
-                      {slots.map((f: any, fi: number) => {
-                        const nbEleves = (f.reservations || []).filter((r: any) => r.statut !== "annule").length;
-                        const capacity = f.aeronef?.nb_places_eleves ?? 1;
-                        const isFull = nbEleves >= capacity;
-                        const statBg: Record<string, string> = {
-                          ouvert: "bg-amber-50 border-amber-200",
-                          confirme: "bg-brand-50 border-brand-200",
-                          termine: "bg-emerald-50 border-emerald-200",
-                          annule: "bg-red-50 border-red-200 opacity-60",
-                          complet: "bg-blue-50 border-blue-200",
-                        };
-                        const statText: Record<string, string> = {
-                          ouvert: "text-amber-700",
-                          confirme: "text-brand-700",
-                          termine: "text-emerald-700",
-                          annule: "text-red-600",
-                          complet: "text-blue-700",
-                        };
-                        return (
-                          <button
-                            key={fi}
-                            onClick={() => setShowDetail(f)}
-                            className={`w-full text-left rounded-xl border p-2.5 hover:shadow-md transition-all ${statBg[f.statut] || "bg-gray-50 border-gray-200"}`}
-                          >
-                            <p className={`text-xs font-bold ${statText[f.statut] || "text-gray-700"}`}>
-                              {f.heure_debut?.slice(0, 5)} – {f.heure_fin?.slice(0, 5)}
-                            </p>
-                            {f.pilote && (
-                              <p className="text-[11px] text-gray-600 mt-0.5 font-medium truncate">
-                                👤 {f.pilote.prenom} {f.pilote.nom}
-                              </p>
-                            )}
-                            {f.aeronef && (
-                              <p className="text-[11px] text-gray-500 truncate">
-                                ✈ {f.aeronef.type_aeronef}
-                              </p>
-                            )}
-                            <p className={`text-[10px] mt-1 font-semibold ${isFull ? "text-blue-600" : "text-gray-400"}`}>
-                              {nbEleves}/{capacity} élève{capacity > 1 ? "s" : ""}
-                            </p>
-                          </button>
-                        );
-                      })}
                     </div>
                   );
                 })}
@@ -2440,54 +2468,39 @@ export default function VolsPage() {
         // ── VUE MOIS ──────────────────────────────────
         return (
           <div className="card p-0 overflow-hidden">
-            <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
-              <button
-                onClick={() => setCalMonth((m) => Math.max(0, m - 1))}
-                className="p-2 rounded-lg bg-brand-50 text-brand-600 hover:bg-brand-100 font-bold text-base"
-              >‹</button>
-              <div className="flex items-center gap-3">
+            <div className="flex items-center justify-between px-3 py-3 border-b border-gray-100">
+              <button onClick={() => setCalMonth((m) => Math.max(0, m - 1))}
+                className="p-2 rounded-lg bg-brand-50 text-brand-600 hover:bg-brand-100 font-bold text-base shrink-0">‹</button>
+              <div className="flex flex-col items-center gap-1">
                 <span className="text-sm font-bold text-gray-900">{mN[calMonth]} {cY}</span>
-                <div className="flex rounded-lg overflow-hidden border border-gray-200 text-xs font-semibold">
-                  <button onClick={() => setCalView("week")} className="px-3 py-1 bg-white text-gray-500 hover:bg-gray-50">Semaine</button>
-                  <button onClick={() => setCalView("month")} className="px-3 py-1 bg-brand-500 text-white">Mois</button>
-                </div>
+                <ViewToggle current="month" />
               </div>
-              <button
-                onClick={() => setCalMonth((m) => Math.min(11, m + 1))}
-                className="p-2 rounded-lg bg-brand-50 text-brand-600 hover:bg-brand-100 font-bold text-base"
-              >›</button>
+              <button onClick={() => setCalMonth((m) => Math.min(11, m + 1))}
+                className="p-2 rounded-lg bg-brand-50 text-brand-600 hover:bg-brand-100 font-bold text-base shrink-0">›</button>
             </div>
             <div className="grid grid-cols-7">
-              {["Lun", "Mar", "Mer", "Jeu", "Ven", "Sam", "Dim"].map((d) => (
-                <div key={d} className="py-2.5 text-center text-[11px] font-bold uppercase text-gray-400 bg-gray-50 border-b border-gray-100">
-                  {d}
-                </div>
+              {["L", "M", "M", "J", "V", "S", "D"].map((d, i) => (
+                <div key={i} className="py-2 text-center text-[10px] font-bold uppercase text-gray-400 bg-gray-50 border-b border-gray-100">{d}</div>
               ))}
               {cD.map((d, i) => {
                 const dateStr = d ? `${cY}-${String(calMonth + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}` : "";
                 const isToday = dateStr === todayStr;
                 const fls = d ? (fBD[d] || []).slice().sort((a: any, b: any) => (a.heure_debut || "").localeCompare(b.heure_debut || "")) : [];
                 return (
-                  <div
-                    key={i}
-                    className={`min-h-[110px] p-1.5 border-t border-gray-100 ${(i + 1) % 7 !== 0 ? "border-r" : ""} ${d ? (isToday ? "bg-brand-50/40" : "bg-white") : "bg-gray-50/60"}`}
-                  >
+                  <div key={i} className={`min-h-[70px] sm:min-h-[100px] p-1 border-t border-gray-100 ${(i + 1) % 7 !== 0 ? "border-r" : ""} ${d ? (isToday ? "bg-brand-50/40" : "bg-white") : "bg-gray-50/40"}`}>
                     {d && (
                       <>
-                        <div className={`text-xs font-bold text-right pr-0.5 mb-1.5 w-6 ml-auto rounded-full text-center ${isToday ? "bg-brand-500 text-white" : "text-gray-400"}`}>
+                        <div className={`text-[11px] font-bold mb-1 w-5 h-5 flex items-center justify-center rounded-full ml-auto ${isToday ? "bg-brand-500 text-white" : "text-gray-400"}`}>
                           {d}
                         </div>
                         {fls.map((f: any, fi: number) => {
                           const nbEleves = (f.reservations || []).filter((r: any) => r.statut !== "annule").length;
                           return (
-                            <div
-                              key={fi}
-                              onClick={() => setShowDetail(f)}
-                              className={`px-2 py-1 rounded-lg text-[11px] font-semibold mb-1 cursor-pointer hover:opacity-80 transition-opacity ${sS[f.statut] || "bg-gray-100 text-gray-600"}`}
-                            >
+                            <div key={fi} onClick={() => setShowDetail(f)}
+                              className={`px-1 sm:px-2 py-0.5 sm:py-1 rounded text-[9px] sm:text-[11px] font-semibold mb-0.5 cursor-pointer hover:opacity-80 transition-opacity truncate ${sS[f.statut] || "bg-gray-100 text-gray-600"}`}>
                               <span className="font-bold">{f.heure_debut?.slice(0, 5)}</span>
-                              <span className="ml-1 opacity-70 font-normal">{f.pilote?.nom}</span>
-                              {nbEleves > 0 && <span className="float-right opacity-60">·{nbEleves}</span>}
+                              <span className="hidden sm:inline ml-1 opacity-70 font-normal">{f.pilote?.nom}</span>
+                              {nbEleves > 0 && <span className="hidden sm:inline float-right opacity-60">·{nbEleves}</span>}
                             </div>
                           );
                         })}

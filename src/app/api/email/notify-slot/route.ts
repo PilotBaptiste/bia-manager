@@ -49,7 +49,9 @@ export async function POST(req: Request) {
   const hasMultiEtabs = etablissement_ids && etablissement_ids.length > 0;
   const hasSingleEtab = !hasMultiEtabs && !!etablissement_id;
 
-  // Anti-spam: skip if open slots already exist for this scope (unless forced or targeted)
+  // Anti-spam: skip Vol 1 notifications if open slots already exist for this scope
+  // Vol 2 notifications are NEVER blocked by anti-spam (different eligible group)
+  let antiSpamBlocksVol1 = false;
   if (!force && !isTargeted) {
     let countQuery = supabase
       .from("creneaux")
@@ -65,7 +67,7 @@ export async function POST(req: Request) {
     }
     const { count: existingCount } = await countQuery;
     if (existingCount && existingCount > 0) {
-      return NextResponse.json({ sent: 0, reason: "slots_already_available" });
+      antiSpamBlocksVol1 = true;
     }
   }
 
@@ -133,10 +135,15 @@ export async function POST(req: Request) {
   });
 
   // ── Merge, deduplicate per email+élève ──────────────
+  // Si anti-spam bloque Vol 1, on n'envoie qu'aux éligibles Vol 2
+  const elevesCibles = antiSpamBlocksVol1
+    ? vol2Eligible
+    : [...vol1Eligible, ...vol2Eligible];
+
   const seen = new Set<string>();
   const parents: { email: string; prenom: string; eleve_prenom: string; eleve_nom: string; eleve_id: string }[] = [];
 
-  for (const e of [...vol1Eligible, ...vol2Eligible]) {
+  for (const e of elevesCibles) {
     if (!e.parent_email) continue;
     const key = `${e.parent_email}|${e.id}`; // per parent+élève (a parent can have 2 kids)
     if (seen.has(key)) continue;

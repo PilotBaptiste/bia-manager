@@ -325,7 +325,7 @@ export async function POST(req: Request) {
     // SLOT CANCELLED — pilot cancels a slot
     // ─────────────────────────────────────────────────
     else if (type === "slot_cancelled") {
-      const { parents, date_vol, heure_debut, pilote_nom, motif } = body;
+      const { parents, date_vol, heure_debut, pilote_nom, pilote_email, pilote_telephone, motif } = body;
       for (const p of parents || []) {
         emails.push({
           to: p.email,
@@ -343,6 +343,13 @@ export async function POST(req: Request) {
               ...(pilote_nom ? [{ label: "👨‍✈️ Pilote", value: pilote_nom }] : []),
               ...(motif ? [{ label: "💬 Motif", value: motif }] : []),
             ])}
+            ${(pilote_email || pilote_telephone) ? `
+            <div style="background:#fef3c7;border:1px solid #fde68a;border-radius:8px;padding:14px 16px;margin:16px 0">
+              <p style="margin:0;color:#92400e;font-size:13px;font-weight:700">📞 Coordonnées du pilote en cas de question</p>
+              ${pilote_nom ? `<p style="margin:6px 0 0;color:#78350f;font-size:13px;font-weight:600">${pilote_nom}</p>` : ""}
+              ${pilote_telephone ? `<p style="margin:4px 0 0;color:#78350f;font-size:13px">📱 ${pilote_telephone}</p>` : ""}
+              ${pilote_email ? `<p style="margin:4px 0 0;color:#78350f;font-size:13px">✉️ <a href="mailto:${pilote_email}" style="color:#78350f">${pilote_email}</a></p>` : ""}
+            </div>` : ""}
             <p style="color:#64748b;font-size:13px">Vous pouvez réserver un nouveau créneau disponible depuis votre espace dès maintenant.</p>
             ${ctaBtn("Réserver un nouveau créneau", `${APP_URL}/dashboard/reservation`)}
           `, contact),
