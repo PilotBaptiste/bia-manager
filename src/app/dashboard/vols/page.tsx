@@ -107,7 +107,7 @@ export default function VolsPage() {
       .order("nom");
     if (selectedAnneeId) elevesQuery = elevesQuery.eq("annee_id", selectedAnneeId);
 
-    const [profRes, crRes, aRes, eRes, vhRes, pRes, qRes, peRes, elRes, paramRes] =
+    const [profRes, crRes, aRes, eRes, vhRes, pRes, qRes, peRes, elRes] =
       await Promise.all([
         supabase.from("profiles").select("*").eq("id", user.id).single(),
         creneauxQuery,
@@ -130,7 +130,6 @@ export default function VolsPage() {
           .from("pilote_etablissements")
           .select("pilote_id, etablissement_id"),
         elevesQuery,
-        supabase.from("parametres").select("cle, valeur").eq("cle", "date_examen_bia").maybeSingle(),
       ]);
     setProfile(profRes.data);
     setCreneaux(crRes.data || []);
@@ -145,8 +144,14 @@ export default function VolsPage() {
     setQualifs(qRes.data || []);
     setPiloteEtabs(peRes.data || []);
     setEleves(elRes.data || []);
-    setBiaExamDate(paramRes.data?.valeur || "");
     setLoading(false);
+
+    // Charger la date BIA séparément (RLS variable selon le rôle — non bloquant)
+    try {
+      const { data: biaParam } = await supabase
+        .from("parametres").select("valeur").eq("cle", "date_examen_bia").maybeSingle();
+      setBiaExamDate(biaParam?.valeur || "");
+    } catch { /* RLS : la date BIA reste vide, pas de filtrage */ }
   }
 
   useEffect(() => {
