@@ -176,15 +176,16 @@ export default function VolsPage() {
   const coordEtabIds = etabIdsFromProfile(profile?.etablissement_ids, profile?.etablissement_id);
   const gerantEtabIds = etabIdsFromProfile(profile?.etablissement_ids, profile?.etablissement_id);
   const canCreate = isPilote || isSA;
-  // SA → all | coordinateur → leurs étabs | gérant → leur étab | pilote → tous (lecture seule sur ceux des autres)
+  // SA + pilotes → all | coordinateur → leurs étabs | gérant → leur étab
+  // Pilote prend la priorité sur coordinateur/gérant : un pilote voit TOUT le planning
   const displayed =
-    isSA
+    isSA || isPilote
       ? creneaux
       : isCoord && coordEtabIds.length > 0
         ? creneaux.filter((c) => coordEtabIds.includes(c.etablissement_id))
         : isGerant && gerantEtabIds.length > 0
           ? creneaux.filter((c) => gerantEtabIds.includes(c.etablissement_id))
-          : creneaux; // pilotes see all slots, edit rights checked per-slot below
+          : creneaux;
 
   const filteredDisplayed = displayed.filter((c) => {
     if (filterPilote && c.pilote_id !== filterPilote) return false;
@@ -2284,7 +2285,7 @@ export default function VolsPage() {
         };
 
         // For pilots: split my slots vs others
-        if (isPilote && !isSA && !isCoord) {
+        if (isPilote && !isSA) {
           const mySlots = filteredDisplayed.filter((c) => c.pilote_id === profile?.id);
           const othersSlots = filteredDisplayed.filter((c) => c.pilote_id !== profile?.id);
           return (
