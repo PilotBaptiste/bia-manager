@@ -57,6 +57,15 @@ export default function VolsPage() {
   const [error, setError] = useState<string | null>(null);
   const [confirmAction, setConfirmAction] = useState<{ title: string; message: string; variant?: "danger" | "primary"; reasonLabel?: string; onConfirm: (reason?: string) => void } | null>(null);
   const [confirmLoading, setConfirmLoading] = useState(false);
+  const [calView, setCalView] = useState<"week" | "month">("week");
+  const [calWeekStart, setCalWeekStart] = useState<Date>(() => {
+    const d = new Date();
+    const day = d.getDay();
+    const diff = day === 0 ? -6 : 1 - day;
+    d.setDate(d.getDate() + diff);
+    d.setHours(0, 0, 0, 0);
+    return d;
+  });
   const [filterPilote, setFilterPilote] = useState("");
   const [filterAeronef, setFilterAeronef] = useState("");
   const [filterEtab, setFilterEtab] = useState("");
@@ -2293,63 +2302,204 @@ export default function VolsPage() {
       })()}
 
       {/* CALENDAR */}
-      {mode === "calendar" && (
-        <div className="card p-0 overflow-hidden">
-          <div className="flex items-center justify-between px-5 py-3 border-b border-gray-100">
-            <button
-              onClick={() => setCalMonth((m) => Math.max(0, m - 1))}
-              className="p-1.5 rounded-md bg-brand-50 text-brand-500 text-sm font-semibold"
-            >
-              ‹
-            </button>
-            <span className="text-sm font-bold text-gray-900">
-              {mN[calMonth]} {cY}
-            </span>
-            <button
-              onClick={() => setCalMonth((m) => Math.min(11, m + 1))}
-              className="p-1.5 rounded-md bg-brand-50 text-brand-500 text-sm font-semibold"
-            >
-              ›
-            </button>
-          </div>
-          <div className="grid grid-cols-7">
-            {["Lun", "Mar", "Mer", "Jeu", "Ven", "Sam", "Dim"].map((d) => (
-              <div
-                key={d}
-                className="px-1 py-2 text-center text-[10px] font-bold uppercase text-gray-400 bg-gray-50"
-              >
-                {d}
-              </div>
-            ))}
-            {cD.map((d, i) => {
-              const fls = d ? (fBD[d] || []).slice().sort((a: any, b: any) => (a.heure_debut || "").localeCompare(b.heure_debut || "")) : [];
-              return (
-                <div
-                  key={i}
-                  className={`min-h-[78px] p-1 border-t border-gray-100 ${(i + 1) % 7 !== 0 ? "border-r" : ""} ${d ? "bg-white" : "bg-gray-50 opacity-30"}`}
-                >
-                  {d && (
-                    <>
-                      <div className="text-xs text-right pr-1 mb-1 text-gray-500">
-                        {d}
-                      </div>
-                      {fls.map((f: any, fi: number) => (
-                        <div
-                          key={fi}
-                          onClick={() => setShowDetail(f)}
-                          className={`px-1.5 py-0.5 rounded text-[10px] font-semibold mb-0.5 truncate cursor-pointer ${sS[f.statut] || "bg-gray-100"}`}
-                        >
-                          {f.heure_debut?.slice(0, 5)} · {f.pilote?.nom}
-                        </div>
-                      ))}
-                    </>
-                  )}
+      {mode === "calendar" && (() => {
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        const todayStr = today.toISOString().split("T")[0];
+
+        // ── VUE SEMAINE ──────────────────────────────────
+        if (calView === "week") {
+          const weekDays = Array.from({ length: 7 }, (_, i) => {
+            const d = new Date(calWeekStart);
+            d.setDate(calWeekStart.getDate() + i);
+            return d;
+          });
+          const weekStart = weekDays[0];
+          const weekEnd = weekDays[6];
+          const fmtWeek = (d: Date) => d.toLocaleDateString("fr-FR", { day: "numeric", month: "short" });
+          const jours = ["Lun", "Mar", "Mer", "Jeu", "Ven", "Sam", "Dim"];
+
+          const slotsByDay: Record<string, any[]> = {};
+          filteredDisplayed.forEach((c) => {
+            const dateStr = c.date_vol;
+            if (!slotsByDay[dateStr]) slotsByDay[dateStr] = [];
+            slotsByDay[dateStr].push(c);
+          });
+
+          return (
+            <div className="card p-0 overflow-hidden">
+              {/* Header semaine */}
+              <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100 bg-white">
+                <button
+                  onClick={() => { const d = new Date(calWeekStart); d.setDate(d.getDate() - 7); setCalWeekStart(d); }}
+                  className="p-2 rounded-lg bg-brand-50 text-brand-600 hover:bg-brand-100 font-bold text-base"
+                >‹</button>
+                <div className="flex items-center gap-3">
+                  <span className="text-sm font-bold text-gray-900">
+                    {fmtWeek(weekStart)} – {fmtWeek(weekEnd)} {weekEnd.getFullYear()}
+                  </span>
+                  <button
+                    onClick={() => {
+                      const d = new Date();
+                      const day = d.getDay();
+                      const diff = day === 0 ? -6 : 1 - day;
+                      d.setDate(d.getDate() + diff);
+                      d.setHours(0, 0, 0, 0);
+                      setCalWeekStart(d);
+                    }}
+                    className="text-xs px-2.5 py-1 rounded-md bg-gray-100 text-gray-600 hover:bg-gray-200 font-medium"
+                  >Aujourd'hui</button>
+                  <div className="flex rounded-lg overflow-hidden border border-gray-200 text-xs font-semibold">
+                    <button onClick={() => setCalView("week")} className="px-3 py-1 bg-brand-500 text-white">Semaine</button>
+                    <button onClick={() => setCalView("month")} className="px-3 py-1 bg-white text-gray-500 hover:bg-gray-50">Mois</button>
+                  </div>
                 </div>
-              );
-            })}
+                <button
+                  onClick={() => { const d = new Date(calWeekStart); d.setDate(d.getDate() + 7); setCalWeekStart(d); }}
+                  className="p-2 rounded-lg bg-brand-50 text-brand-600 hover:bg-brand-100 font-bold text-base"
+                >›</button>
+              </div>
+
+              {/* Grille semaine */}
+              <div className="grid grid-cols-7 border-b border-gray-100">
+                {weekDays.map((day, i) => {
+                  const dateStr = day.toISOString().split("T")[0];
+                  const isToday = dateStr === todayStr;
+                  return (
+                    <div key={i} className={`text-center py-2 border-r last:border-r-0 border-gray-100 ${isToday ? "bg-brand-50" : "bg-gray-50"}`}>
+                      <p className={`text-[11px] font-bold uppercase tracking-wide ${isToday ? "text-brand-600" : "text-gray-400"}`}>{jours[i]}</p>
+                      <p className={`text-lg font-bold mt-0.5 ${isToday ? "text-brand-600" : "text-gray-700"}`}>{day.getDate()}</p>
+                    </div>
+                  );
+                })}
+              </div>
+
+              <div className="grid grid-cols-7 divide-x divide-gray-100 min-h-[300px]">
+                {weekDays.map((day, i) => {
+                  const dateStr = day.toISOString().split("T")[0];
+                  const isToday = dateStr === todayStr;
+                  const slots = (slotsByDay[dateStr] || []).slice().sort((a: any, b: any) => (a.heure_debut || "").localeCompare(b.heure_debut || ""));
+                  return (
+                    <div key={i} className={`p-2 space-y-2 ${isToday ? "bg-brand-50/30" : "bg-white"}`}>
+                      {slots.length === 0 && (
+                        <div className="h-full flex items-center justify-center">
+                          <span className="text-[10px] text-gray-300 select-none">—</span>
+                        </div>
+                      )}
+                      {slots.map((f: any, fi: number) => {
+                        const nbEleves = (f.reservations || []).filter((r: any) => r.statut !== "annule").length;
+                        const capacity = f.aeronef?.nb_places_eleves ?? 1;
+                        const isFull = nbEleves >= capacity;
+                        const statBg: Record<string, string> = {
+                          ouvert: "bg-amber-50 border-amber-200",
+                          confirme: "bg-brand-50 border-brand-200",
+                          termine: "bg-emerald-50 border-emerald-200",
+                          annule: "bg-red-50 border-red-200 opacity-60",
+                          complet: "bg-blue-50 border-blue-200",
+                        };
+                        const statText: Record<string, string> = {
+                          ouvert: "text-amber-700",
+                          confirme: "text-brand-700",
+                          termine: "text-emerald-700",
+                          annule: "text-red-600",
+                          complet: "text-blue-700",
+                        };
+                        return (
+                          <button
+                            key={fi}
+                            onClick={() => setShowDetail(f)}
+                            className={`w-full text-left rounded-xl border p-2.5 hover:shadow-md transition-all ${statBg[f.statut] || "bg-gray-50 border-gray-200"}`}
+                          >
+                            <p className={`text-xs font-bold ${statText[f.statut] || "text-gray-700"}`}>
+                              {f.heure_debut?.slice(0, 5)} – {f.heure_fin?.slice(0, 5)}
+                            </p>
+                            {f.pilote && (
+                              <p className="text-[11px] text-gray-600 mt-0.5 font-medium truncate">
+                                👤 {f.pilote.prenom} {f.pilote.nom}
+                              </p>
+                            )}
+                            {f.aeronef && (
+                              <p className="text-[11px] text-gray-500 truncate">
+                                ✈ {f.aeronef.type_aeronef}
+                              </p>
+                            )}
+                            <p className={`text-[10px] mt-1 font-semibold ${isFull ? "text-blue-600" : "text-gray-400"}`}>
+                              {nbEleves}/{capacity} élève{capacity > 1 ? "s" : ""}
+                            </p>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          );
+        }
+
+        // ── VUE MOIS ──────────────────────────────────
+        return (
+          <div className="card p-0 overflow-hidden">
+            <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
+              <button
+                onClick={() => setCalMonth((m) => Math.max(0, m - 1))}
+                className="p-2 rounded-lg bg-brand-50 text-brand-600 hover:bg-brand-100 font-bold text-base"
+              >‹</button>
+              <div className="flex items-center gap-3">
+                <span className="text-sm font-bold text-gray-900">{mN[calMonth]} {cY}</span>
+                <div className="flex rounded-lg overflow-hidden border border-gray-200 text-xs font-semibold">
+                  <button onClick={() => setCalView("week")} className="px-3 py-1 bg-white text-gray-500 hover:bg-gray-50">Semaine</button>
+                  <button onClick={() => setCalView("month")} className="px-3 py-1 bg-brand-500 text-white">Mois</button>
+                </div>
+              </div>
+              <button
+                onClick={() => setCalMonth((m) => Math.min(11, m + 1))}
+                className="p-2 rounded-lg bg-brand-50 text-brand-600 hover:bg-brand-100 font-bold text-base"
+              >›</button>
+            </div>
+            <div className="grid grid-cols-7">
+              {["Lun", "Mar", "Mer", "Jeu", "Ven", "Sam", "Dim"].map((d) => (
+                <div key={d} className="py-2.5 text-center text-[11px] font-bold uppercase text-gray-400 bg-gray-50 border-b border-gray-100">
+                  {d}
+                </div>
+              ))}
+              {cD.map((d, i) => {
+                const dateStr = d ? `${cY}-${String(calMonth + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}` : "";
+                const isToday = dateStr === todayStr;
+                const fls = d ? (fBD[d] || []).slice().sort((a: any, b: any) => (a.heure_debut || "").localeCompare(b.heure_debut || "")) : [];
+                return (
+                  <div
+                    key={i}
+                    className={`min-h-[110px] p-1.5 border-t border-gray-100 ${(i + 1) % 7 !== 0 ? "border-r" : ""} ${d ? (isToday ? "bg-brand-50/40" : "bg-white") : "bg-gray-50/60"}`}
+                  >
+                    {d && (
+                      <>
+                        <div className={`text-xs font-bold text-right pr-0.5 mb-1.5 w-6 ml-auto rounded-full text-center ${isToday ? "bg-brand-500 text-white" : "text-gray-400"}`}>
+                          {d}
+                        </div>
+                        {fls.map((f: any, fi: number) => {
+                          const nbEleves = (f.reservations || []).filter((r: any) => r.statut !== "annule").length;
+                          return (
+                            <div
+                              key={fi}
+                              onClick={() => setShowDetail(f)}
+                              className={`px-2 py-1 rounded-lg text-[11px] font-semibold mb-1 cursor-pointer hover:opacity-80 transition-opacity ${sS[f.statut] || "bg-gray-100 text-gray-600"}`}
+                            >
+                              <span className="font-bold">{f.heure_debut?.slice(0, 5)}</span>
+                              <span className="ml-1 opacity-70 font-normal">{f.pilote?.nom}</span>
+                              {nbEleves > 0 && <span className="float-right opacity-60">·{nbEleves}</span>}
+                            </div>
+                          );
+                        })}
+                      </>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* HISTORIQUE */}
       {mode === "historique" && (isSA || isPilote) && (() => {
