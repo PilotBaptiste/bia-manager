@@ -6,9 +6,10 @@ export async function GET(req: Request) {
     const { searchParams } = new URL(req.url);
     const email = searchParams.get("email");
     const eleveId = searchParams.get("eleve_id");
+    const creneauId = searchParams.get("creneau_id");
 
-    if (!email && !eleveId) {
-      return NextResponse.json({ error: "email or eleve_id required" }, { status: 400 });
+    if (!email && !eleveId && !creneauId) {
+      return NextResponse.json({ error: "email, eleve_id or creneau_id required" }, { status: 400 });
     }
 
     const supabase = createClient(
@@ -20,9 +21,11 @@ export async function GET(req: Request) {
       .from("email_logs")
       .select("id, created_at, type, to_email, subject, statut, resend_id")
       .order("created_at", { ascending: false })
-      .limit(50);
+      .limit(100);
 
-    if (eleveId) {
+    if (creneauId) {
+      query = query.eq("creneau_id", creneauId);
+    } else if (eleveId) {
       query = query.eq("eleve_id", eleveId);
     } else if (email) {
       query = query.eq("to_email", email);

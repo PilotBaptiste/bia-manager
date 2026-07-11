@@ -75,6 +75,8 @@ export default function VolsPage() {
   const [showAddEleve, setShowAddEleve] = useState(false);
   const [addEleveSearch, setAddEleveSearch] = useState("");
   const [addEleveTypeVol, setAddEleveTypeVol] = useState<1 | 2>(1);
+  const [sendNotif, setSendNotif] = useState(true);
+  const [slotEmailLogs, setSlotEmailLogs] = useState<any[]>([]);
   const [form, setForm] = useState({
     date_vol: "",
     heure_debut: "09:00",
@@ -166,6 +168,14 @@ export default function VolsPage() {
   useEffect(() => {
     if (selectedAnneeId) load();
   }, [selectedAnneeId]);
+
+  useEffect(() => {
+    if (!showDetail?.id) { setSlotEmailLogs([]); return; }
+    fetch(`/api/email/logs?creneau_id=${showDetail.id}`)
+      .then((r) => r.json())
+      .then((d) => setSlotEmailLogs(d.logs ?? []))
+      .catch(() => setSlotEmailLogs([]));
+  }, [showDetail?.id]);
 
   const isPilote = profile?.roles?.includes("pilote");
   const isSA = profile?.roles?.includes("superadmin");
@@ -326,22 +336,25 @@ export default function VolsPage() {
     setSaving(false);
     if (err) { setError(err.message); return; }
     // Notify eligible parents (anti-spam: only if no open slots already existed for this scope)
-    fetch("/api/email/notify-slot", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        creneau_id: created?.id,
-        etablissement_id: singleEtabId,
-        etablissement_ids: etabIds,
-        eleves_autorises: eleveAut,
-        date_vol: form.date_vol,
-        heure_debut: form.heure_debut,
-        heure_fin: form.heure_fin,
-        pilote_nom: piloteNom,
-        aeronef: aeronefLabel,
-      }),
-    }).catch(() => {});
+    if (sendNotif) {
+      fetch("/api/email/notify-slot", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          creneau_id: created?.id,
+          etablissement_id: singleEtabId,
+          etablissement_ids: etabIds,
+          eleves_autorises: eleveAut,
+          date_vol: form.date_vol,
+          heure_debut: form.heure_debut,
+          heure_fin: form.heure_fin,
+          pilote_nom: piloteNom,
+          aeronef: aeronefLabel,
+        }),
+      }).catch(() => {});
+    }
     setShowCreate(false);
+    setSendNotif(true);
     setForm({
       date_vol: "",
       heure_debut: "09:00",
@@ -1218,7 +1231,16 @@ export default function VolsPage() {
                 />
               </div>
             </div>
-            <div className="flex justify-end gap-2 mt-5 pt-4 border-t border-gray-100">
+            <label className="flex items-center gap-2 mt-4 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={sendNotif}
+                onChange={(e) => setSendNotif(e.target.checked)}
+                className="w-4 h-4 accent-brand-500"
+              />
+              <span className="text-sm text-gray-700">Notifier les parents éligibles par mail</span>
+            </label>
+            <div className="flex justify-end gap-2 mt-4 pt-4 border-t border-gray-100">
               <button
                 onClick={() => setShowCreate(false)}
                 className="btn-secondary"
@@ -1485,6 +1507,36 @@ export default function VolsPage() {
                 );
               })()}
             </div>
+            {/* ── Email log status ── */}
+            {(isPilote || isSA) && (
+              <div className="mt-4 pt-3 border-t border-gray-100">
+                <p className="text-xs font-semibold text-gray-500 uppercase mb-2">Notifications envoyées</p>
+                {slotEmailLogs.length === 0 ? (
+                  <p className="text-xs text-gray-400">Aucun email enregistré pour ce créneau</p>
+                ) : (
+                  <div className="space-y-1">
+                    <p className="text-xs text-gray-600 mb-1">
+                      {slotEmailLogs.filter((l) => l.statut === "envoye").length} envoyé(s)
+                      {slotEmailLogs.filter((l) => l.statut === "erreur").length > 0 && (
+                        <span className="ml-2 text-red-500 font-semibold">
+                          · {slotEmailLogs.filter((l) => l.statut === "erreur").length} erreur(s)
+                        </span>
+                      )}
+                    </p>
+                    <div className="max-h-28 overflow-y-auto space-y-1">
+                      {slotEmailLogs.map((l) => (
+                        <div key={l.id} className="flex items-center gap-2 text-xs">
+                          <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${l.statut === "envoye" ? "bg-emerald-400" : "bg-red-400"}`} />
+                          <span className="text-gray-600 truncate flex-1">{l.to_email}</span>
+                          <span className="text-gray-400 shrink-0">{new Date(l.created_at).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
             {showDetail.statut !== "termine" && showDetail.statut !== "annule" && (() => {
                 const canEditSlot = isSA || isCoord || showDetail.pilote_id === profile?.id;
                 return (

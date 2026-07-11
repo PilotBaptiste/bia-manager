@@ -610,6 +610,7 @@ export async function POST(req: Request) {
           to_email: e.to,
           subject: e.subject,
           eleve_id: e.eleve_id !== undefined ? e.eleve_id : (body.eleve_id ?? null),
+          creneau_id: body.creneau_id ?? null,
           resend_id: resendId,
           statut,
         });
