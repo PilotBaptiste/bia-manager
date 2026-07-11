@@ -190,7 +190,11 @@ export default function VolsPage() {
   const filteredDisplayed = displayed.filter((c) => {
     if (filterPilote && c.pilote_id !== filterPilote) return false;
     if (filterAeronef && c.aeronef_id !== filterAeronef) return false;
-    if (filterEtab && c.etablissement_id !== filterEtab) return false;
+    if (filterEtab) {
+      // Pour les pilotes : leurs créneaux sans établissement (null) restent toujours visibles
+      const isOwnNullEtab = isPilote && c.pilote_id === profile?.id && c.etablissement_id === null;
+      if (!isOwnNullEtab && c.etablissement_id !== filterEtab) return false;
+    }
     if (filterStatut && c.statut !== filterStatut) return false;
     if (filterDateFrom && c.date_vol < filterDateFrom) return false;
     if (filterDateTo && c.date_vol > filterDateTo) return false;
