@@ -390,6 +390,38 @@ export async function POST(req: Request) {
     }
 
     // ─────────────────────────────────────────────────
+    // SLOT REMINDER — créneau toujours disponible
+    // ─────────────────────────────────────────────────
+    else if (type === "slot_reminder") {
+      const { parents, date_vol, heure_debut, heure_fin, pilote_nom, aeronef } = body;
+      for (const p of parents || []) {
+        emails.push({
+          to: p.email,
+          eleve_id: p.eleve_id ?? null,
+          subject: `⏰ Rappel — un créneau de vol est toujours disponible pour ${p.eleve_prenom} !`,
+          html: wrap(`
+            <h2 style="margin:0 0 4px;font-size:20px;color:#0f172a">Le créneau est toujours disponible !</h2>
+            <p style="color:#64748b;margin:0 0 20px;font-size:14px">Bonjour ${p.prenom},</p>
+            <p style="color:#374151;font-size:14px;margin:0 0 8px">
+              Il reste des places sur le créneau de vol de découverte pour <strong>${p.eleve_prenom} ${p.eleve_nom}</strong>. N'attendez pas pour réserver !
+            </p>
+            ${infoBox([
+              { label: "📅 Date", value: date_vol },
+              { label: "⏰ Horaire", value: `${heure_debut} – ${heure_fin}` },
+              ...(aeronef ? [{ label: "✈️ Appareil", value: aeronef }] : []),
+              ...(pilote_nom ? [{ label: "👨‍✈️ Pilote", value: pilote_nom }] : []),
+            ])}
+            <div style="background:#fef3c7;border:1px solid #fde68a;border-radius:8px;padding:14px 16px;margin:16px 0">
+              <p style="margin:0;color:#92400e;font-size:13px;font-weight:600">⚡ Il reste des places — réservez maintenant</p>
+              <p style="margin:6px 0 0;color:#b45309;font-size:13px">Ce créneau n'est pas encore complet. Réservez votre place avant qu'il ne le soit !</p>
+            </div>
+            ${ctaBtn("Réserver ce créneau", `${APP_URL}/dashboard/reservation`)}
+          `, contact),
+        });
+      }
+    }
+
+    // ─────────────────────────────────────────────────
     // ATTESTATION + PAIEMENT READY — parent can book
     // ─────────────────────────────────────────────────
     else if (type === "attestation_ready") {

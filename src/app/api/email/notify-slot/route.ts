@@ -43,6 +43,7 @@ export async function POST(req: Request) {
     pilote_nom,
     aeronef,
     force = false,
+    reminder = false,
   } = body;
 
   const isTargeted = eleves_autorises && eleves_autorises.length > 0;
@@ -173,7 +174,7 @@ export async function POST(req: Request) {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      type: "slot_available",
+      type: reminder ? "slot_reminder" : "slot_available",
       parents,
       date_vol: dateFormatted,
       heure_debut: heureFormatted,

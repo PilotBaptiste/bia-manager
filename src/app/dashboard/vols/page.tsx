@@ -77,6 +77,7 @@ export default function VolsPage() {
   const [addEleveTypeVol, setAddEleveTypeVol] = useState<1 | 2>(1);
   const [sendNotif, setSendNotif] = useState(true);
   const [slotEmailLogs, setSlotEmailLogs] = useState<any[]>([]);
+  const [notifying, setNotifying] = useState(false);
   const [form, setForm] = useState({
     date_vol: "",
     heure_debut: "09:00",
@@ -740,6 +741,47 @@ export default function VolsPage() {
 
     // No students on slot → nothing to send
     toast.info("Aucun élève sur ce créneau à notifier");
+  }
+
+  async function handleRenotifyAvailable(slot: any) {
+    const aeronefObj = aeronefs.find((a: any) => a.id === slot.aeronef_id);
+    const aeronefLabel = aeronefObj ? `${aeronefObj.type_aeronef} (${aeronefObj.immatriculation})` : "";
+    const piloteNom = slot.pilote ? `${slot.pilote.prenom} ${slot.pilote.nom}` : "";
+    setNotifying(true);
+    try {
+      const res = await fetch("/api/email/notify-slot", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          creneau_id: slot.id,
+          etablissement_id: slot.etablissement_id ?? null,
+          etablissement_ids: slot.etablissement_ids ?? null,
+          eleves_autorises: slot.eleves_autorises ?? null,
+          date_vol: slot.date_vol,
+          heure_debut: slot.heure_debut,
+          heure_fin: slot.heure_fin,
+          pilote_nom: piloteNom,
+          aeronef: aeronefLabel,
+          force: true,
+          reminder: true,
+        }),
+      });
+      const data = await res.json();
+      if (data.sent > 0) {
+        toast.success(`${data.sent} parent(s) notifié(s)`);
+        // Refresh email logs for this slot
+        fetch(`/api/email/logs?creneau_id=${slot.id}`)
+          .then((r) => r.json())
+          .then((d) => setSlotEmailLogs(d.logs ?? []))
+          .catch(() => {});
+      } else {
+        toast.info("Aucun parent éligible à notifier");
+      }
+    } catch {
+      toast.error("Erreur lors de l'envoi");
+    } finally {
+      setNotifying(false);
+    }
   }
 
   async function doRemoveEleve(rid: string, name: string, motif?: string) {
@@ -1592,11 +1634,27 @@ export default function VolsPage() {
                       <button
                         onClick={() => handleNotifySlot(showDetail)}
                         className="btn-secondary"
-                        title="Notifier les parents"
+                        title="Notifier les parents déjà inscrits"
                       >
                         <Mail className="w-4 h-4" /> Notifier
                       </button>
                     )}
+                    {isPilote && showDetail.statut === "ouvert" && (() => {
+                      const activeCount = (showDetail.reservations || []).filter((r: any) => r.statut !== "annule").length;
+                      const hasPlaces = activeCount < (showDetail.places_disponibles ?? 0);
+                      if (!hasPlaces) return null;
+                      return (
+                        <button
+                          onClick={() => handleRenotifyAvailable(showDetail)}
+                          disabled={notifying}
+                          className="btn-secondary"
+                          title="Relancer une notification aux parents éligibles — créneau toujours disponible"
+                        >
+                          {notifying ? <Loader2 className="w-4 h-4 animate-spin" /> : <Mail className="w-4 h-4" />}
+                          Relancer
+                        </button>
+                      );
+                    })()}
                     {canEditSlot && (
                       <button
                         onClick={() => handleCancelSlot(showDetail.id)}
