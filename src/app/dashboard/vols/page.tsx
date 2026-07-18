@@ -114,7 +114,7 @@ export default function VolsPage() {
 
     let elevesQuery = supabase
       .from("eleves")
-      .select("id, nom, prenom, etablissement_id, desiderata, abandonne, bia_resultat, vol2_autorise, vol1_effectue, vol1_numero_aerogest, vol1_prix, vol1_temps_minutes, vol1_pilote_nom, vol1_aeronef_id, vol2_effectue, vol2_numero_aerogest, vol2_prix, vol2_temps_minutes, vol2_pilote_nom, vol2_aeronef_id")
+      .select("id, nom, prenom, etablissement_id, desiderata, abandonne, bia_resultat, vol2_autorise, vol1_effectue, vol1_skippe, vol1_numero_aerogest, vol1_prix, vol1_temps_minutes, vol1_pilote_nom, vol1_aeronef_id, vol2_effectue, vol2_numero_aerogest, vol2_prix, vol2_temps_minutes, vol2_pilote_nom, vol2_aeronef_id")
       .eq("archive", false)
       .order("nom");
     if (selectedAnneeId) elevesQuery = elevesQuery.eq("annee_id", selectedAnneeId);
@@ -1209,18 +1209,18 @@ export default function VolsPage() {
                                   if (el.abandonne) return false;
                                   if (busyEleveIds.has(el.id)) return false;
                                   if (el.vol2_effectue) return false;
-                                  if (el.vol1_effectue && !el.vol2_autorise) return false;
+                                  if ((el.vol1_effectue || el.vol1_skippe) && !el.vol2_autorise) return false;
                                   // Masquer les Non admis (BIA échoué)
                                   if (el.bia_resultat === "Non admis") return false;
                                   // Pour les non-SA : masquer les élèves dont la date BIA est passée sans avoir fait Vol 1
                                   if (!isSA) {
                                     const today = new Date().toISOString().split("T")[0];
-                                    if (!el.vol1_effectue && biaExamDate && biaExamDate < today) return false;
+                                    if (!el.vol1_effectue && !el.vol1_skippe && biaExamDate && biaExamDate < today) return false;
                                   }
                                   return true;
                                 }).map((el) => {
                                   const sel = etabElvsSelected.includes(el.id);
-                                  const volLabel = (el.vol1_effectue && el.vol2_autorise) ? "BIA ✓ · V2" : "V1";
+                                  const volLabel = ((el.vol1_effectue || el.vol1_skippe) && el.vol2_autorise) ? "BIA ✓ · V2" : "V1";
                                   return (
                                     <button
                                       key={el.id}
@@ -1499,11 +1499,11 @@ export default function VolsPage() {
                   if (alreadyIn.has(e.id)) return false;
                   if (e.abandonne) return false;
                   if (e.vol2_effectue) return false;
-                  if (e.vol1_effectue && !e.vol2_autorise) return false;
+                  if ((e.vol1_effectue || e.vol1_skippe) && !e.vol2_autorise) return false;
                   if (e.bia_resultat === "Non admis") return false;
                   if (!isSA) {
                     const today = new Date().toISOString().split("T")[0];
-                    if (!e.vol1_effectue && biaExamDate && biaExamDate < today) return false;
+                    if (!e.vol1_effectue && !e.vol1_skippe && biaExamDate && biaExamDate < today) return false;
                   }
                   if (showDetail.etablissement_id && e.etablissement_id !== showDetail.etablissement_id) return false;
                   if (q && !`${e.prenom} ${e.nom}`.toLowerCase().includes(q)) return false;
@@ -1524,7 +1524,7 @@ export default function VolsPage() {
                         <p className="text-xs text-gray-400 py-1">Aucun élève disponible</p>
                       ) : available.map((e: any) => {
                         // Auto-détecter le type de vol selon l'état de l'élève
-                        const detectedTypeVol: 1 | 2 = (e.vol1_effectue && e.vol2_autorise && !e.vol2_effectue) ? 2 : 1;
+                        const detectedTypeVol: 1 | 2 = ((e.vol1_effectue || e.vol1_skippe) && e.vol2_autorise && !e.vol2_effectue) ? 2 : 1;
                         const match = matchDesiderata(e.desiderata, showDetail.date_vol, showDetail.heure_debut);
                         return (
                           <button
@@ -1927,18 +1927,18 @@ export default function VolsPage() {
                                 {etabEleves.filter(el => {
                                   if (el.abandonne) return false;
                                   if (el.vol2_effectue) return false;
-                                  if (el.vol1_effectue && !el.vol2_autorise) return false;
+                                  if ((el.vol1_effectue || el.vol1_skippe) && !el.vol2_autorise) return false;
                                   if (el.bia_resultat === "Non admis") return false;
                                   if (!isSA) {
                                     const today = new Date().toISOString().split("T")[0];
-                                    if (!el.vol1_effectue && biaExamDate && biaExamDate < today) return false;
+                                    if (!el.vol1_effectue && !el.vol1_skippe && biaExamDate && biaExamDate < today) return false;
                                   }
                                   // Keep: not busy, OR already on this specific slot
                                   if (!busyEleveIds.has(el.id)) return true;
                                   return (showEditSlot.reservations || []).some((r: any) => r.statut !== "annule" && r.eleve?.id === el.id);
                                 }).map((el) => {
                                   const sel = etabElvsSelected.includes(el.id);
-                                  const volLabel = (el.vol1_effectue && el.vol2_autorise) ? "BIA ✓ · V2" : "V1";
+                                  const volLabel = ((el.vol1_effectue || el.vol1_skippe) && el.vol2_autorise) ? "BIA ✓ · V2" : "V1";
                                   return (
                                     <button
                                       key={el.id}
@@ -2120,7 +2120,7 @@ export default function VolsPage() {
                       // Auto-détecter le type de vol selon l'état de l'élève
                       const found = eleves.find((el: any) => el.id === e.target.value);
                       if (found) {
-                        const detected: 1 | 2 = (found.vol1_effectue && found.vol2_autorise && !found.vol2_effectue) ? 2 : 1;
+                        const detected: 1 | 2 = ((found.vol1_effectue || found.vol1_skippe) && found.vol2_autorise && !found.vol2_effectue) ? 2 : 1;
                         setAddHistoEleveTypeVol(detected);
                       }
                     }}
@@ -2131,7 +2131,7 @@ export default function VolsPage() {
                       .filter((e: any) => !editHistoElevesLocal.some((x: any) => x.id === e.id))
                       .sort((a: any, b: any) => `${a.prenom} ${a.nom}`.localeCompare(`${b.prenom} ${b.nom}`))
                       .map((e: any) => {
-                        const tv = (e.vol1_effectue && e.vol2_autorise && !e.vol2_effectue) ? "Vol 2" : "Vol 1";
+                        const tv = ((e.vol1_effectue || e.vol1_skippe) && e.vol2_autorise && !e.vol2_effectue) ? "Vol 2" : "Vol 1";
                         return <option key={e.id} value={e.id}>{e.prenom} {e.nom} — {tv}</option>;
                       })}
                   </select>

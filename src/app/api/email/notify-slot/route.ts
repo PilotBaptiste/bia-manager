@@ -123,7 +123,7 @@ export async function POST(req: Request) {
       .eq("archive", false)
       .eq("abandonne", false)
       .eq("vol2_autorise", true)
-      .eq("vol1_effectue", true)
+      .or("vol1_effectue.eq.true,vol1_skippe.eq.true")
       .eq("vol2_effectue", false)
       .not("parent_email", "is", null)
   );

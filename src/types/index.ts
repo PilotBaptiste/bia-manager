@@ -81,6 +81,7 @@ export interface Eleve {
   bia_resultat: string | null;
   bia_date: string | null;
   vol1_effectue: boolean;
+  vol1_skippe: boolean;
   vol1_temps_minutes: number | null;
   vol2_autorise: boolean;
   vol2_effectue: boolean;

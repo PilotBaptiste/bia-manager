@@ -257,7 +257,7 @@ export default function ReservationPage() {
       !hasActiveVol1
     )
       return true;
-    if (e.vol2_autorise && e.vol1_effectue && !e.vol2_effectue && !hasActiveVol2) return true;
+    if (e.vol2_autorise && (e.vol1_effectue || e.vol1_skippe) && !e.vol2_effectue && !hasActiveVol2) return true;
     return false;
   });
 
@@ -433,7 +433,7 @@ export default function ReservationPage() {
           </h2>
           {bookableEnfants.map((enfant) => {
             const isVol2 =
-              enfant.vol1_effectue &&
+              (enfant.vol1_effectue || enfant.vol1_skippe) &&
               enfant.vol2_autorise &&
               !enfant.vol2_effectue;
             const typeVol = isVol2 ? 2 : 1;

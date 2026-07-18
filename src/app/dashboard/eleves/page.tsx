@@ -620,6 +620,15 @@ export default function ElevesPage() {
     });
   }
 
+  async function handleSkipVol1(id: string, currentValue: boolean) {
+    const newValue = !currentValue;
+    const { error } = await supabase.from("eleves").update({ vol1_skippe: newValue }).eq("id", id);
+    if (error) { toast.error("Erreur lors de la mise à jour"); return; }
+    toast.success(newValue ? "Vol 1 marqué comme décliné — Vol 2 autorisé" : "Dispense Vol 1 annulée");
+    setSelected((prev: any) => prev ? { ...prev, vol1_skippe: newValue } : prev);
+    load();
+  }
+
   async function doAbandon(id: string, currentValue: boolean) {
     const newValue = !currentValue;
     const { error } = await supabase.from("eleves").update({ abandonne: newValue }).eq("id", id);
@@ -1690,16 +1699,29 @@ export default function ElevesPage() {
                     );
                   }
                   return (
-                    <InfoRow
-                      label="Statut"
-                      value={
-                        s.paiement_effectue && s.attestation_signee
-                          ? "Peut réserver"
-                          : "Conditions non remplies"
-                      }
-                    />
+                    <>
+                      <InfoRow
+                        label="Statut"
+                        value={
+                          (s as any).vol1_skippe
+                            ? "Décliné par l'élève"
+                            : s.paiement_effectue && s.attestation_signee
+                              ? "Peut réserver"
+                              : "Conditions non remplies"
+                        }
+                        accent={(s as any).vol1_skippe ? "text-amber-600" : undefined}
+                      />
+                    </>
                   );
                 })()
+              )}
+              {!s.vol1_effectue && !isPiloteOnly && (
+                <button
+                  onClick={() => handleSkipVol1(s.id, !!(s as any).vol1_skippe)}
+                  className={`mt-2 text-xs px-2.5 py-1 rounded-lg border transition-colors ${(s as any).vol1_skippe ? "border-amber-300 text-amber-700 bg-amber-50 hover:bg-amber-100" : "border-gray-200 text-gray-500 hover:bg-gray-50"}`}
+                >
+                  {(s as any).vol1_skippe ? "↩ Annuler la dispense Vol 1" : "✕ L'élève ne souhaite pas faire le Vol 1"}
+                </button>
               )}
             </Section>
             <Section title="BIA">
@@ -2197,6 +2219,7 @@ export default function ElevesPage() {
                     <td className="px-3 py-2.5">
                       {(() => {
                         if (s.vol1_effectue) return <Dot ok />;
+                        if ((s as any).vol1_skippe) return <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-700">Décliné</span>;
                         const r = getActiveResa((s as any).reservations, 1);
                         if (r?.creneau?.date_vol)
                           return (
