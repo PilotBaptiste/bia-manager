@@ -1550,34 +1550,43 @@ export default function VolsPage() {
               })()}
             </div>
             {/* ── Email log status ── */}
-            {(isPilote || isSA) && (
-              <div className="mt-4 pt-3 border-t border-gray-100">
-                <p className="text-xs font-semibold text-gray-500 uppercase mb-2">Notifications envoyées</p>
-                {slotEmailLogs.length === 0 ? (
-                  <p className="text-xs text-gray-400">Aucun email enregistré pour ce créneau</p>
-                ) : (
-                  <div className="space-y-1">
-                    <p className="text-xs text-gray-600 mb-1">
-                      {slotEmailLogs.filter((l) => l.statut === "envoye").length} envoyé(s)
-                      {slotEmailLogs.filter((l) => l.statut === "erreur").length > 0 && (
-                        <span className="ml-2 text-red-500 font-semibold">
-                          · {slotEmailLogs.filter((l) => l.statut === "erreur").length} erreur(s)
-                        </span>
-                      )}
-                    </p>
-                    <div className="max-h-28 overflow-y-auto space-y-1">
-                      {slotEmailLogs.map((l) => (
-                        <div key={l.id} className="flex items-center gap-2 text-xs">
-                          <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${l.statut === "envoye" ? "bg-emerald-400" : "bg-red-400"}`} />
-                          <span className="text-gray-600 truncate flex-1">{l.to_email}</span>
-                          <span className="text-gray-400 shrink-0">{new Date(l.created_at).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}</span>
-                        </div>
-                      ))}
+            {(isPilote || isSA) && (() => {
+              // Only show the most recent batch: logs within 5 min of the latest log
+              const latestLog = slotEmailLogs[0];
+              const batchLogs = latestLog
+                ? slotEmailLogs.filter((l) =>
+                    new Date(latestLog.created_at).getTime() - new Date(l.created_at).getTime() < 5 * 60 * 1000
+                  )
+                : [];
+              const sentAt = latestLog ? new Date(latestLog.created_at).toLocaleString("fr-FR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : null;
+              const errCount = batchLogs.filter((l) => l.statut === "erreur").length;
+              return (
+                <div className="mt-4 pt-3 border-t border-gray-100">
+                  <p className="text-xs font-semibold text-gray-500 uppercase mb-2">Dernier envoi de notifications</p>
+                  {batchLogs.length === 0 ? (
+                    <p className="text-xs text-gray-400">Aucun email enregistré pour ce créneau</p>
+                  ) : (
+                    <div className="space-y-1">
+                      <p className="text-xs text-gray-500 mb-1">
+                        {sentAt && <span className="mr-2">{sentAt}</span>}
+                        <span className="text-emerald-600 font-medium">{batchLogs.filter((l) => l.statut === "envoye").length} envoyé(s)</span>
+                        {errCount > 0 && (
+                          <span className="ml-2 text-red-500 font-semibold">· {errCount} erreur(s)</span>
+                        )}
+                      </p>
+                      <div className="max-h-28 overflow-y-auto space-y-1">
+                        {batchLogs.map((l) => (
+                          <div key={l.id} className="flex items-center gap-2 text-xs">
+                            <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${l.statut === "envoye" ? "bg-emerald-400" : "bg-red-400"}`} />
+                            <span className="text-gray-600 truncate flex-1">{l.to_email}</span>
+                          </div>
+                        ))}
+                      </div>
                     </div>
-                  </div>
-                )}
-              </div>
-            )}
+                  )}
+                </div>
+              );
+            })()}
 
             {showDetail.statut !== "termine" && showDetail.statut !== "annule" && (() => {
                 const canEditSlot = isSA || isCoord || showDetail.pilote_id === profile?.id;

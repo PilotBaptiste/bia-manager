@@ -628,7 +628,13 @@ export async function POST(req: Request) {
           html: e.html,
           ...(e.attachments ? { attachments: e.attachments } : {}),
         });
-        resendId = (result.data as any)?.id ?? null;
+        // Resend SDK v2+ returns { data, error } instead of throwing
+        if ((result as any).error) {
+          errors.push((result as any).error?.message ?? "Erreur Resend");
+          statut = "erreur";
+        } else {
+          resendId = result.data?.id ?? null;
+        }
       } catch (err: any) {
         errors.push(err?.message ?? "Erreur envoi");
         statut = "erreur";
