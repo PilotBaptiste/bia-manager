@@ -123,6 +123,7 @@ const emptyForm = {
   vol2_numero_aerogest: "",
   bia_passe: false,
   bia_resultat: "",
+  bia_mention: "",
   bia_date: "",
   commentaires: "",
   attestation_url_manual: "",
@@ -383,6 +384,7 @@ export default function ElevesPage() {
       vol2_numero_aerogest: s.vol2_numero_aerogest || "",
       bia_passe: s.bia_passe,
       bia_resultat: s.bia_resultat || "",
+      bia_mention: (s as any).bia_mention || "",
       bia_date: s.bia_date || "",
       commentaires: s.commentaires || "",
       attestation_url_manual: s.attestation_url || "",
@@ -458,6 +460,7 @@ export default function ElevesPage() {
         vol2_numero_aerogest: form.vol_fi_mode ? null : (form.vol2_numero_aerogest || null),
         bia_passe: form.bia_passe,
         bia_resultat: form.bia_resultat || null,
+        bia_mention: form.bia_resultat === "Mention" ? (form.bia_mention || null) : null,
         bia_date: form.bia_date || null,
       };
       const { error: piloteErr } = await supabase.from("eleves").update(pilotePayload).eq("id", editingId);
@@ -515,6 +518,7 @@ export default function ElevesPage() {
       vol2_numero_aerogest: form.vol_fi_mode ? null : (form.vol2_numero_aerogest || null),
       bia_passe: form.bia_passe,
       bia_resultat: form.bia_resultat || null,
+      bia_mention: form.bia_resultat === "Mention" ? (form.bia_mention || null) : null,
       bia_date: form.bia_date || null,
       commentaires: form.commentaires || null,
     };
@@ -599,6 +603,61 @@ export default function ElevesPage() {
     a.download = `eleves_bia_${new Date().toISOString().slice(0, 10)}.csv`;
     a.click();
     URL.revokeObjectURL(url);
+  }
+
+  function exportFFA() {
+    const biaStudents = filtered.filter((s) => s.bia_passe);
+    if (biaStudents.length === 0) { toast.info("Aucun élève avec BIA dans la sélection actuelle"); return; }
+    const date = new Date().toLocaleDateString("fr-FR", { day: "2-digit", month: "long", year: "numeric" });
+    const rows = biaStudents.map((s) => {
+      const recu = s.bia_resultat && s.bia_resultat !== "Non admis";
+      const mention = s.bia_resultat === "Mention";
+      return `<tr>
+        <td>${s.nom}</td>
+        <td>${s.prenom}</td>
+        <td>${s.etablissement?.nom || "—"}</td>
+        <td>${s.date_naissance ? new Date(s.date_naissance).toLocaleDateString("fr-FR") : "—"}</td>
+        <td class="${recu ? "ok" : "ko"}">${recu ? "Reçu" : "Non reçu"}</td>
+        <td class="${mention ? "ok" : ""}">${mention ? "Oui" : "Non"}</td>
+        <td>${mention && (s as any).bia_mention ? (s as any).bia_mention : "—"}</td>
+      </tr>`;
+    }).join("");
+    const html = `<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8"/>
+<title>Résultats BIA — Export FFA</title>
+<style>
+  body { font-family: Arial, sans-serif; font-size: 11px; color: #111; margin: 20px; }
+  h1 { font-size: 16px; margin-bottom: 4px; }
+  p.sub { color: #555; margin-bottom: 16px; font-size: 10px; }
+  table { border-collapse: collapse; width: 100%; }
+  th { background: #1b3a5c; color: #fff; padding: 6px 10px; text-align: left; font-size: 10px; text-transform: uppercase; letter-spacing: .5px; }
+  td { padding: 5px 10px; border-bottom: 1px solid #e5e7eb; }
+  tr:nth-child(even) td { background: #f9fafb; }
+  .ok { color: #15803d; font-weight: 700; }
+  .ko { color: #b91c1c; font-weight: 700; }
+  @media print { @page { size: A4 landscape; margin: 15mm; } }
+</style>
+</head>
+<body>
+<h1>Résultats BIA — Liste pour la FFA</h1>
+<p class="sub">Exporté le ${date} · ${biaStudents.length} élève(s)</p>
+<table>
+  <thead><tr>
+    <th>Nom</th><th>Prénom</th><th>Établissement</th><th>Date de naissance</th>
+    <th>Résultat</th><th>Mention</th><th>Type de mention</th>
+  </tr></thead>
+  <tbody>${rows}</tbody>
+</table>
+</body>
+</html>`;
+    const w = window.open("", "_blank");
+    if (!w) { toast.error("Fenêtre bloquée — autorise les popups"); return; }
+    w.document.write(html);
+    w.document.close();
+    w.focus();
+    w.print();
   }
 
   async function doDelete(id: string) {
@@ -1048,6 +1107,21 @@ export default function ElevesPage() {
                       <option value="Mention">Mention</option>
                     </select>
                   </div>
+                  {form.bia_resultat === "Mention" && (
+                    <div className="mb-2">
+                      <label className="label">Type de mention</label>
+                      <select
+                        value={form.bia_mention}
+                        onChange={(e) => setForm({ ...form, bia_mention: e.target.value })}
+                        className="select"
+                      >
+                        <option value="">— Choisir</option>
+                        <option value="Assez Bien">Assez Bien</option>
+                        <option value="Bien">Bien</option>
+                        <option value="Très Bien">Très Bien</option>
+                      </select>
+                    </div>
+                  )}
                   <div>
                     <label className="label">Date</label>
                     <input
@@ -1730,8 +1804,15 @@ export default function ElevesPage() {
                   <InfoRow
                     label="Resultat"
                     value={s.bia_resultat}
-                    accent="text-emerald-600"
+                    accent={s.bia_resultat === "Non admis" ? "text-red-500" : "text-emerald-600"}
                   />
+                  {s.bia_resultat === "Mention" && (s as any).bia_mention && (
+                    <InfoRow
+                      label="Mention"
+                      value={(s as any).bia_mention}
+                      accent="text-emerald-600"
+                    />
+                  )}
                   {s.bia_date && (
                     <InfoRow
                       label="Date"
@@ -1989,6 +2070,11 @@ export default function ElevesPage() {
             <Download className="w-3.5 h-3.5" /> Export
           </button>
           {!isPiloteOnly && (
+            <button onClick={exportFFA} className="btn-secondary btn-sm" title="Export PDF liste BIA pour la FFA">
+              <Download className="w-3.5 h-3.5" /> FFA
+            </button>
+          )}
+          {!isPiloteOnly && (
             <button onClick={openCreate} className="btn-primary btn-sm">
               <Plus className="w-3.5 h-3.5" /> Inscrire
             </button>
@@ -2233,8 +2319,9 @@ export default function ElevesPage() {
                     </td>
                     <td className="px-3 py-2.5">
                       {s.bia_resultat ? (
-                        <span className="badge bg-emerald-50 text-emerald-600">
+                        <span className={`badge ${s.bia_resultat === "Non admis" ? "bg-red-50 text-red-500" : "bg-emerald-50 text-emerald-600"}`}>
                           {s.bia_resultat}
+                          {s.bia_resultat === "Mention" && (s as any).bia_mention && ` · ${(s as any).bia_mention}`}
                         </span>
                       ) : (
                         "—"
