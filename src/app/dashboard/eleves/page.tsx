@@ -1641,18 +1641,15 @@ export default function ElevesPage() {
                   {s.attestation_url && (
                     <div className="mt-2">
                       <button
-                        onClick={async () => {
-                          const { data } = await supabase.storage
-                            .from("attestations")
-                            .download(s.attestation_url);
-                          if (data) {
-                            const url = URL.createObjectURL(data);
-                            const a = document.createElement("a");
-                            a.href = url;
-                            a.download = `attestation_${s.nom}.pdf`;
-                            a.click();
-                            URL.revokeObjectURL(url);
-                          }
+                        onClick={() => {
+                          const params = new URLSearchParams({
+                            path: s.attestation_url!,
+                            name: `attestation_${s.nom}_${s.prenom}.pdf`,
+                          });
+                          const a = document.createElement("a");
+                          a.href = `/api/attestation/download?${params}`;
+                          a.download = `attestation_${s.nom}_${s.prenom}.pdf`;
+                          a.click();
                         }}
                         className="btn-secondary btn-sm"
                       >
