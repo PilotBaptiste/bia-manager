@@ -14,7 +14,10 @@ export default function FinancesPage() {
   const supabase = createClient();
   const { selectedAnneeId } = useYear();
   const [loading, setLoading] = useState(true);
-  const [tab, setTab] = useState<"overview" | "operations" | "pilotes" | "logs">("overview");
+  const [tab, setTab] = useState<"overview" | "paiements" | "operations" | "pilotes" | "roulage" | "logs">("overview");
+  const [expandedPilote, setExpandedPilote] = useState<string | null>(null);
+  const [paiementFilter, setPaiementFilter] = useState<"tous" | "payes" | "non_payes">("tous");
+  const [filterPaiementEtab, setFilterPaiementEtab] = useState("");
   const [eleves, setEleves] = useState<any[]>([]);
   const [vols, setVols] = useState<any[]>([]);
   const [etabs, setEtabs] = useState<any[]>([]);
@@ -104,29 +107,34 @@ export default function FinancesPage() {
   const margeNonUtil = (totalBia - totalVol2) * subFede;
   const solde = totalRecettes - coutVolsTotal - depensesManuelles;
 
-  const piloteStats: Record<string, { nom: string; nbVols: number; heures: number; cout: number }> = {};
+  type PiloteVolDetail = { date: string; numero: string; temps: number | null; cout: number; nbPax: number };
+  const piloteStats: Record<string, { nom: string; nbVols: number; heures: number; cout: number; flights: PiloteVolDetail[] }> = {};
   vols.forEach(v => {
     const pName = v.creneau?.pilote ? `${v.creneau.pilote.prenom} ${v.creneau.pilote.nom}` : "Inconnu";
-    if (!piloteStats[pName]) piloteStats[pName] = { nom: pName, nbVols: 0, heures: 0, cout: 0 };
+    if (!piloteStats[pName]) piloteStats[pName] = { nom: pName, nbVols: 0, heures: 0, cout: 0, flights: [] };
+    const nbPax = (v.numeros_aerogest?.length || 0) > 1 ? v.numeros_aerogest.length : (v.nb_eleves || 1);
     piloteStats[pName].nbVols++;
     piloteStats[pName].heures += (v.temps_vol_minutes || 0) / 60;
     piloteStats[pName].cout += parseFloat(v.prix_total) || 0;
+    piloteStats[pName].flights.push({ date: v.creneau?.date_vol || "", numero: v.numero_aerogest || (v.numeros_aerogest?.join(", ") || ""), temps: v.temps_vol_minutes, cout: parseFloat(v.prix_total) || 0, nbPax });
   });
   // Add manual eleve vols to pilote stats
   eleves.forEach(e => {
     if (e.vol1_effectue && e.vol1_pilote_nom && e.vol1_numero_aerogest && !aerogestInVols.has(e.vol1_numero_aerogest)) {
-      if (!piloteStats[e.vol1_pilote_nom]) piloteStats[e.vol1_pilote_nom] = { nom: e.vol1_pilote_nom, nbVols: 0, heures: 0, cout: 0 };
+      if (!piloteStats[e.vol1_pilote_nom]) piloteStats[e.vol1_pilote_nom] = { nom: e.vol1_pilote_nom, nbVols: 0, heures: 0, cout: 0, flights: [] };
       const n1 = aerogestCountAll[e.vol1_numero_aerogest] || 1;
       piloteStats[e.vol1_pilote_nom].nbVols++;
       piloteStats[e.vol1_pilote_nom].heures += (e.vol1_temps_minutes || 0) / 60 / n1;
       piloteStats[e.vol1_pilote_nom].cout += e.vol1_prix ? parseFloat(e.vol1_prix) / n1 : 0;
+      piloteStats[e.vol1_pilote_nom].flights.push({ date: "", numero: e.vol1_numero_aerogest, temps: e.vol1_temps_minutes ? Math.round(e.vol1_temps_minutes / n1) : null, cout: e.vol1_prix ? parseFloat(e.vol1_prix) / n1 : 0, nbPax: n1 });
     }
     if (e.vol2_effectue && e.vol2_pilote_nom && e.vol2_numero_aerogest && !aerogestInVols.has(e.vol2_numero_aerogest)) {
-      if (!piloteStats[e.vol2_pilote_nom]) piloteStats[e.vol2_pilote_nom] = { nom: e.vol2_pilote_nom, nbVols: 0, heures: 0, cout: 0 };
+      if (!piloteStats[e.vol2_pilote_nom]) piloteStats[e.vol2_pilote_nom] = { nom: e.vol2_pilote_nom, nbVols: 0, heures: 0, cout: 0, flights: [] };
       const n2 = aerogestCountAll[e.vol2_numero_aerogest] || 1;
       piloteStats[e.vol2_pilote_nom].nbVols++;
       piloteStats[e.vol2_pilote_nom].heures += (e.vol2_temps_minutes || 0) / 60 / n2;
       piloteStats[e.vol2_pilote_nom].cout += e.vol2_prix ? parseFloat(e.vol2_prix) / n2 : 0;
+      piloteStats[e.vol2_pilote_nom].flights.push({ date: "", numero: e.vol2_numero_aerogest, temps: e.vol2_temps_minutes ? Math.round(e.vol2_temps_minutes / n2) : null, cout: e.vol2_prix ? parseFloat(e.vol2_prix) / n2 : 0, nbPax: n2 });
     }
   });
 
@@ -326,8 +334,10 @@ export default function FinancesPage() {
       <div className="flex gap-1 mb-5 bg-gray-100 rounded-lg p-0.5 w-fit flex-wrap">
         {[
           { key: "overview", label: "Vue d'ensemble", icon: TrendingUp },
-          { key: "operations", label: "Operations", icon: Euro },
+          { key: "paiements", label: "Paiements", icon: Users },
+          { key: "operations", label: "Opérations", icon: Euro },
           { key: "pilotes", label: "Par pilote", icon: UserCheck },
+          { key: "roulage", label: "Roulage", icon: Clock },
           { key: "logs", label: "Logs", icon: History },
         ].map(({ key, label, icon: Icon }) => (
           <button key={key} onClick={() => setTab(key as any)} className={`flex items-center gap-1.5 px-4 py-2 rounded-md text-xs font-semibold transition-all ${tab === key ? "bg-white text-brand-500 shadow-sm" : "text-gray-500"}`}>
@@ -379,6 +389,78 @@ export default function FinancesPage() {
         </div>
       )}
 
+      {/* PAIEMENTS */}
+      {tab === "paiements" && (() => {
+        const elevesFiltered = eleves.filter(e => {
+          if (filterPaiementEtab && e.etablissement_id !== filterPaiementEtab) return false;
+          if (paiementFilter === "payes") return e.paiement_effectue;
+          if (paiementFilter === "non_payes") return !e.paiement_effectue;
+          return true;
+        });
+        const nonPayes = eleves.filter(e => !e.paiement_effectue);
+        const payes = eleves.filter(e => e.paiement_effectue);
+        return (
+          <div className="space-y-4">
+            <div className="flex gap-3 flex-wrap">
+              <div className="card flex-1 min-w-[130px] border-l-4 border-l-emerald-400">
+                <p className="text-xs text-gray-500">Payés</p>
+                <p className="text-2xl font-bold text-emerald-600">{payes.length}</p>
+                <p className="text-[11px] text-gray-400">{eleves.length > 0 ? Math.round(payes.length / eleves.length * 100) : 0}% du total</p>
+              </div>
+              <div className="card flex-1 min-w-[130px] border-l-4 border-l-red-400">
+                <p className="text-xs text-gray-500">Non payés</p>
+                <p className="text-2xl font-bold text-red-500">{nonPayes.length}</p>
+                <p className="text-[11px] text-gray-400">{nonPayes.reduce((a, e) => a + (e.paiement_montant != null ? 0 : prixInscription), 0).toFixed(0)}€ restants</p>
+              </div>
+              <div className="card flex-1 min-w-[130px]">
+                <p className="text-xs text-gray-500">Total inscrit</p>
+                <p className="text-2xl font-bold text-gray-900">{eleves.length}</p>
+                <p className="text-[11px] text-gray-400">{recettesInscriptions.toFixed(2)}€ encaissés</p>
+              </div>
+            </div>
+            <div className="flex gap-2 flex-wrap items-center">
+              {(["tous", "payes", "non_payes"] as const).map(f => (
+                <button key={f} onClick={() => setPaiementFilter(f)} className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all ${paiementFilter === f ? "bg-brand-500 text-white border-brand-500" : "border-gray-200 text-gray-600 hover:bg-gray-50"}`}>
+                  {f === "tous" ? "Tous" : f === "payes" ? "Payés" : "Non payés"}
+                </button>
+              ))}
+              <select value={filterPaiementEtab} onChange={e => setFilterPaiementEtab(e.target.value)} className="ml-auto pl-3 pr-8 py-1.5 text-xs border border-gray-200 rounded-lg bg-white text-gray-700">
+                <option value="">Tous les établissements</option>
+                {etabs.map(et => <option key={et.id} value={et.id}>{et.nom}</option>)}
+              </select>
+            </div>
+            <div className="card p-0 overflow-auto">
+              <table className="w-full text-sm min-w-[600px]">
+                <thead><tr className="bg-gray-50">
+                  {["Élève", "Établissement", "Statut", "Mode", "Montant", "Date paiement"].map(h => <th key={h} className="px-3 py-2 text-left text-[10px] font-semibold uppercase text-gray-400">{h}</th>)}
+                </tr></thead>
+                <tbody>
+                  {elevesFiltered.length === 0 ? (
+                    <tr><td colSpan={6} className="px-3 py-10 text-center text-gray-400 text-sm">Aucun élève</td></tr>
+                  ) : elevesFiltered.map((e, i) => (
+                    <tr key={i} className="border-t border-gray-100 hover:bg-gray-50">
+                      <td className="px-3 py-2.5 font-medium text-gray-900">{e.prenom} {e.nom}</td>
+                      <td className="px-3 py-2.5 text-xs text-gray-500">{e.etablissement?.nom || "—"}</td>
+                      <td className="px-3 py-2.5">
+                        {e.paiement_effectue
+                          ? <span className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full"><Check className="w-3 h-3" /> Payé</span>
+                          : <span className="inline-flex items-center gap-1 text-xs font-semibold text-red-500 bg-red-50 px-2 py-0.5 rounded-full"><X className="w-3 h-3" /> Non payé</span>}
+                      </td>
+                      <td className="px-3 py-2.5 text-xs text-gray-500">{e.paiement_mode || "—"}</td>
+                      <td className="px-3 py-2.5 text-xs font-semibold text-gray-700">{e.paiement_effectue ? `${(e.paiement_montant != null ? parseFloat(e.paiement_montant) : prixInscription).toFixed(2)}€` : "—"}</td>
+                      <td className="px-3 py-2.5 text-xs text-gray-500">{e.paiement_date ? new Date(e.paiement_date).toLocaleDateString("fr-FR") : "—"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              <div className="px-3 py-2 border-t border-gray-100 bg-gray-50 text-xs text-gray-500 font-medium">
+                {elevesFiltered.length} élève{elevesFiltered.length > 1 ? "s" : ""}
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
       {/* OPERATIONS */}
       {tab === "operations" && (
         <div>
@@ -424,21 +506,126 @@ export default function FinancesPage() {
 
       {/* PAR PILOTE */}
       {tab === "pilotes" && (
-        <div className="card p-0 overflow-auto">
-          <table className="w-full text-sm"><thead><tr className="bg-gray-50">
-            {["Pilote", "Nombre de vols", "Heures de vol", "Cout total"].map(h => <th key={h} className="px-4 py-3 text-left text-[10px] font-semibold uppercase text-gray-400">{h}</th>)}
-          </tr></thead><tbody>
-            {Object.values(piloteStats).length === 0 ? <tr><td colSpan={4} className="px-4 py-12 text-center text-gray-400">Aucun vol enregistre</td></tr> : Object.values(piloteStats).sort((a, b) => b.nbVols - a.nbVols).map((p, i) => (
-              <tr key={i} className="border-t border-gray-100">
-                <td className="px-4 py-3 font-semibold text-gray-900">{p.nom}</td>
-                <td className="px-4 py-3">{p.nbVols}</td>
-                <td className="px-4 py-3">{p.heures.toFixed(1)}h</td>
-                <td className="px-4 py-3 font-semibold text-red-600">{p.cout.toFixed(2)}€</td>
-              </tr>
-            ))}
-          </tbody></table>
+        <div className="space-y-3">
+          {Object.values(piloteStats).length === 0 ? (
+            <div className="card py-12 text-center text-gray-400">Aucun vol enregistré</div>
+          ) : Object.values(piloteStats).sort((a, b) => b.nbVols - a.nbVols).map((p, i) => {
+            const maxVol = Math.max(...p.flights.map(f => f.temps || 0));
+            const over30Count = p.flights.filter(f => (f.temps || 0) > 30).length;
+            const isExpanded = expandedPilote === p.nom;
+            return (
+              <div key={i} className="card p-0 overflow-hidden">
+                <button
+                  onClick={() => setExpandedPilote(isExpanded ? null : p.nom)}
+                  className="w-full flex items-center gap-4 px-4 py-3 hover:bg-gray-50 transition-colors text-left"
+                >
+                  <div className="flex-1">
+                    <p className="font-semibold text-gray-900">{p.nom}</p>
+                    <p className="text-xs text-gray-400">{p.nbVols} vol{p.nbVols > 1 ? "s" : ""} · {p.heures.toFixed(1)}h · {p.cout.toFixed(2)}€</p>
+                  </div>
+                  {over30Count > 0 && (
+                    <span className="inline-flex items-center gap-1 text-xs font-semibold text-amber-600 bg-amber-50 px-2 py-0.5 rounded-full shrink-0">
+                      <Clock className="w-3 h-3" /> {over30Count} vol{over30Count > 1 ? "s" : ""} &gt;30 min
+                    </span>
+                  )}
+                  <span className="text-gray-300 text-sm">{isExpanded ? "▲" : "▼"}</span>
+                </button>
+                {isExpanded && (
+                  <div className="border-t border-gray-100 overflow-auto">
+                    <table className="w-full text-xs min-w-[500px]">
+                      <thead><tr className="bg-gray-50">
+                        {["Date", "N° Aérogest", "Nb pax", "Temps", "Coût"].map(h => <th key={h} className="px-3 py-2 text-left text-[10px] font-semibold uppercase text-gray-400">{h}</th>)}
+                      </tr></thead>
+                      <tbody>
+                        {p.flights.sort((a, b) => (b.date || "").localeCompare(a.date || "")).map((f, j) => {
+                          const over30 = (f.temps || 0) > 30;
+                          return (
+                            <tr key={j} className={`border-t border-gray-100 ${over30 ? "bg-amber-50" : ""}`}>
+                              <td className="px-3 py-2 text-gray-500">{f.date ? new Date(f.date).toLocaleDateString("fr-FR") : "—"}</td>
+                              <td className="px-3 py-2 font-mono text-gray-700">{f.numero || "—"}</td>
+                              <td className="px-3 py-2 text-gray-500">{f.nbPax > 1 ? `×${f.nbPax}` : "1 pax"}</td>
+                              <td className={`px-3 py-2 font-semibold ${over30 ? "text-amber-700" : "text-gray-700"}`}>
+                                {f.temps != null ? `${f.temps} min` : "—"}
+                                {over30 && <span className="ml-1 text-amber-500">⚠</span>}
+                              </td>
+                              <td className="px-3 py-2 text-red-600">{f.cout > 0 ? `${f.cout.toFixed(2)}€` : "—"}</td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                    {maxVol > 30 && (
+                      <div className="px-3 py-2 bg-amber-50 border-t border-amber-100 text-xs text-amber-700 font-medium">
+                        Max : {maxVol} min — {over30Count} vol{over30Count > 1 ? "s" : ""} dépassant 30 min
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </div>
       )}
+
+      {/* ROULAGE */}
+      {tab === "roulage" && (() => {
+        const TAXI_MIN = 8;
+        const roulageVols = vols.filter((v: any) => Array.isArray(v.numeros_aerogest) && v.numeros_aerogest.length > 1);
+        const totalFact = roulageVols.reduce((a: number, v: any) => a + v.numeros_aerogest.length * TAXI_MIN, 0);
+        const totalReel = roulageVols.reduce((a: number, v: any) => {
+          const n = v.numeros_aerogest.length;
+          return a + (n > 2 ? n - 1 : n) * TAXI_MIN;
+        }, 0);
+        const totalEco = totalFact - totalReel;
+        return (
+          <div className="space-y-4">
+            <div className="text-sm text-gray-500">
+              <p>Chaque numéro Aérogest inclut <strong>8 min de roulage</strong>. Pour un vol de 3 pax (3 numéros), le roulage réel est compté <strong>2×8 min</strong> au lieu de 3×8 min.</p>
+            </div>
+            {roulageVols.length === 0 ? (
+              <div className="card py-12 text-center space-y-2">
+                <p className="text-gray-400 font-medium">Aucun vol multi-numéros Aérogest</p>
+                <p className="text-xs text-gray-400">Les vols clôturés avec l'option "Numéros individuels" (3 pax) apparaîtront ici.</p>
+              </div>
+            ) : (
+              <>
+                <div className="flex gap-3 flex-wrap">
+                  <div className="card flex-1 min-w-[130px]"><p className="text-xs text-gray-500">Roulage facturé</p><p className="text-2xl font-bold text-red-500">{totalFact} min</p></div>
+                  <div className="card flex-1 min-w-[130px]"><p className="text-xs text-gray-500">Roulage réel</p><p className="text-2xl font-bold text-gray-900">{totalReel} min</p></div>
+                  <div className="card flex-1 min-w-[130px] border-l-4 border-l-emerald-400"><p className="text-xs text-gray-500">Économie</p><p className="text-2xl font-bold text-emerald-600">{totalEco} min</p><p className="text-[11px] text-gray-400">{roulageVols.length} vol{roulageVols.length > 1 ? "s" : ""}</p></div>
+                </div>
+                <div className="card p-0 overflow-auto">
+                  <table className="w-full text-sm min-w-[640px]">
+                    <thead><tr className="bg-gray-50">
+                      {["Date", "Aéronef", "Numéros Aérogest", "Pax", "Temps vol", "Roulage facturé", "Roulage réel", "Économie"].map(h => <th key={h} className="px-3 py-2 text-left text-[10px] font-semibold uppercase text-gray-400">{h}</th>)}
+                    </tr></thead>
+                    <tbody>
+                      {roulageVols.map((v: any, i: number) => {
+                        const n = v.numeros_aerogest.length;
+                        const fact = n * TAXI_MIN;
+                        const reel = (n > 2 ? n - 1 : n) * TAXI_MIN;
+                        const eco = fact - reel;
+                        return (
+                          <tr key={i} className="border-t border-gray-100 hover:bg-gray-50">
+                            <td className="px-3 py-2.5 text-gray-500 text-xs">{v.creneau?.date_vol ? new Date(v.creneau.date_vol).toLocaleDateString("fr-FR") : "—"}</td>
+                            <td className="px-3 py-2.5 text-xs text-gray-700">{v.creneau?.aeronef?.type_aeronef || "—"}</td>
+                            <td className="px-3 py-2.5 font-mono text-xs text-gray-700">{v.numeros_aerogest.join(" / ")}</td>
+                            <td className="px-3 py-2.5 text-center font-semibold text-gray-900">{n}</td>
+                            <td className="px-3 py-2.5 text-xs">{v.temps_vol_minutes != null ? `${v.temps_vol_minutes} min` : "—"}</td>
+                            <td className="px-3 py-2.5 text-xs text-red-500 font-semibold">{fact} min</td>
+                            <td className="px-3 py-2.5 text-xs font-semibold">{reel} min</td>
+                            <td className={`px-3 py-2.5 text-xs font-bold ${eco > 0 ? "text-emerald-600" : "text-gray-400"}`}>{eco > 0 ? `−${eco} min` : "—"}</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </>
+            )}
+          </div>
+        );
+      })()}
 
       {/* LOGS */}
       {tab === "logs" && (

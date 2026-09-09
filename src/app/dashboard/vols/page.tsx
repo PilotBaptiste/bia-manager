@@ -90,6 +90,8 @@ export default function VolsPage() {
   });
   const [closeForm, setCloseForm] = useState({
     numero_aerogest: "",
+    numeros_aerogest: [] as string[],
+    useIndividualAerogest: false,
     temps_vol_minutes: "",
     nb_eleves: "",
     prix_total: "",
@@ -371,8 +373,12 @@ export default function VolsPage() {
 
   function handleCloseFlight() {
     setError(null);
+    const nbActive = (showClose?.reservations || []).filter((r: any) => r.statut !== "annule").length;
+    const needsAerogest = closeForm.useIndividualAerogest
+      ? closeForm.numeros_aerogest.slice(0, nbActive).some(n => !n.trim())
+      : !closeForm.numero_aerogest;
     if (
-      !closeForm.numero_aerogest ||
+      needsAerogest ||
       !closeForm.temps_vol_minutes ||
       !closeForm.prix_total
     ) {
@@ -390,11 +396,18 @@ export default function VolsPage() {
 
   async function doCloseFlight() {
     setSaving(true);
+    const activeRes = (showClose.reservations || []).filter(
+      (r: any) => r.statut !== "annule",
+    );
+    const useMulti = closeForm.useIndividualAerogest && closeForm.numeros_aerogest.filter(n => n.trim()).length > 1;
+    const numerosArray = useMulti ? closeForm.numeros_aerogest.slice(0, activeRes.length).map(n => n.trim()) : null;
+
     await supabase
       .from("vols_effectues")
       .insert({
         creneau_id: showClose.id,
-        numero_aerogest: closeForm.numero_aerogest,
+        numero_aerogest: useMulti ? null : closeForm.numero_aerogest,
+        numeros_aerogest: numerosArray,
         temps_vol_minutes: parseInt(closeForm.temps_vol_minutes),
         nb_eleves:
           parseInt(closeForm.nb_eleves) || showClose.reservations?.length || 0,
@@ -406,10 +419,8 @@ export default function VolsPage() {
       .from("creneaux")
       .update({ statut: "termine" })
       .eq("id", showClose.id);
-    const activeRes = (showClose.reservations || []).filter(
-      (r: any) => r.statut !== "annule",
-    );
-    for (const r of activeRes) {
+    for (let idx = 0; idx < activeRes.length; idx++) {
+      const r = activeRes[idx];
       await supabase
         .from("reservations")
         .update({ statut: "effectue" })
@@ -422,6 +433,9 @@ export default function VolsPage() {
           : showClose.pilote
           ? `${showClose.pilote.prenom} ${showClose.pilote.nom}`
           : "";
+        const eleveAerogest = useMulti
+          ? (numerosArray?.[idx] || null)
+          : (closeForm.numero_aerogest || null);
         if (r.type_vol === 2) {
           await supabase
             .from("eleves")
@@ -431,7 +445,7 @@ export default function VolsPage() {
               vol2_aeronef_id: showClose.aeronef_id,
               vol2_prix: prixParEleve,
               vol2_pilote_nom: piloteNom,
-              vol2_numero_aerogest: closeForm.numero_aerogest || null,
+              vol2_numero_aerogest: eleveAerogest,
             })
             .eq("id", r.eleve.id);
         } else {
@@ -443,7 +457,7 @@ export default function VolsPage() {
               vol1_aeronef_id: showClose.aeronef_id,
               vol1_prix: prixParEleve,
               vol1_pilote_nom: piloteNom,
-              vol1_numero_aerogest: closeForm.numero_aerogest || null,
+              vol1_numero_aerogest: eleveAerogest,
             })
             .eq("id", r.eleve.id);
         }
@@ -453,6 +467,8 @@ export default function VolsPage() {
     setShowClose(null);
     setCloseForm({
       numero_aerogest: "",
+      numeros_aerogest: [],
+      useIndividualAerogest: false,
       temps_vol_minutes: "",
       nb_eleves: "",
       prix_total: "",
@@ -1750,19 +1766,66 @@ export default function VolsPage() {
                   </select>
                 </div>
               )}
-              <div>
-                <label className="label">N Aerogest *</label>
-                <input
-                  value={closeForm.numero_aerogest}
-                  onChange={(e) =>
-                    setCloseForm({
-                      ...closeForm,
-                      numero_aerogest: e.target.value,
-                    })
-                  }
-                  className="input"
-                />
-              </div>
+              {/* Aérogest — simple ou individuel */}
+              {(() => {
+                const activeRes = (showClose?.reservations || []).filter((r: any) => r.statut !== "annule");
+                const canMulti = activeRes.length >= 2;
+                return (
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <label className="label !mb-0">N° Aérogest *</label>
+                      {canMulti && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const next = !closeForm.useIndividualAerogest;
+                            setCloseForm({
+                              ...closeForm,
+                              useIndividualAerogest: next,
+                              numeros_aerogest: next ? Array(activeRes.length).fill("") : [],
+                              numero_aerogest: next ? "" : closeForm.numero_aerogest,
+                            });
+                          }}
+                          className={`text-xs px-2 py-0.5 rounded border font-medium transition-colors ${closeForm.useIndividualAerogest ? "bg-brand-50 border-brand-300 text-brand-600" : "border-gray-200 text-gray-500 hover:border-brand-300"}`}
+                        >
+                          {closeForm.useIndividualAerogest ? "✓ Numéros individuels" : "Numéros individuels"}
+                        </button>
+                      )}
+                    </div>
+                    {closeForm.useIndividualAerogest ? (
+                      <div className="space-y-1.5">
+                        {activeRes.map((r: any, idx: number) => (
+                          <div key={r.id} className="flex items-center gap-2">
+                            <span className="text-xs text-gray-500 w-28 shrink-0 truncate">{r.eleve?.prenom} {r.eleve?.nom}</span>
+                            <input
+                              value={closeForm.numeros_aerogest[idx] || ""}
+                              onChange={e => {
+                                const arr = [...closeForm.numeros_aerogest];
+                                arr[idx] = e.target.value;
+                                setCloseForm({ ...closeForm, numeros_aerogest: arr });
+                              }}
+                              placeholder={`N° Aérogest pax ${idx + 1}`}
+                              className="input flex-1 text-sm"
+                            />
+                          </div>
+                        ))}
+                        {activeRes.length === 3 && (
+                          <p className="text-xs text-amber-600 bg-amber-50 rounded px-2 py-1">
+                            3 pax → roulage comptabilisé : 2×8 min (économie 8 min)
+                          </p>
+                        )}
+                      </div>
+                    ) : (
+                      <input
+                        value={closeForm.numero_aerogest}
+                        onChange={(e) => setCloseForm({ ...closeForm, numero_aerogest: e.target.value })}
+                        className="input"
+                        placeholder="Ex : 20241205A"
+                      />
+                    )}
+                  </div>
+                );
+              })()}
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="label">Temps vol (min) *</label>
