@@ -1,6 +1,6 @@
 "use client";
 import { useState, useEffect, useMemo } from "react";
-import { useSearchParams } from "next/navigation";
+import { useSearchParams, useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { toast } from "sonner";
 import { useYear } from "@/contexts/YearContext";
@@ -132,6 +132,7 @@ const emptyForm = {
 export default function ElevesPage() {
   const supabase = createClient();
   const searchParams = useSearchParams();
+  const router = useRouter();
   const { selectedAnneeId, activeAnneeId } = useYear();
   // anneeId = active year, used when creating new students
   const anneeId = activeAnneeId;
@@ -2195,6 +2196,16 @@ export default function ElevesPage() {
           </button>
           <button onClick={handleBulkInvite} disabled={bulkBusy} className="btn-secondary btn-sm">
             {bulkBusy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Mail className="w-3.5 h-3.5" />} Envoyer invitation
+          </button>
+          <button
+            onClick={() => {
+              const ids = Array.from(selectedIds).join(",");
+              router.push(`/dashboard/messagerie?eleves=${ids}`);
+            }}
+            disabled={bulkBusy}
+            className="btn-secondary btn-sm"
+          >
+            <Mail className="w-3.5 h-3.5" /> Envoyer un mail
           </button>
           <button onClick={() => setSelectedIds(new Set())} className="text-xs text-gray-500 hover:text-gray-700 ml-auto">Désélectionner tout</button>
         </div>

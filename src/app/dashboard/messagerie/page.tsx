@@ -1,30 +1,57 @@
 "use client";
 import { useEffect, useState, useMemo } from "react";
+import { useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
-import { Mail, Users, School, X, Send, ChevronRight, ChevronLeft, Check, AlertCircle, Search } from "lucide-react";
+import { useYear } from "@/contexts/YearContext";
+import { Mail, Users, School, Filter, X, Send, ChevronRight, ChevronLeft, Check, AlertCircle, Search } from "lucide-react";
 
 const supabase = createClient();
 
+type CritereKey =
+  | "vol1_manquant"
+  | "vol2_manquant"
+  | "bia_reussi"
+  | "sans_paiement"
+  | "sans_attestation"
+  | "vol2_autorise_pas_effectue";
+
+const CRITERES: { key: CritereKey; label: string; description: string }[] = [
+  { key: "vol1_manquant", label: "✈️ Vol 1 non effectué", description: "Paiement + attestation OK, vol 1 pas encore fait" },
+  { key: "vol2_manquant", label: "🛫 Vol 2 non effectué", description: "BIA réussi + vol 1 fait, vol 2 pas encore fait" },
+  { key: "vol2_autorise_pas_effectue", label: "🛬 Vol 2 autorisé mais pas fait", description: "A le BIA, est autorisé vol 2, mais n'a pas encore volé" },
+  { key: "bia_reussi", label: "🎓 BIA réussi", description: "L'élève a réussi le BIA (Admis ou Mention)" },
+  { key: "sans_paiement", label: "💳 Sans paiement", description: "Paiement non encore enregistré" },
+  { key: "sans_attestation", label: "📝 Sans attestation", description: "Attestation parentale non encore signée" },
+];
+
 export default function MessageriePage() {
+  const searchParams = useSearchParams();
+  const { selectedAnneeId } = useYear();
+
   const [etablissements, setEtablissements] = useState<any[]>([]);
   const [eleves, setEleves] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
-  // Step management
   const [step, setStep] = useState<1 | 2 | 3>(1);
+  const [mode, setMode] = useState<"etab" | "eleve" | "critere">("etab");
 
-  // Step 1 — recipients
-  const [mode, setMode] = useState<"etab" | "eleve">("etab");
+  // Par établissement
   const [selectedEtabs, setSelectedEtabs] = useState<string[]>([]);
+
+  // Par élève
   const [selectedEleves, setSelectedEleves] = useState<string[]>([]);
   const [search, setSearch] = useState("");
-  const [filterEtabEleve, setFilterEtabEleve] = useState<string>(""); // filter élèves list by étab
+  const [filterEtabEleve, setFilterEtabEleve] = useState<string>("");
 
-  // Step 2 — compose
+  // Par critère
+  const [selectedCritere, setSelectedCritere] = useState<CritereKey | null>(null);
+  const [critereEtab, setCritereEtab] = useState<string>("");
+
+  // Step 2
   const [subject, setSubject] = useState("");
   const [body, setBody] = useState("");
 
-  // Step 3 — send
+  // Step 3
   const [sending, setSending] = useState(false);
   const [result, setResult] = useState<{ sent: number; errors?: string[] } | null>(null);
   const [sendError, setSendError] = useState<string | null>(null);
@@ -35,24 +62,28 @@ export default function MessageriePage() {
       setLoading(true);
       const { data: { user } } = await supabase.auth.getUser();
       if (user?.email) setSenderEmail(user.email);
-      // Get current user profile to check if coordinateur with restricted étabs
+
       const [{ data: profData }, { data: etabsAll }, { data: elevesData }] = await Promise.all([
-        user ? supabase.from("profiles").select("roles, etablissement_id, etablissement_ids").eq("id", user.id).single() : Promise.resolve({ data: null }),
+        user
+          ? supabase.from("profiles").select("roles, etablissement_id, etablissement_ids").eq("id", user.id).single()
+          : Promise.resolve({ data: null }),
         supabase.from("etablissements").select("id, nom").order("nom"),
         supabase.from("eleves")
-          .select("id, prenom, nom, parent_email, parent_prenom, etablissement_id, archive")
+          .select("id, prenom, nom, parent_email, parent_prenom, etablissement_id, annee_id, archive, vol1_effectue, vol1_skippe, vol2_effectue, vol2_autorise, paiement_effectue, attestation_signee, bia_passe, bia_resultat")
           .eq("archive", false)
           .not("parent_email", "is", null)
           .order("nom"),
       ]);
-      // Restrict to coord's établissements if applicable
+
       const isCoord = profData?.roles?.includes("coordinateur") && !profData?.roles?.includes("superadmin");
       const coordEtabIds: string[] = isCoord
         ? (profData?.etablissement_ids?.length > 0 ? profData.etablissement_ids : profData?.etablissement_id ? [profData.etablissement_id] : [])
         : [];
+
       const filteredEtabs = coordEtabIds.length > 0
         ? (etabsAll ?? []).filter((e: any) => coordEtabIds.includes(e.id))
         : (etabsAll ?? []);
+
       setEtablissements(filteredEtabs);
       setEleves(elevesData ?? []);
       setLoading(false);
@@ -60,38 +91,83 @@ export default function MessageriePage() {
     load();
   }, []);
 
-  // Compute recipients from selection
+  // Handle ?eleves=id1,id2,... URL param — pre-select students and switch to "élève" mode
+  useEffect(() => {
+    const elevesParam = searchParams.get("eleves");
+    if (elevesParam && eleves.length > 0) {
+      const ids = elevesParam.split(",").filter(Boolean);
+      if (ids.length > 0) {
+        setSelectedEleves(ids);
+        setMode("eleve");
+      }
+    }
+  }, [searchParams, eleves]);
+
+  // Elèves filtered by selected year (if any)
+  const elevesAnnee = useMemo(() => {
+    if (!selectedAnneeId) return eleves;
+    return eleves.filter((e: any) => e.annee_id === selectedAnneeId);
+  }, [eleves, selectedAnneeId]);
+
+  // Par critère — filtered elèves matching the selected criterion
+  const elevesByCritere = useMemo(() => {
+    if (!selectedCritere) return [];
+    return elevesAnnee.filter((e: any) => {
+      if (critereEtab && e.etablissement_id !== critereEtab) return false;
+      switch (selectedCritere) {
+        case "vol1_manquant":
+          return e.paiement_effectue && e.attestation_signee && !e.vol1_effectue && !e.vol1_skippe;
+        case "vol2_manquant":
+          return e.vol2_autorise && (e.vol1_effectue || e.vol1_skippe) && !e.vol2_effectue;
+        case "vol2_autorise_pas_effectue":
+          return e.vol2_autorise && !e.vol2_effectue;
+        case "bia_reussi":
+          return e.bia_resultat === "Admis" || e.bia_resultat === "Mention";
+        case "sans_paiement":
+          return !e.paiement_effectue;
+        case "sans_attestation":
+          return !e.attestation_signee;
+        default:
+          return false;
+      }
+    });
+  }, [elevesAnnee, selectedCritere, critereEtab]);
+
+  // Recipients computed from selection mode
   const recipients = useMemo(() => {
     const list: { email: string; eleve_prenom: string; eleve_nom: string; etab_id: string; eleve_id: string }[] = [];
     const seen = new Set<string>();
+
+    const addEleve = (e: any) => {
+      if (!e.parent_email) return;
+      if (seen.has(e.parent_email)) return;
+      seen.add(e.parent_email);
+      list.push({ email: e.parent_email, eleve_prenom: e.prenom, eleve_nom: e.nom, etab_id: e.etablissement_id, eleve_id: e.id });
+    };
+
     if (mode === "etab") {
-      for (const e of eleves) {
-        if (!selectedEtabs.includes(e.etablissement_id)) continue;
-        if (!e.parent_email) continue;
-        if (seen.has(e.parent_email)) continue;
-        seen.add(e.parent_email);
-        list.push({ email: e.parent_email, eleve_prenom: e.prenom, eleve_nom: e.nom, etab_id: e.etablissement_id, eleve_id: e.id });
+      for (const e of elevesAnnee) {
+        if (selectedEtabs.includes(e.etablissement_id)) addEleve(e);
+      }
+    } else if (mode === "eleve") {
+      for (const e of elevesAnnee) {
+        if (selectedEleves.includes(e.id)) addEleve(e);
       }
     } else {
-      for (const e of eleves) {
-        if (!selectedEleves.includes(e.id)) continue;
-        if (!e.parent_email) continue;
-        if (seen.has(e.parent_email)) continue;
-        seen.add(e.parent_email);
-        list.push({ email: e.parent_email, eleve_prenom: e.prenom, eleve_nom: e.nom, etab_id: e.etablissement_id, eleve_id: e.id });
-      }
+      for (const e of elevesByCritere) addEleve(e);
     }
+
     return list;
-  }, [mode, selectedEtabs, selectedEleves, eleves]);
+  }, [mode, selectedEtabs, selectedEleves, elevesByCritere, elevesAnnee]);
 
   const filteredEleves = useMemo(() => {
     const q = search.toLowerCase();
-    return eleves.filter(e => {
+    return elevesAnnee.filter((e: any) => {
       if (filterEtabEleve && e.etablissement_id !== filterEtabEleve) return false;
       if (q && !`${e.prenom} ${e.nom} ${e.parent_email}`.toLowerCase().includes(q)) return false;
       return true;
     });
-  }, [eleves, search, filterEtabEleve]);
+  }, [elevesAnnee, search, filterEtabEleve]);
 
   async function handleSend() {
     if (!subject.trim() || !body.trim() || recipients.length === 0) return;
@@ -124,6 +200,8 @@ export default function MessageriePage() {
     setStep(1);
     setSelectedEtabs([]);
     setSelectedEleves([]);
+    setSelectedCritere(null);
+    setCritereEtab("");
     setSubject("");
     setBody("");
     setResult(null);
@@ -140,7 +218,6 @@ export default function MessageriePage() {
 
   return (
     <div className="max-w-2xl mx-auto space-y-6">
-      {/* Header */}
       <div>
         <div className="flex items-center gap-2 mb-1">
           <Mail className="w-5 h-5 text-brand-500" />
@@ -174,7 +251,7 @@ export default function MessageriePage() {
           <h2 className="font-semibold text-gray-900 text-sm">Choisir les destinataires</h2>
 
           {/* Mode toggle */}
-          <div className="flex gap-2">
+          <div className="flex gap-2 flex-wrap">
             <button
               onClick={() => setMode("etab")}
               className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium border transition-all ${mode === "etab" ? "bg-brand-50 border-brand-200 text-brand-600" : "border-gray-200 text-gray-500 hover:bg-gray-50"}`}
@@ -187,14 +264,21 @@ export default function MessageriePage() {
             >
               <Users className="w-4 h-4" /> Par élève
             </button>
+            <button
+              onClick={() => setMode("critere")}
+              className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium border transition-all ${mode === "critere" ? "bg-brand-50 border-brand-200 text-brand-600" : "border-gray-200 text-gray-500 hover:bg-gray-50"}`}
+            >
+              <Filter className="w-4 h-4" /> Par critère
+            </button>
           </div>
 
+          {/* Par établissement */}
           {mode === "etab" && (
             <div className="space-y-2">
-              <p className="text-xs text-gray-400">Sélectionnez un ou plusieurs établissements (tous les parents liés recevront l'email) :</p>
+              <p className="text-xs text-gray-400">Tous les parents liés à l'établissement sélectionné recevront l'email :</p>
               <div className="space-y-1.5 max-h-60 overflow-y-auto">
                 {etablissements.map(etab => {
-                  const count = eleves.filter(e => e.etablissement_id === etab.id && e.parent_email).length;
+                  const count = elevesAnnee.filter((e: any) => e.etablissement_id === etab.id && e.parent_email).length;
                   const checked = selectedEtabs.includes(etab.id);
                   return (
                     <label key={etab.id} className={`flex items-center gap-3 px-3 py-2.5 rounded-lg border cursor-pointer transition-all ${checked ? "bg-brand-50 border-brand-200" : "border-gray-100 hover:bg-gray-50"}`}>
@@ -215,6 +299,7 @@ export default function MessageriePage() {
             </div>
           )}
 
+          {/* Par élève */}
           {mode === "eleve" && (
             <div className="space-y-2">
               <div className="flex gap-2">
@@ -238,8 +323,16 @@ export default function MessageriePage() {
                   ))}
                 </select>
               </div>
+              {selectedEleves.length > 0 && (
+                <div className="flex items-center justify-between px-1">
+                  <span className="text-xs text-brand-600 font-medium">{selectedEleves.length} sélectionné{selectedEleves.length > 1 ? "s" : ""}</span>
+                  <button onClick={() => setSelectedEleves([])} className="text-xs text-gray-400 hover:text-gray-600 flex items-center gap-1">
+                    <X className="w-3 h-3" /> Tout désélectionner
+                  </button>
+                </div>
+              )}
               <div className="space-y-1 max-h-60 overflow-y-auto">
-                {filteredEleves.map(e => {
+                {filteredEleves.map((e: any) => {
                   const checked = selectedEleves.includes(e.id);
                   return (
                     <label key={e.id} className={`flex items-center gap-3 px-3 py-2 rounded-lg border cursor-pointer transition-all ${checked ? "bg-brand-50 border-brand-200" : "border-gray-100 hover:bg-gray-50"}`}>
@@ -260,7 +353,65 @@ export default function MessageriePage() {
             </div>
           )}
 
-          {/* Recipients summary */}
+          {/* Par critère */}
+          {mode === "critere" && (
+            <div className="space-y-3">
+              <div className="flex items-center gap-2">
+                <select
+                  value={critereEtab}
+                  onChange={e => setCritereEtab(e.target.value)}
+                  className="pl-3 pr-8 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-300 bg-white text-gray-700"
+                >
+                  <option value="">Tous les établissements</option>
+                  {etablissements.map(et => (
+                    <option key={et.id} value={et.id}>{et.nom}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="space-y-1.5">
+                {CRITERES.map(c => {
+                  const count = elevesAnnee.filter((e: any) => {
+                    if (critereEtab && e.etablissement_id !== critereEtab) return false;
+                    switch (c.key) {
+                      case "vol1_manquant": return e.paiement_effectue && e.attestation_signee && !e.vol1_effectue && !e.vol1_skippe;
+                      case "vol2_manquant": return e.vol2_autorise && (e.vol1_effectue || e.vol1_skippe) && !e.vol2_effectue;
+                      case "vol2_autorise_pas_effectue": return e.vol2_autorise && !e.vol2_effectue;
+                      case "bia_reussi": return e.bia_resultat === "Admis" || e.bia_resultat === "Mention";
+                      case "sans_paiement": return !e.paiement_effectue;
+                      case "sans_attestation": return !e.attestation_signee;
+                      default: return false;
+                    }
+                  }).length;
+                  const active = selectedCritere === c.key;
+                  return (
+                    <button
+                      key={c.key}
+                      onClick={() => setSelectedCritere(active ? null : c.key)}
+                      className={`w-full flex items-center justify-between px-3 py-2.5 rounded-lg border text-left transition-all ${active ? "bg-brand-50 border-brand-300" : "border-gray-100 hover:bg-gray-50"}`}
+                    >
+                      <div>
+                        <p className={`text-sm font-medium ${active ? "text-brand-700" : "text-gray-800"}`}>{c.label}</p>
+                        <p className="text-xs text-gray-400">{c.description}</p>
+                      </div>
+                      <span className={`ml-3 text-xs font-bold px-2 py-0.5 rounded-full shrink-0 ${count > 0 ? (active ? "bg-brand-100 text-brand-700" : "bg-gray-100 text-gray-600") : "bg-gray-50 text-gray-400"}`}>
+                        {count}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+              {selectedCritere && elevesByCritere.length > 0 && (
+                <div className="mt-2 max-h-40 overflow-y-auto space-y-0.5">
+                  <p className="text-xs font-medium text-gray-500 mb-1">Élèves concernés :</p>
+                  {elevesByCritere.map((e: any) => (
+                    <p key={e.id} className="text-xs text-gray-600 px-1">{e.prenom} {e.nom} <span className="text-gray-400">— {e.parent_email}</span></p>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Summary */}
           {recipients.length > 0 && (
             <div className="bg-brand-50 border border-brand-100 rounded-lg px-3 py-2.5 text-sm text-brand-700 font-medium">
               {recipients.length} email{recipients.length > 1 ? "s" : ""} seront envoyés
@@ -287,7 +438,6 @@ export default function MessageriePage() {
             <span className="text-xs text-gray-400 bg-gray-50 px-2 py-1 rounded-full">{recipients.length} destinataire{recipients.length > 1 ? "s" : ""}</span>
           </div>
 
-          {/* Email templates */}
           <div>
             <p className="text-xs font-medium text-gray-500 mb-2">Modèles rapides :</p>
             <div className="flex flex-wrap gap-1.5">

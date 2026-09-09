@@ -208,8 +208,8 @@ export default function Sidebar({ profile }: { profile: any }) {
             <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400 pointer-events-none" />
           </div>
           {selectedAnnee && selectedAnnee.id !== activeAnneeId && (
-            <p className="text-[10px] text-amber-600 font-semibold mt-1 px-2 flex items-center gap-1">
-              <span>⚠</span> Vue archive — lecture recommandée
+            <p className="text-[10px] text-amber-600 font-medium mt-1 px-2">
+              Navigation archive · Création → année ★
             </p>
           )}
         </div>
