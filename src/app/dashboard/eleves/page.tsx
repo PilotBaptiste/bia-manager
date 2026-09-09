@@ -159,6 +159,7 @@ export default function ElevesPage() {
   const [fBia, setFBia] = useState("all");
   const [showFilters, setShowFilters] = useState(() => !!(searchParams.get("paiement") || searchParams.get("attestation") || searchParams.get("etablissement")));
   const [parentProfiles, setParentProfiles] = useState<Record<string, any>>({});
+  const [pilotes, setPilotes] = useState<any[]>([]);
   const [confirmAction, setConfirmAction] = useState<{ title: string; message: string; variant?: "danger" | "primary"; onConfirm: () => void } | null>(null);
   const [confirmLoading, setConfirmLoading] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -212,7 +213,7 @@ export default function ElevesPage() {
       elevesQuery = elevesQuery.in("etablissement_id", piloteEtabIds.length > 0 ? piloteEtabIds : ["__none__"]);
     }
 
-    const [eR, etR, aR, pR, profR] = await Promise.all([
+    const [eR, etR, aR, pR, profR, pilotesR] = await Promise.all([
       elevesQuery,
       isCoordRole && coordEtabIds.length > 0
         ? supabase.from("etablissements").select("*").in("id", coordEtabIds).order("nom")
@@ -220,10 +221,12 @@ export default function ElevesPage() {
       supabase.from("aeronefs").select("*").eq("actif", true).order("type_aeronef"),
       supabase.from("parametres").select("cle,valeur").eq("cle", "prix_inscription").single(),
       supabase.from("profiles").select("email, nom, prenom, telephone").contains("roles", ["parent"]),
+      supabase.from("profiles").select("id, nom, prenom").contains("roles", ["pilote"]).eq("actif", true).order("nom"),
     ]);
     setEleves(eR.data || []);
     setEtablissements(etR.data || []);
     setAeronefs(aR.data || []);
+    setPilotes(pilotesR.data || []);
     if (pR.data?.valeur) setDefaultMontant(pR.data.valeur);
     // Build email → profile map for parent name sync
     const pmap: Record<string, any> = {};
@@ -263,7 +266,7 @@ export default function ElevesPage() {
       eleves.filter((s) => {
         if (
           searchQ &&
-          !`${s.nom} ${s.prenom} ${s.parent_nom} ${s.parent_prenom} ${s.parent_email}`
+          !`${s.nom} ${s.prenom} ${s.parent_nom} ${s.parent_prenom} ${s.parent_email} ${s.vol1_numero_aerogest || ""} ${s.vol2_numero_aerogest || ""}`
             .toLowerCase()
             .includes(searchQ.toLowerCase())
         )
@@ -1224,14 +1227,16 @@ export default function ElevesPage() {
                   </div>
                   <div className="mb-2">
                     <label className="label">Pilote</label>
-                    <input
+                    <select
                       value={form.vol1_pilote_nom}
-                      onChange={(e) =>
-                        setForm({ ...form, vol1_pilote_nom: e.target.value })
-                      }
-                      className="input"
-                      placeholder="Nom du pilote"
-                    />
+                      onChange={(e) => setForm({ ...form, vol1_pilote_nom: e.target.value })}
+                      className="select"
+                    >
+                      <option value="">— Choisir le pilote —</option>
+                      {pilotes.map((p) => (
+                        <option key={p.id} value={`${p.prenom} ${p.nom}`}>{p.prenom} {p.nom}</option>
+                      ))}
+                    </select>
                   </div>
                   <div className="mb-2">
                     <label className="label">N° Aerogest</label>
@@ -1332,13 +1337,16 @@ export default function ElevesPage() {
                   </div>
                   <div className="mb-2">
                     <label className="label">Pilote</label>
-                    <input
+                    <select
                       value={form.vol2_pilote_nom}
-                      onChange={(e) =>
-                        setForm({ ...form, vol2_pilote_nom: e.target.value })
-                      }
-                      className="input"
-                    />
+                      onChange={(e) => setForm({ ...form, vol2_pilote_nom: e.target.value })}
+                      className="select"
+                    >
+                      <option value="">— Choisir le pilote —</option>
+                      {pilotes.map((p) => (
+                        <option key={p.id} value={`${p.prenom} ${p.nom}`}>{p.prenom} {p.nom}</option>
+                      ))}
+                    </select>
                   </div>
                   <div className="mb-2">
                     <label className="label">N° Aerogest</label>

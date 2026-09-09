@@ -23,6 +23,8 @@ import {
   Filter,
   Download,
   Trash2,
+  BarChart2,
+  School,
 } from "lucide-react";
 import ConfirmModal from "@/components/ConfirmModal";
 
@@ -42,7 +44,7 @@ export default function VolsPage() {
   const [biaExamDate, setBiaExamDate] = useState<string>("");
   const [profile, setProfile] = useState<any>(null);
   const [loading, setLoading] = useState(true);
-  const [mode, setMode] = useState<"list" | "calendar" | "historique">("list");
+  const [mode, setMode] = useState<"list" | "calendar" | "historique" | "statistiques">("list");
   const [calMonth, setCalMonth] = useState(new Date().getMonth());
   const [showCreate, setShowCreate] = useState(false);
   const [showDetail, setShowDetail] = useState<any>(null);
@@ -2275,6 +2277,9 @@ export default function VolsPage() {
               ...((isSA || isPilote)
                 ? [{ k: "historique", l: "Historique", i: History }]
                 : []),
+              ...(isSA
+                ? [{ k: "statistiques", l: "Statistiques", i: BarChart2 }]
+                : []),
             ].map(({ k, l, i: I }: any) => (
               <button
                 key={k}
@@ -2913,6 +2918,193 @@ export default function VolsPage() {
         </div>
         );
       })()}
+      {/* STATISTIQUES */}
+      {mode === "statistiques" && isSA && (() => {
+        const aerogestInHisto = new Set<string>(volsHisto.map((v: any) => v.numero_aerogest).filter(Boolean));
+
+        // Stats from vols_effectues (closed vols)
+        let totalVolsEffectues = 0;
+        let totalElevesTrans = 0;
+        let totalMinutes = 0;
+        const aeronefStats: Record<string, { label: string; nbVols: number; nbEleves: number; totalMin: number; places: number }> = {};
+        const piloteStatsTab: Record<string, { nom: string; nbVols: number; totalMin: number }> = {};
+        const etabStatsTab: Record<string, { nom: string; nbVols: number; nbEleves: number }> = {};
+        const placeStats: Record<number, { nbVols: number; nbEleves: number; totalMin: number }> = {};
+
+        for (const v of volsHisto) {
+          const nbPax = (v.numeros_aerogest?.length || 0) > 1 ? v.numeros_aerogest.length : (v.nb_eleves || 1);
+          const tpsTotal = v.temps_vol_minutes || 0;
+          const tpsParEleve = nbPax > 1 ? Math.round(tpsTotal / nbPax) : tpsTotal;
+          totalVolsEffectues++;
+          totalElevesTrans += nbPax;
+          totalMinutes += tpsParEleve;
+
+          const aeronef = aeronefs.find((a: any) => a.id === v.creneau?.aeronef_id);
+          const places = aeronef?.nb_places_eleves || 1;
+          const aeronefLabel = v.creneau?.aeronef ? `${v.creneau.aeronef.type_aeronef} (${v.creneau.aeronef.immatriculation})` : "Inconnu";
+          if (!aeronefStats[aeronefLabel]) aeronefStats[aeronefLabel] = { label: aeronefLabel, nbVols: 0, nbEleves: 0, totalMin: 0, places };
+          aeronefStats[aeronefLabel].nbVols++;
+          aeronefStats[aeronefLabel].nbEleves += nbPax;
+          aeronefStats[aeronefLabel].totalMin += tpsParEleve;
+
+          if (!placeStats[places]) placeStats[places] = { nbVols: 0, nbEleves: 0, totalMin: 0 };
+          placeStats[places].nbVols++;
+          placeStats[places].nbEleves += nbPax;
+          placeStats[places].totalMin += tpsParEleve;
+
+          const pNom = v.creneau?.pilote ? `${v.creneau.pilote.prenom} ${v.creneau.pilote.nom}` : "Inconnu";
+          if (!piloteStatsTab[pNom]) piloteStatsTab[pNom] = { nom: pNom, nbVols: 0, totalMin: 0 };
+          piloteStatsTab[pNom].nbVols++;
+          piloteStatsTab[pNom].totalMin += tpsParEleve;
+
+          const etabNom = v.creneau?.etablissement?.nom || "Indéterminé";
+          if (!etabStatsTab[etabNom]) etabStatsTab[etabNom] = { nom: etabNom, nbVols: 0, nbEleves: 0 };
+          etabStatsTab[etabNom].nbVols++;
+          etabStatsTab[etabNom].nbEleves += nbPax;
+        }
+
+        // Manual eleve records (old system not in vols_effectues)
+        const manualAerogestCount: Record<string, number> = {};
+        for (const e of eleves) {
+          if (e.vol1_effectue && e.vol1_numero_aerogest && !aerogestInHisto.has(e.vol1_numero_aerogest))
+            manualAerogestCount[e.vol1_numero_aerogest] = (manualAerogestCount[e.vol1_numero_aerogest] || 0) + 1;
+          if (e.vol2_effectue && e.vol2_numero_aerogest && !aerogestInHisto.has(e.vol2_numero_aerogest))
+            manualAerogestCount[e.vol2_numero_aerogest] = (manualAerogestCount[e.vol2_numero_aerogest] || 0) + 1;
+        }
+        const manualVolCount = Object.keys(manualAerogestCount).length;
+        const manualEleveCount = Object.values(manualAerogestCount).reduce((a, n) => a + n, 0);
+        let manualMin = 0;
+        const seenManual = new Set<string>();
+        for (const e of eleves) {
+          if (e.vol1_effectue && e.vol1_numero_aerogest && !aerogestInHisto.has(e.vol1_numero_aerogest) && !seenManual.has(e.vol1_numero_aerogest)) {
+            seenManual.add(e.vol1_numero_aerogest);
+            const n = manualAerogestCount[e.vol1_numero_aerogest] || 1;
+            if (e.vol1_temps_minutes) manualMin += Math.round(e.vol1_temps_minutes / n);
+          }
+          if (e.vol2_effectue && e.vol2_numero_aerogest && !aerogestInHisto.has(e.vol2_numero_aerogest) && !seenManual.has(e.vol2_numero_aerogest)) {
+            seenManual.add(e.vol2_numero_aerogest);
+            const n = manualAerogestCount[e.vol2_numero_aerogest] || 1;
+            if (e.vol2_temps_minutes) manualMin += Math.round(e.vol2_temps_minutes / n);
+          }
+        }
+
+        const grandVols = totalVolsEffectues + manualVolCount;
+        const grandEleves = totalElevesTrans + manualEleveCount;
+        const grandMin = Math.round(totalMinutes + manualMin);
+        const avgMin = grandVols > 0 ? Math.round(grandMin / grandEleves) : 0;
+        const fmt = (m: number) => `${Math.floor(m / 60)}h${String(m % 60).padStart(2, "0")}`;
+
+        return (
+          <div className="space-y-5">
+            {/* Summary */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              {[
+                { l: "Vols clôturés", v: grandVols, s: `${totalVolsEffectues} system · ${manualVolCount} manuels` },
+                { l: "Élèves transportés", v: grandEleves, s: "vols individuels comptés" },
+                { l: "Temps total", v: fmt(grandMin), s: "corrigé x2/x3" },
+                { l: "Moy. par élève", v: `${avgMin} min`, s: "temps de vol corrigé" },
+              ].map((c, i) => (
+                <div key={i} className="card">
+                  <p className="text-xs text-gray-500 mb-1">{c.l}</p>
+                  <p className="text-2xl font-bold text-gray-900">{c.v}</p>
+                  <p className="text-[11px] text-gray-400">{c.s}</p>
+                </div>
+              ))}
+            </div>
+
+            {/* Par type d'aéronef (nb places) */}
+            <div className="card">
+              <h2 className="text-sm font-semibold text-gray-900 mb-3 flex items-center gap-2">
+                <Plane className="w-4 h-4 text-brand-400" /> Par capacité aéronef
+              </h2>
+              <div className="flex gap-3 flex-wrap mb-4">
+                {Object.entries(placeStats).sort((a, b) => parseInt(a[0]) - parseInt(b[0])).map(([places, s]) => {
+                  const label = parseInt(places) === 1 ? "Monoplace" : parseInt(places) === 2 ? "Biplace" : `${places} places`;
+                  return (
+                    <div key={places} className="flex-1 min-w-[120px] p-3 bg-gray-50 rounded-xl border border-gray-200">
+                      <p className="text-xs font-semibold text-gray-500">{label}</p>
+                      <p className="text-2xl font-bold text-gray-900">{s.nbVols}</p>
+                      <p className="text-[11px] text-gray-400">{s.nbEleves} élèves · {fmt(s.totalMin)}</p>
+                    </div>
+                  );
+                })}
+              </div>
+              <div className="overflow-auto">
+                <table className="w-full text-sm min-w-[500px]">
+                  <thead><tr className="bg-gray-50">
+                    {["Aéronef", "Vols", "Élèves", "Tps total", "Moy./élève"].map(h => (
+                      <th key={h} className="px-3 py-2 text-left text-[10px] font-semibold uppercase text-gray-400">{h}</th>
+                    ))}
+                  </tr></thead>
+                  <tbody>
+                    {Object.values(aeronefStats).sort((a, b) => b.nbVols - a.nbVols).map((s, i) => (
+                      <tr key={i} className="border-t border-gray-100">
+                        <td className="px-3 py-2.5 font-semibold">{s.label}</td>
+                        <td className="px-3 py-2.5">{s.nbVols}</td>
+                        <td className="px-3 py-2.5">{s.nbEleves}</td>
+                        <td className="px-3 py-2.5">{fmt(s.totalMin)}</td>
+                        <td className="px-3 py-2.5">{s.nbEleves > 0 ? `${Math.round(s.totalMin / s.nbEleves)} min` : "—"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            {/* Par pilote */}
+            <div className="card">
+              <h2 className="text-sm font-semibold text-gray-900 mb-3 flex items-center gap-2">
+                <User className="w-4 h-4 text-brand-400" /> Par pilote
+              </h2>
+              <div className="overflow-auto">
+                <table className="w-full text-sm min-w-[400px]">
+                  <thead><tr className="bg-gray-50">
+                    {["Pilote", "Vols", "Tps total", "Moy./vol"].map(h => (
+                      <th key={h} className="px-3 py-2 text-left text-[10px] font-semibold uppercase text-gray-400">{h}</th>
+                    ))}
+                  </tr></thead>
+                  <tbody>
+                    {Object.values(piloteStatsTab).sort((a, b) => b.nbVols - a.nbVols).map((p, i) => (
+                      <tr key={i} className="border-t border-gray-100">
+                        <td className="px-3 py-2.5 font-semibold">{p.nom}</td>
+                        <td className="px-3 py-2.5">{p.nbVols}</td>
+                        <td className="px-3 py-2.5">{fmt(p.totalMin)}</td>
+                        <td className="px-3 py-2.5">{p.nbVols > 0 ? `${Math.round(p.totalMin / p.nbVols)} min` : "—"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            {/* Par établissement */}
+            <div className="card">
+              <h2 className="text-sm font-semibold text-gray-900 mb-3 flex items-center gap-2">
+                <School className="w-4 h-4 text-brand-400" /> Par établissement
+              </h2>
+              <div className="overflow-auto">
+                <table className="w-full text-sm min-w-[400px]">
+                  <thead><tr className="bg-gray-50">
+                    {["Établissement", "Vols", "Élèves"].map(h => (
+                      <th key={h} className="px-3 py-2 text-left text-[10px] font-semibold uppercase text-gray-400">{h}</th>
+                    ))}
+                  </tr></thead>
+                  <tbody>
+                    {Object.values(etabStatsTab).sort((a, b) => b.nbVols - a.nbVols).map((e, i) => (
+                      <tr key={i} className="border-t border-gray-100">
+                        <td className="px-3 py-2.5 font-semibold">{e.nom}</td>
+                        <td className="px-3 py-2.5">{e.nbVols}</td>
+                        <td className="px-3 py-2.5">{e.nbEleves}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
       <ConfirmModal
         open={!!confirmAction}
         title={confirmAction?.title ?? ""}

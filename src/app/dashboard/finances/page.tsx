@@ -56,7 +56,8 @@ export default function FinancesPage() {
       supabase.from("activity_logs").select("*, user:profiles!user_id(nom,prenom)").order("created_at", { ascending: false }).limit(100),
       supabase.from("operations_manuelles").select("*").order("date", { ascending: false }),
     ]);
-    setEleves(eR.data || []);
+    const activeEtabIds = new Set((etR.data || []).map((e: any) => e.id));
+    setEleves((eR.data || []).filter((e: any) => activeEtabIds.has(e.etablissement_id)));
     setVols(vR.data || []);
     setEtabs(etR.data || []);
     setLogs(lR.data || []);
@@ -107,7 +108,7 @@ export default function FinancesPage() {
   const margeNonUtil = (totalBia - totalVol2) * subFede;
   const solde = totalRecettes - coutVolsTotal - depensesManuelles;
 
-  type PiloteVolDetail = { date: string; numero: string; temps: number | null; cout: number; nbPax: number };
+  type PiloteVolDetail = { date: string; numero: string; temps: number | null; cout: number; nbPax: number; tempsParEleve: number | null };
   const piloteStats: Record<string, { nom: string; nbVols: number; heures: number; cout: number; flights: PiloteVolDetail[] }> = {};
   vols.forEach(v => {
     const pName = v.creneau?.pilote ? `${v.creneau.pilote.prenom} ${v.creneau.pilote.nom}` : "Inconnu";
@@ -116,7 +117,7 @@ export default function FinancesPage() {
     piloteStats[pName].nbVols++;
     piloteStats[pName].heures += (v.temps_vol_minutes || 0) / 60;
     piloteStats[pName].cout += parseFloat(v.prix_total) || 0;
-    piloteStats[pName].flights.push({ date: v.creneau?.date_vol || "", numero: v.numero_aerogest || (v.numeros_aerogest?.join(", ") || ""), temps: v.temps_vol_minutes, cout: parseFloat(v.prix_total) || 0, nbPax });
+    piloteStats[pName].flights.push({ date: v.creneau?.date_vol || "", numero: v.numero_aerogest || (v.numeros_aerogest?.join(", ") || ""), temps: v.temps_vol_minutes, cout: parseFloat(v.prix_total) || 0, nbPax, tempsParEleve: v.temps_vol_minutes != null ? Math.round(v.temps_vol_minutes / nbPax) : null });
   });
   // Add manual eleve vols to pilote stats
   eleves.forEach(e => {
@@ -126,7 +127,8 @@ export default function FinancesPage() {
       piloteStats[e.vol1_pilote_nom].nbVols++;
       piloteStats[e.vol1_pilote_nom].heures += (e.vol1_temps_minutes || 0) / 60 / n1;
       piloteStats[e.vol1_pilote_nom].cout += e.vol1_prix ? parseFloat(e.vol1_prix) / n1 : 0;
-      piloteStats[e.vol1_pilote_nom].flights.push({ date: "", numero: e.vol1_numero_aerogest, temps: e.vol1_temps_minutes ? Math.round(e.vol1_temps_minutes / n1) : null, cout: e.vol1_prix ? parseFloat(e.vol1_prix) / n1 : 0, nbPax: n1 });
+      const t1 = e.vol1_temps_minutes ? Math.round(e.vol1_temps_minutes / n1) : null;
+      piloteStats[e.vol1_pilote_nom].flights.push({ date: "", numero: e.vol1_numero_aerogest, temps: t1, cout: e.vol1_prix ? parseFloat(e.vol1_prix) / n1 : 0, nbPax: n1, tempsParEleve: t1 });
     }
     if (e.vol2_effectue && e.vol2_pilote_nom && e.vol2_numero_aerogest && !aerogestInVols.has(e.vol2_numero_aerogest)) {
       if (!piloteStats[e.vol2_pilote_nom]) piloteStats[e.vol2_pilote_nom] = { nom: e.vol2_pilote_nom, nbVols: 0, heures: 0, cout: 0, flights: [] };
@@ -134,7 +136,8 @@ export default function FinancesPage() {
       piloteStats[e.vol2_pilote_nom].nbVols++;
       piloteStats[e.vol2_pilote_nom].heures += (e.vol2_temps_minutes || 0) / 60 / n2;
       piloteStats[e.vol2_pilote_nom].cout += e.vol2_prix ? parseFloat(e.vol2_prix) / n2 : 0;
-      piloteStats[e.vol2_pilote_nom].flights.push({ date: "", numero: e.vol2_numero_aerogest, temps: e.vol2_temps_minutes ? Math.round(e.vol2_temps_minutes / n2) : null, cout: e.vol2_prix ? parseFloat(e.vol2_prix) / n2 : 0, nbPax: n2 });
+      const t2 = e.vol2_temps_minutes ? Math.round(e.vol2_temps_minutes / n2) : null;
+      piloteStats[e.vol2_pilote_nom].flights.push({ date: "", numero: e.vol2_numero_aerogest, temps: t2, cout: e.vol2_prix ? parseFloat(e.vol2_prix) / n2 : 0, nbPax: n2, tempsParEleve: t2 });
     }
   });
 
@@ -510,8 +513,8 @@ export default function FinancesPage() {
           {Object.values(piloteStats).length === 0 ? (
             <div className="card py-12 text-center text-gray-400">Aucun vol enregistré</div>
           ) : Object.values(piloteStats).sort((a, b) => b.nbVols - a.nbVols).map((p, i) => {
-            const maxVol = Math.max(...p.flights.map(f => f.temps || 0));
-            const over30Count = p.flights.filter(f => (f.temps || 0) > 30).length;
+            const maxVol = Math.max(...p.flights.map(f => f.tempsParEleve || 0));
+            const over30Count = p.flights.filter(f => (f.tempsParEleve || 0) > 30).length;
             const isExpanded = expandedPilote === p.nom;
             return (
               <div key={i} className="card p-0 overflow-hidden">
@@ -534,18 +537,19 @@ export default function FinancesPage() {
                   <div className="border-t border-gray-100 overflow-auto">
                     <table className="w-full text-xs min-w-[500px]">
                       <thead><tr className="bg-gray-50">
-                        {["Date", "N° Aérogest", "Nb pax", "Temps", "Coût"].map(h => <th key={h} className="px-3 py-2 text-left text-[10px] font-semibold uppercase text-gray-400">{h}</th>)}
+                        {["Date", "N° Aérogest", "Nb pax", "Tps/élève", "Coût"].map(h => <th key={h} className="px-3 py-2 text-left text-[10px] font-semibold uppercase text-gray-400">{h}</th>)}
                       </tr></thead>
                       <tbody>
                         {p.flights.sort((a, b) => (b.date || "").localeCompare(a.date || "")).map((f, j) => {
-                          const over30 = (f.temps || 0) > 30;
+                          const over30 = (f.tempsParEleve || 0) > 30;
                           return (
                             <tr key={j} className={`border-t border-gray-100 ${over30 ? "bg-amber-50" : ""}`}>
                               <td className="px-3 py-2 text-gray-500">{f.date ? new Date(f.date).toLocaleDateString("fr-FR") : "—"}</td>
                               <td className="px-3 py-2 font-mono text-gray-700">{f.numero || "—"}</td>
                               <td className="px-3 py-2 text-gray-500">{f.nbPax > 1 ? `×${f.nbPax}` : "1 pax"}</td>
                               <td className={`px-3 py-2 font-semibold ${over30 ? "text-amber-700" : "text-gray-700"}`}>
-                                {f.temps != null ? `${f.temps} min` : "—"}
+                                {f.tempsParEleve != null ? `${f.tempsParEleve} min` : "—"}
+                                {f.nbPax > 1 && f.temps != null && <span className="ml-1 text-gray-400 text-[10px]">({f.temps} total)</span>}
                                 {over30 && <span className="ml-1 text-amber-500">⚠</span>}
                               </td>
                               <td className="px-3 py-2 text-red-600">{f.cout > 0 ? `${f.cout.toFixed(2)}€` : "—"}</td>
