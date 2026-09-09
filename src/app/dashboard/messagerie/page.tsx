@@ -67,7 +67,7 @@ export default function MessageriePage() {
         user
           ? supabase.from("profiles").select("roles, etablissement_id, etablissement_ids").eq("id", user.id).single()
           : Promise.resolve({ data: null }),
-        supabase.from("etablissements").select("id, nom").order("nom"),
+        supabase.from("etablissements").select("id, nom").eq("actif", true).order("nom"),
         supabase.from("eleves")
           .select("id, prenom, nom, parent_email, parent_prenom, etablissement_id, annee_id, archive, vol1_effectue, vol1_skippe, vol2_effectue, vol2_autorise, paiement_effectue, attestation_signee, bia_passe, bia_resultat")
           .eq("archive", false)
