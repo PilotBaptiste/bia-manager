@@ -2038,6 +2038,25 @@ export default function ElevesPage() {
     load();
   }
 
+  async function handleBulkDelete() {
+    if (selectedIds.size === 0) return;
+    const ids = Array.from(selectedIds);
+    const names = filtered.filter(e => selectedIds.has(e.id)).map(e => `${e.prenom} ${e.nom}`).join(", ");
+    setConfirmAction({
+      title: `Supprimer ${ids.length} élève${ids.length > 1 ? "s" : ""}`,
+      message: `Supprimer définitivement : ${names} ?\n\nCette action est irréversible.`,
+      variant: "danger",
+      onConfirm: async () => {
+        setBulkBusy(true);
+        await supabase.from("eleves").delete().in("id", ids);
+        toast.success(`${ids.length} élève${ids.length > 1 ? "s" : ""} supprimé${ids.length > 1 ? "s" : ""}`);
+        setSelectedIds(new Set());
+        setBulkBusy(false);
+        load();
+      },
+    });
+  }
+
   async function handleBulkInvite() {
     if (selectedIds.size === 0) return;
     const targets = filtered.filter((e) => selectedIds.has(e.id) && e.parent_email);
@@ -2215,7 +2234,10 @@ export default function ElevesPage() {
           >
             <Mail className="w-3.5 h-3.5" /> Envoyer un mail
           </button>
-          <button onClick={() => setSelectedIds(new Set())} className="text-xs text-gray-500 hover:text-gray-700 ml-auto">Désélectionner tout</button>
+          <button onClick={handleBulkDelete} disabled={bulkBusy} className="btn-sm border border-red-200 text-red-600 bg-red-50 hover:bg-red-100 rounded-lg px-2 py-1 text-xs font-semibold flex items-center gap-1 ml-auto">
+            <Trash2 className="w-3.5 h-3.5" /> Supprimer
+          </button>
+          <button onClick={() => setSelectedIds(new Set())} className="text-xs text-gray-500 hover:text-gray-700">Désélectionner tout</button>
         </div>
       )}
 

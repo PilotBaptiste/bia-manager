@@ -1,6 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
+import { createClient } from "@/lib/supabase/client";
+import { toast } from "sonner";
 import {
   CheckCircle,
   AlertTriangle,
@@ -15,6 +17,9 @@ import {
   Users,
   Award,
   ExternalLink,
+  Download,
+  Upload,
+  Loader2,
 } from "lucide-react";
 
 type Section = {
@@ -290,9 +295,48 @@ const checklist = [
 ];
 
 export default function ReglementationPage() {
+  const supabase = createClient();
   const [checked, setChecked] = useState<Record<string, boolean>>({});
+  const [memoUrl, setMemoUrl] = useState<string | null>(null);
+  const [memoLoading, setMemoLoading] = useState(true);
+  const [uploading, setUploading] = useState(false);
+  const [isSA, setIsSA] = useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
   const allOk = checklist.every((c) => checked[c.id]);
   const someOk = checklist.some((c) => checked[c.id]);
+
+  useEffect(() => {
+    async function init() {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
+        const { data: prof } = await supabase.from("profiles").select("roles").eq("id", user.id).single();
+        setIsSA(prof?.roles?.includes("superadmin") ?? false);
+      }
+      const res = await fetch("/api/memo-bia");
+      if (res.ok) { const d = await res.json(); setMemoUrl(d.url || null); }
+      setMemoLoading(false);
+    }
+    init();
+  }, []);
+
+  async function handleUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.type !== "application/pdf") { toast.error("Fichier PDF uniquement"); return; }
+    setUploading(true);
+    const fd = new FormData();
+    fd.append("file", file);
+    const res = await fetch("/api/memo-bia", { method: "POST", body: fd });
+    if (res.ok) {
+      toast.success("Mémo BIA mis à jour");
+      const r2 = await fetch("/api/memo-bia");
+      if (r2.ok) { const d = await r2.json(); setMemoUrl(d.url || null); }
+    } else {
+      toast.error("Erreur lors de l'upload");
+    }
+    setUploading(false);
+    if (fileRef.current) fileRef.current.value = "";
+  }
 
   return (
     <div className="p-6 max-w-3xl mx-auto space-y-6">
@@ -302,6 +346,33 @@ export default function ReglementationPage() {
         <p className="text-gray-500 mt-1 text-sm">
           Règles FFA / DGAC applicables aux vols de découverte BIA — Guide Actions Jeunes 2025-2026
         </p>
+      </div>
+
+      {/* Mémo BIA pilote */}
+      <div className="flex items-center gap-4 p-4 bg-gray-50 border border-gray-200 rounded-xl">
+        <FileText className="w-8 h-8 text-brand-400 shrink-0" />
+        <div className="flex-1">
+          <p className="font-semibold text-gray-900 text-sm">Mémo BIA pilote</p>
+          <p className="text-xs text-gray-500">Document de référence pour les vols BIA — accessible à tous les pilotes</p>
+        </div>
+        {memoLoading ? (
+          <Loader2 className="w-5 h-5 animate-spin text-gray-400" />
+        ) : memoUrl ? (
+          <a href={memoUrl} target="_blank" rel="noopener noreferrer" className="btn-primary btn-sm flex items-center gap-1.5">
+            <Download className="w-3.5 h-3.5" /> Télécharger
+          </a>
+        ) : (
+          <span className="text-xs text-gray-400">Aucun mémo disponible</span>
+        )}
+        {isSA && (
+          <>
+            <input ref={fileRef} type="file" accept="application/pdf" className="hidden" onChange={handleUpload} />
+            <button onClick={() => fileRef.current?.click()} disabled={uploading} className="btn-secondary btn-sm flex items-center gap-1.5">
+              {uploading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Upload className="w-3.5 h-3.5" />}
+              {memoUrl ? "Remplacer" : "Ajouter PDF"}
+            </button>
+          </>
+        )}
       </div>
 
       {/* Bandeau info */}

@@ -27,6 +27,7 @@ import {
   MessageCircle,
   CalendarDays,
   ChevronDown,
+  BarChart2,
 } from "lucide-react";
 
 const iconMap: Record<string, any> = {
@@ -47,6 +48,7 @@ const iconMap: Record<string, any> = {
   Upload,
   Mail,
   MessageCircle,
+  BarChart2,
 };
 
 function getNav(roles: string[]) {
@@ -78,6 +80,7 @@ function getNav(roles: string[]) {
     "gerant",
   ]);
   add("finances", "Finances", "Euro", "/dashboard/finances", ["superadmin"]);
+  add("statistiques", "Statistiques", "BarChart2", "/dashboard/statistiques", ["superadmin"]);
   add(
     "etablissements",
     "Établissements",

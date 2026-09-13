@@ -257,6 +257,39 @@ export default function FinancesPage() {
     load();
   }
 
+  function exportReleve() {
+    const fmt = (v: any) => v == null ? "" : String(v).replace(/"/g, '""');
+    const cell = (v: any) => `"${fmt(v)}"`;
+    const date = new Date().toISOString().slice(0, 10);
+    const sorted = [...operations].sort((a, b) => new Date(a.date || "").getTime() - new Date(b.date || "").getTime());
+    let soldeRun = 0;
+    const rows = [
+      ["Date", "Description", "Établissement", "Pilote / Aéronef", "Débit (€)", "Crédit (€)", "Solde cumulé (€)"],
+      ...sorted.map(op => {
+        const debit = op.sens === "depense" ? (op.montant ?? 0) : 0;
+        const credit = op.sens === "recette" ? (op.montant ?? 0) : 0;
+        soldeRun += credit - debit;
+        return [
+          op.date ? new Date(op.date).toLocaleDateString("fr-FR") : "—",
+          op.description ?? op.type ?? "",
+          op.etablissement ?? "",
+          [op.pilote, op.aeronef].filter(Boolean).join(" · "),
+          debit > 0 ? debit.toFixed(2) : "",
+          credit > 0 ? credit.toFixed(2) : "",
+          soldeRun.toFixed(2),
+        ].map(cell);
+      }),
+    ];
+    const bom = "﻿";
+    const csv = bom + rows.map(r => r.join(";")).join("\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = `releve_compte_${date}.csv`; a.click();
+    URL.revokeObjectURL(url);
+    toast.success("Relevé de compte téléchargé");
+  }
+
   function exportCSV(type: "operations" | "etabs" | "pilotes") {
     let rows: string[][] = [];
     let filename = "";
@@ -321,6 +354,9 @@ export default function FinancesPage() {
           {nomClub && <p className="text-sm text-gray-500 mt-0.5">{nomClub}</p>}
         </div>
         <div className="flex gap-2">
+          <button onClick={exportReleve} className="btn-primary btn-sm" title="Relevé de compte Débit/Crédit">
+            <Download className="w-3.5 h-3.5" /> Relevé de compte
+          </button>
           <button onClick={() => exportCSV("operations")} className="btn-secondary btn-sm" title="Exporter toutes les opérations">
             <Download className="w-3.5 h-3.5" /> Opérations
           </button>

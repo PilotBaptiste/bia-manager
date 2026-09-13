@@ -30,7 +30,7 @@ import ConfirmModal from "@/components/ConfirmModal";
 
 export default function VolsPage() {
   const supabase = createClient();
-  const { selectedAnneeId, activeAnneeId } = useYear();
+  const { selectedAnneeId, activeAnneeId, annees } = useYear();
   // anneeId = active year used when creating new slots
   const anneeId = activeAnneeId;
   const [creneaux, setCreneaux] = useState<any[]>([]);
@@ -1772,11 +1772,14 @@ export default function VolsPage() {
               {(() => {
                 const activeRes = (showClose?.reservations || []).filter((r: any) => r.statut !== "annule");
                 const canMulti = activeRes.length >= 2;
+                const activeAnnee = annees.find((a: any) => a.id === activeAnneeId);
+                // 2027+ = label starts with "2027" or later → individual numbers mandatory
+                const is2027Plus = !!(activeAnnee?.label && parseInt(activeAnnee.label.split(/[-/]/)[0]) >= 2027);
                 return (
                   <div className="space-y-2">
                     <div className="flex items-center justify-between">
                       <label className="label !mb-0">N° Aérogest *</label>
-                      {canMulti && (
+                      {canMulti && !is2027Plus && (
                         <button
                           type="button"
                           onClick={() => {
@@ -1793,8 +1796,13 @@ export default function VolsPage() {
                           {closeForm.useIndividualAerogest ? "✓ Numéros individuels" : "Numéros individuels"}
                         </button>
                       )}
+                      {canMulti && is2027Plus && (
+                        <span className="text-xs px-2 py-0.5 rounded bg-brand-50 border border-brand-300 text-brand-600 font-medium">
+                          1 numéro/élève · obligatoire dès 2027
+                        </span>
+                      )}
                     </div>
-                    {closeForm.useIndividualAerogest ? (
+                    {(closeForm.useIndividualAerogest || (is2027Plus && canMulti)) ? (
                       <div className="space-y-1.5">
                         {activeRes.map((r: any, idx: number) => (
                           <div key={r.id} className="flex items-center gap-2">
@@ -1943,7 +1951,10 @@ export default function VolsPage() {
                 <label className="label">Aéronef</label>
                 <select value={showEditSlot.aeronef_id} onChange={(e) => setShowEditSlot({ ...showEditSlot, aeronef_id: e.target.value })} className="select">
                   <option value="">— Choisir —</option>
-                  {aeronefs.map((a) => <option key={a.id} value={a.id}>{a.type_aeronef} ({a.immatriculation}) — {a.prix_heure}E/h</option>)}
+                  {(showEditSlot.pilote_id
+                    ? (getQualifiedAeronefs(showEditSlot.pilote_id).length > 0 ? getQualifiedAeronefs(showEditSlot.pilote_id) : aeronefs)
+                    : aeronefs
+                  ).map((a: any) => <option key={a.id} value={a.id}>{a.type_aeronef} ({a.immatriculation}) — {a.prix_heure}E/h</option>)}
                 </select>
               </div>
               {/* Établissements — multi-select, même UI que la création */}

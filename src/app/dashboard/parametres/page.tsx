@@ -241,7 +241,7 @@ export default function ParametresPage() {
               <CalendarDays className="w-4 h-4 text-brand-400" /> Dates importantes
             </h2>
             <div className="mb-3">
-              <label className="label">Date de l'examen BIA</label>
+              <label className="label">Date de l'examen BIA <span className="text-brand-500 font-semibold">(année active ★)</span></label>
               <input
                 type="date"
                 value={dateExamenBia}
@@ -249,7 +249,7 @@ export default function ParametresPage() {
                 className="input"
               />
               <p className="text-[11px] text-gray-400 mt-1">
-                Après cette date, les élèves n'ayant pas effectué leur Vol 1 disparaissent automatiquement des pickers pilote (plus éligibles). Le superadmin garde l'accès complet.
+                Cette date est globale (non par année). À mettre à jour chaque année lors de la création de la nouvelle année scolaire. Après cette date, les élèves n'ayant pas effectué leur Vol 1 disparaissent automatiquement des pickers pilote. Le superadmin garde l'accès complet.
               </p>
             </div>
           </div>
