@@ -1,8 +1,9 @@
-import { createClient } from "@supabase/supabase-js";
 import { Resend } from "resend";
 import { NextResponse } from "next/server";
-import { createServerSupabaseClient } from "@/lib/supabase/server";
+import { createServerSupabaseClient, createServiceClient } from "@/lib/supabase/server";
 import { getClubInfo, DEFAULT_CLUB_NOM } from "@/lib/club";
+import { getOrgById } from "@/lib/org";
+import { clubUrl } from "@/lib/tenant";
 
 const STAFF_ROLES = ["superadmin", "coordinateur", "gerant"];
 const escHtml = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
@@ -20,9 +21,11 @@ export async function POST(req: Request) {
   const session = await createServerSupabaseClient();
   const { data: { user: caller } } = await session.auth.getUser();
   let isStaff = false;
+  let callerOrgId: string | null = null;
   if (caller) {
-    const { data: prof } = await session.from("profiles").select("roles").eq("id", caller.id).single();
+    const { data: prof } = await session.from("profiles").select("roles, organisation_id").eq("id", caller.id).single();
     isStaff = (prof?.roles || []).some((r: string) => STAFF_ROLES.includes(r));
+    callerOrgId = prof?.organisation_id ?? null;
   }
   const nom = isStaff && payload.nom ? escHtml(String(payload.nom)) : "";
   const prenom = isStaff && payload.prenom ? escHtml(String(payload.prenom)) : "";
@@ -31,15 +34,28 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "SUPABASE_SERVICE_ROLE_KEY manquant dans les variables d'environnement Vercel" }, { status: 500 });
   }
 
-  const supabase = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY,
-  );
+  const supabase = createServiceClient();
+
+  const { data: targetProfiles } = await supabase
+    .from("profiles")
+    .select("id, organisation_id")
+    .ilike("email", email)
+    .limit(1);
+  const targetProfile = targetProfiles?.[0] ?? null;
+
+  if (isStaff && callerOrgId && targetProfile?.organisation_id && targetProfile.organisation_id !== callerOrgId) {
+    return NextResponse.json({ error: "Cette adresse est déjà utilisée par un autre aéroclub" }, { status: 409 });
+  }
+
+  const targetOrgId: string | null = targetProfile?.organisation_id ?? (isStaff ? callerOrgId : null);
+  const targetOrg = targetOrgId ? await getOrgById(targetOrgId) : null;
 
   const appUrl =
     process.env.NEXT_PUBLIC_APP_URL ?? "https://bia-manager-acba.vercel.app";
 
-  const redirectTo = `${appUrl}/auth/callback?next=/auth/set-password`;
+  const redirectTo = targetOrg
+    ? clubUrl(targetOrg.slug, "/auth/callback?next=/auth/set-password", new URL(req.url).origin)
+    : `${appUrl}/auth/callback?next=/auth/set-password`;
 
   // Try recovery first (existing auth user), fall back to invite (creates the account)
   let linkData: any = null;
@@ -73,10 +89,19 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: linkError.message }, { status: 400 });
   }
 
+  const invitedUserId: string | undefined = linkData?.user?.id;
+  if (isStaff && callerOrgId && !targetProfile?.organisation_id && invitedUserId) {
+    await supabase
+      .from("profiles")
+      .update({ organisation_id: callerOrgId })
+      .eq("id", invitedUserId)
+      .is("organisation_id", null);
+  }
+
   const resetLink = linkData.properties.action_link;
   const displayName = nom && prenom ? `${prenom} ${nom}` : escHtml(email);
 
-  const club = await getClubInfo();
+  const club = await getClubInfo(targetOrgId);
   const clubNom = club.nom !== DEFAULT_CLUB_NOM ? escHtml(club.nom) : "";
   const waUrl = club.whatsapp
     ? `https://wa.me/${club.whatsapp}?text=Bonjour%2C%20j%27ai%20besoin%20d%27aide%20sur%20BIA%20Manager.`
@@ -140,7 +165,8 @@ export async function POST(req: Request) {
       statut = "erreur";
     }
     try {
-      await supabase.from("email_logs").insert({
+      if (targetOrgId) await supabase.from("email_logs").insert({
+        organisation_id: targetOrgId,
         type: isRecovery ? "reset_password" : "invite",
         to_email: email,
         subject,
@@ -151,11 +177,10 @@ export async function POST(req: Request) {
     } catch { /* ignore logging errors */ }
   } else {
     // Fallback: let Supabase send it (dev without Resend configured)
-    await supabase.auth.resetPasswordForEmail(email, {
-      redirectTo: `${appUrl}/auth/callback?next=/auth/set-password`,
-    });
+    await supabase.auth.resetPasswordForEmail(email, { redirectTo });
     try {
-      await supabase.from("email_logs").insert({
+      if (targetOrgId) await supabase.from("email_logs").insert({
+        organisation_id: targetOrgId,
         type: "invite",
         to_email: email,
         subject: "Accès BIA Manager — Définissez votre mot de passe",

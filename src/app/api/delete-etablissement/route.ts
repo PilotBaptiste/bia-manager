@@ -1,20 +1,28 @@
-import { createClient } from "@supabase/supabase-js";
 import { NextResponse } from "next/server";
 import { requireRole } from "@/lib/auth";
+import { createServiceClient } from "@/lib/supabase/server";
 
 export async function POST(req: Request) {
   const auth = await requireRole(["superadmin"]);
   if (auth instanceof NextResponse) return auth;
+  const orgId = auth.orgId!;
 
   const { id } = await req.json();
   if (!id) {
     return NextResponse.json({ error: "id obligatoire" }, { status: 400 });
   }
 
-  const supabase = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!,
-  );
+  const supabase = createServiceClient();
+
+  const { data: etab } = await supabase
+    .from("etablissements")
+    .select("id")
+    .eq("id", id)
+    .eq("organisation_id", orgId)
+    .maybeSingle();
+  if (!etab) {
+    return NextResponse.json({ error: "Établissement introuvable" }, { status: 404 });
+  }
 
   // Check for eleves (NOT NULL FK — cannot nullify, must block)
   const { data: eleves } = await supabase
@@ -32,14 +40,18 @@ export async function POST(req: Request) {
 
   // Nullify nullable FK references
   for (const table of ["profiles", "creneaux", "finances_operations"]) {
-    const { error: nullErr } = await supabase.from(table).update({ etablissement_id: null }).eq("etablissement_id", id);
+    const { error: nullErr } = await supabase
+      .from(table)
+      .update({ etablissement_id: null })
+      .eq("organisation_id", orgId)
+      .eq("etablissement_id", id);
     if (nullErr) {
       return NextResponse.json({ error: `${table} : ${nullErr.message}` }, { status: 400 });
     }
   }
 
   // Now delete
-  const { error } = await supabase.from("etablissements").delete().eq("id", id);
+  const { error } = await supabase.from("etablissements").delete().eq("id", id).eq("organisation_id", orgId);
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 400 });
   }

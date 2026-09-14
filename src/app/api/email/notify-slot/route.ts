@@ -1,6 +1,6 @@
-import { createClient } from "@supabase/supabase-js";
 import { NextResponse } from "next/server";
 import { requireRole } from "@/lib/auth";
+import { createServiceClient } from "@/lib/supabase/server";
 
 /**
  * POST /api/email/notify-slot
@@ -29,10 +29,8 @@ export async function POST(req: Request) {
     return NextResponse.json({ skipped: true });
   }
 
-  const supabase = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL,
-    process.env.SUPABASE_SERVICE_ROLE_KEY,
-  );
+  const orgId = auth.orgId!;
+  const supabase = createServiceClient();
 
   const body = await req.json();
   const {
@@ -61,6 +59,7 @@ export async function POST(req: Request) {
     let countQuery = supabase
       .from("creneaux")
       .select("id", { count: "exact", head: true })
+      .eq("organisation_id", orgId)
       .eq("statut", "ouvert")
       .gte("date_vol", today);
     if (creneau_id) countQuery = countQuery.neq("id", creneau_id);
@@ -86,8 +85,8 @@ export async function POST(req: Request) {
   }
 
   const [{ data: activeAnnee }, { data: activeEtabs }] = await Promise.all([
-    supabase.from("annees").select("id, date_examen_bia").eq("active", true).maybeSingle(),
-    supabase.from("etablissements").select("id").eq("actif", true),
+    supabase.from("annees").select("id, date_examen_bia").eq("organisation_id", orgId).eq("active", true).maybeSingle(),
+    supabase.from("etablissements").select("id").eq("organisation_id", orgId).eq("actif", true),
   ]);
   const activeEtabIds = new Set((activeEtabs ?? []).map((e: any) => e.id));
   const inScope = (e: any) => activeEtabIds.has(e.etablissement_id);
@@ -103,6 +102,7 @@ export async function POST(req: Request) {
     supabase
       .from("eleves")
       .select("id, prenom, nom, parent_email, parent_prenom, etablissement_id, bia_resultat, reservations(id, statut, type_vol)")
+      .eq("organisation_id", orgId)
       .eq("archive", false)
       .eq("abandonne", false)
       .eq("paiement_effectue", true)
@@ -130,6 +130,7 @@ export async function POST(req: Request) {
     supabase
       .from("eleves")
       .select("id, prenom, nom, parent_email, parent_prenom, etablissement_id, reservations(id, statut, type_vol)")
+      .eq("organisation_id", orgId)
       .eq("archive", false)
       .eq("abandonne", false)
       .eq("vol2_autorise", true)

@@ -29,6 +29,7 @@ import {
   CalendarDays,
   ChevronDown,
   BarChart2,
+  Building2,
 } from "lucide-react";
 
 const iconMap: Record<string, any> = {
@@ -50,6 +51,7 @@ const iconMap: Record<string, any> = {
   Mail,
   MessageCircle,
   BarChart2,
+  Building2,
 };
 
 function getNav(roles: string[]) {
@@ -60,7 +62,7 @@ function getNav(roles: string[]) {
       items.push({ key: k, label: l, icon: i, href: h });
   };
 
-  // SuperAdmin
+  add("plateforme", "Plateforme", "Building2", "/plateforme", ["proprietaire"]);
   add("dashboard", "Tableau de bord", "LayoutDashboard", "/dashboard", [
     "superadmin",
     "coordinateur",
@@ -148,7 +150,8 @@ function getNav(roles: string[]) {
 }
 
 function getRoleLabel(roles: string[]): string {
-  if (roles.includes("superadmin")) return "SuperAdmin";
+  if (roles.includes("proprietaire")) return "Propriétaire de la plateforme";
+  if (roles.includes("superadmin")) return "Admin du club";
   const labels: string[] = [];
   if (roles.includes("coordinateur")) labels.push("Coordinateur");
   if (roles.includes("pilote")) labels.push("Pilote");
@@ -169,6 +172,7 @@ export default function Sidebar({ profile }: { profile: any }) {
   const clubSigle = club.sigle || club.nom;
 
   const roles = profile.roles || [];
+  const isOwner = roles.includes("proprietaire");
   const isParent = roles.includes("parent") && !roles.includes("superadmin");
   const showYearSelector = !isParent && annees.length > 0;
 
@@ -191,9 +195,19 @@ export default function Sidebar({ profile }: { profile: any }) {
         </div>
         <div>
           <p className="text-sm font-bold text-brand-500">BIA Manager</p>
-          <p className="text-[10px] text-gray-400">{clubSigle} · {new Date().getFullYear()}</p>
+          <p className="text-[10px] text-gray-400 truncate max-w-[150px]" title={club.nom}>{clubSigle} · {new Date().getFullYear()}</p>
         </div>
       </div>
+      {isOwner && profile.organisation?.nom && (
+        <button
+          onClick={() => router.push("/plateforme")}
+          className="mx-1 mb-3 px-3 py-2 rounded-lg bg-brand-50 border border-brand-100 text-left hover:bg-brand-100 transition-colors"
+          title="Changer de club depuis la plateforme"
+        >
+          <p className="text-[10px] font-bold uppercase tracking-wider text-brand-400">Vous êtes dans</p>
+          <p className="text-[13px] font-semibold text-brand-600 truncate">{profile.organisation.nom}</p>
+        </button>
+      )}
       {/* ── Year selector ── */}
       {showYearSelector && (
         <div className="mb-3 px-1">

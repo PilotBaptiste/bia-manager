@@ -1,8 +1,10 @@
 import { Resend } from "resend";
 import { NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
+import { createServiceClient } from "@/lib/supabase/server";
 import { requireRole } from "@/lib/auth";
 import { getClubInfo, DEFAULT_CLUB_NOM } from "@/lib/club";
+import { getOrgById } from "@/lib/org";
+import { clubUrl } from "@/lib/tenant";
 
 const STAFF_ROLES = ["superadmin", "coordinateur", "gerant", "pilote"];
 const PARENT_TYPES = ["booking_confirm", "booking_cancel", "attestation_ready"];
@@ -19,10 +21,7 @@ function escDeep(v: any): any {
 
 function adminSupabase() {
   if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) return null;
-  return createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL,
-    process.env.SUPABASE_SERVICE_ROLE_KEY,
-  );
+  return createServiceClient();
 }
 
 const FROM =
@@ -30,7 +29,7 @@ const FROM =
 const APP_URL =
   process.env.NEXT_PUBLIC_APP_URL ?? "https://bia-manager-acba.vercel.app";
 
-function wrap(inner: string, contact?: { nom?: string; email?: string; telephone?: string }) {
+function wrap(inner: string, contact?: { nom?: string; email?: string; telephone?: string; url?: string }) {
   const clubNom = contact?.nom && contact.nom !== DEFAULT_CLUB_NOM ? contact.nom : "";
   const contactLines = [];
   if (contact?.telephone) contactLines.push(`📞 ${contact.telephone}`);
@@ -50,7 +49,7 @@ function wrap(inner: string, contact?: { nom?: string; email?: string; telephone
       ${inner}
       ${contactBlock}
       <div style="margin-top:24px;padding-top:16px;border-top:1px solid #f1f5f9;color:#94a3b8;font-size:12px;text-align:center">
-        <a href="${APP_URL}" style="color:#1b3a5c;font-weight:600;text-decoration:none">Accéder à la plateforme</a>
+        <a href="${contact?.url || APP_URL}" style="color:#1b3a5c;font-weight:600;text-decoration:none">Accéder à la plateforme</a>
         ${clubNom ? `&nbsp;·&nbsp; ${clubNom}` : ""}
       </div>
     </div>
@@ -129,6 +128,7 @@ function fmt(date: string) {
 export async function POST(req: Request) {
   const auth = await requireRole();
   if (auth instanceof NextResponse) return auth;
+  const orgId = auth.orgId!;
   try {
     const raw = await req.json();
     const { type } = raw;
@@ -147,7 +147,7 @@ export async function POST(req: Request) {
       if (raw.pilote_email) {
         const admin = adminSupabase();
         const { data: pilote } = admin
-          ? await admin.from("profiles").select("id").ilike("email", raw.pilote_email).contains("roles", ["pilote"]).limit(1)
+          ? await admin.from("profiles").select("id").ilike("email", raw.pilote_email).eq("organisation_id", orgId).contains("roles", ["pilote"]).limit(1)
           : { data: null };
         if (!pilote?.length) raw.pilote_email = null;
       }
@@ -161,11 +161,13 @@ export async function POST(req: Request) {
     // Every user-supplied value is escaped before landing in HTML templates; `to`/subject/ICS are unescaped at send time.
     const body = escDeep(raw);
 
-    const club = await getClubInfo();
+    const [club, org] = await Promise.all([getClubInfo(orgId), getOrgById(orgId)]);
+    const base = org ? clubUrl(org.slug, "", new URL(req.url).origin) : APP_URL;
     const contact = {
       nom: escHtml(club.nom),
       email: club.email ? escHtml(club.email) : undefined,
       telephone: club.telephone ? escHtml(club.telephone) : undefined,
+      url: base,
     };
     const lieuVolHtml = club.lieuVol
       ? [club.nom !== DEFAULT_CLUB_NOM ? club.nom : "", ...club.lieuVol.split(/\r?\n/)].map((l) => l.trim()).filter(Boolean).map(escHtml).join("<br>")
@@ -235,7 +237,7 @@ export async function POST(req: Request) {
           </div>
           <p style="color:#64748b;font-size:13px">📎 Un fichier <strong>.ics</strong> est joint à cet email — ouvrez-le pour ajouter le vol à votre calendrier (Apple, Google, Outlook…).</p>
           <p style="color:#64748b;font-size:13px">En cas d'empêchement, annulez la réservation au moins <strong>48h avant</strong> le vol depuis votre espace.</p>
-          ${ctaBtn("Voir mes réservations", `${APP_URL}/dashboard/reservation`)}
+          ${ctaBtn("Voir mes réservations", `${base}/dashboard/reservation`)}
         `, contact),
         attachments: [icsAttachment],
       });
@@ -255,7 +257,7 @@ export async function POST(req: Request) {
               { label: "⏰ Horaire", value: `${heure_debut?.slice(0, 5)} – ${heure_fin?.slice(0, 5)}` },
               ...(etablissement ? [{ label: "🏫 Établissement", value: etablissement }] : []),
             ])}
-            ${ctaBtn("Voir le planning", `${APP_URL}/dashboard/vols`)}
+            ${ctaBtn("Voir le planning", `${base}/dashboard/vols`)}
           `, contact),
         });
       }
@@ -294,7 +296,7 @@ export async function POST(req: Request) {
             ...(motif ? [{ label: "💬 Motif", value: motif }] : []),
           ])}
           <p style="color:#64748b;font-size:13px">Vous pouvez réserver un autre créneau disponible depuis votre espace.</p>
-          ${ctaBtn("Réserver un nouveau créneau", `${APP_URL}/dashboard/reservation`)}
+          ${ctaBtn("Réserver un nouveau créneau", `${base}/dashboard/reservation`)}
         `, contact),
       });
 
@@ -312,7 +314,7 @@ export async function POST(req: Request) {
               { label: "📅 Date", value: fmt(date_vol) },
               { label: "⏰ Horaire", value: heure_debut?.slice(0, 5) || "—" },
             ])}
-            ${ctaBtn("Voir le planning", `${APP_URL}/dashboard/vols`)}
+            ${ctaBtn("Voir le planning", `${base}/dashboard/vols`)}
           `, contact),
         });
       }
@@ -349,7 +351,7 @@ export async function POST(req: Request) {
               ...(etablissement ? [{ label: "🏫 Établissement", value: etablissement }] : []),
             ])}
             <p style="color:#64748b;font-size:13px">Si ces modifications ne vous conviennent pas, vous pouvez annuler et choisir un autre créneau depuis votre espace.</p>
-            ${ctaBtn("Voir mes réservations", `${APP_URL}/dashboard/reservation`)}
+            ${ctaBtn("Voir mes réservations", `${base}/dashboard/reservation`)}
           `, contact),
         });
       }
@@ -385,7 +387,7 @@ export async function POST(req: Request) {
               ${pilote_email ? `<p style="margin:4px 0 0;color:#78350f;font-size:13px">✉️ <a href="mailto:${pilote_email}" style="color:#78350f">${pilote_email}</a></p>` : ""}
             </div>` : ""}
             <p style="color:#64748b;font-size:13px">Vous pouvez réserver un nouveau créneau disponible depuis votre espace dès maintenant.</p>
-            ${ctaBtn("Réserver un nouveau créneau", `${APP_URL}/dashboard/reservation`)}
+            ${ctaBtn("Réserver un nouveau créneau", `${base}/dashboard/reservation`)}
           `, contact),
         });
       }
@@ -417,7 +419,7 @@ export async function POST(req: Request) {
               <p style="margin:0;color:#1e40af;font-size:13px;font-weight:600">💺 Il y a de la place pour tout le monde</p>
               <p style="margin:6px 0 0;color:#1d4ed8;font-size:13px">Ne tardez pas à réserver, les créneaux se remplissent vite. Si celui-ci est déjà complet, d'autres seront ouverts prochainement.</p>
             </div>
-            ${ctaBtn("Réserver ce créneau", `${APP_URL}/dashboard/reservation`)}
+            ${ctaBtn("Réserver ce créneau", `${base}/dashboard/reservation`)}
           `, contact),
         });
       }
@@ -449,7 +451,7 @@ export async function POST(req: Request) {
               <p style="margin:0;color:#92400e;font-size:13px;font-weight:600">⚡ Il reste des places — réservez maintenant</p>
               <p style="margin:6px 0 0;color:#b45309;font-size:13px">Ce créneau n'est pas encore complet. Réservez votre place avant qu'il ne le soit !</p>
             </div>
-            ${ctaBtn("Réserver ce créneau", `${APP_URL}/dashboard/reservation`)}
+            ${ctaBtn("Réserver ce créneau", `${base}/dashboard/reservation`)}
           `, contact),
         });
       }
@@ -490,7 +492,7 @@ export async function POST(req: Request) {
             <p style="margin:0;color:#1e40af;font-size:13px;font-weight:600">💺 Il y a de la place pour tout le monde !</p>
             <p style="margin:6px 0 0;color:#1d4ed8;font-size:13px">Si aucun créneau n'est disponible pour le moment, <strong>ne vous inquiétez pas</strong> — de nouveaux créneaux seront ouverts prochainement et vous recevrez une notification dès qu'il y en aura un.</p>
           </div>
-          ${ctaBtn("Réserver le vol maintenant", `${APP_URL}/dashboard/reservation`)}
+          ${ctaBtn("Réserver le vol maintenant", `${base}/dashboard/reservation`)}
         `, contact),
       });
     }
@@ -516,7 +518,7 @@ export async function POST(req: Request) {
               <p style="margin:6px 0 0;color:#78350f;font-size:13px">De nouveaux créneaux seront ouverts prochainement. Vous recevrez un email dès qu'une place sera disponible.</p>
             </div>
             <p style="color:#64748b;font-size:13px">Vous pouvez vous connecter à tout moment pour vérifier la disponibilité.</p>
-            ${ctaBtn("Vérifier les créneaux", `${APP_URL}/dashboard/reservation`)}
+            ${ctaBtn("Vérifier les créneaux", `${base}/dashboard/reservation`)}
           `, contact),
         });
       }
@@ -549,7 +551,7 @@ export async function POST(req: Request) {
               ...(etablissement ? [{ label: "🏫 Établissement", value: etablissement }] : []),
             ])}
             <p style="color:#64748b;font-size:13px">En cas de question, n'hésitez pas à contacter directement votre nouveau pilote.</p>
-            ${ctaBtn("Voir ma réservation", `${APP_URL}/dashboard/reservation`)}
+            ${ctaBtn("Voir ma réservation", `${base}/dashboard/reservation`)}
           `, contact),
         });
       }
@@ -583,7 +585,7 @@ export async function POST(req: Request) {
           ])}
           <p style="margin:16px 0 8px;font-weight:700;font-size:14px;color:#0f172a">Élève${(eleves_details || []).length > 1 ? "s" : ""} à bord :</p>
           ${infoBox(elevesRows)}
-          ${ctaBtn("Voir le planning", `${APP_URL}/dashboard/vols`)}
+          ${ctaBtn("Voir le planning", `${base}/dashboard/vols`)}
         `, contact),
       });
     }
@@ -612,7 +614,7 @@ export async function POST(req: Request) {
             ...(new_pilote_telephone ? [{ label: "📞 Tél.", value: new_pilote_telephone }] : []),
             ...(new_pilote_email ? [{ label: "📧 Email", value: new_pilote_email }] : []),
           ])}
-          ${ctaBtn("Voir le planning", `${APP_URL}/dashboard/vols`)}
+          ${ctaBtn("Voir le planning", `${base}/dashboard/vols`)}
         `, contact),
       });
     }
@@ -678,6 +680,7 @@ export async function POST(req: Request) {
       try {
         if (!supabaseAdmin) throw new Error("no supabase");
         await supabaseAdmin.from("email_logs").insert({
+          organisation_id: orgId,
           type,
           to_email: unescHtml(e.to),
           subject: unescHtml(e.subject),

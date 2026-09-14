@@ -1,9 +1,25 @@
-import { createClient } from "@supabase/supabase-js";
 import { Resend } from "resend";
 import { NextResponse } from "next/server";
+import { createServiceClient } from "@/lib/supabase/server";
+import { getClubInfo, DEFAULT_CLUB_NOM } from "@/lib/club";
+import { clubUrl } from "@/lib/tenant";
 
 const MAX_ENFANTS = 6;
 const escHtml = (s: string) => String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+
+// The code identifies the établissement, and through it the club; an inactive club accepts no signups.
+async function findEtab(supabase: ReturnType<typeof createServiceClient>, code: string) {
+  const { data } = await supabase
+    .from("etablissements")
+    .select("id, nom, ville, nb_eleves_attendus, actif, organisation_id, organisation:organisations(id, slug, nom, actif)")
+    .eq("code_inscription", code)
+    .eq("actif", true)
+    .single();
+  const etab: any = data;
+  const org = Array.isArray(etab?.organisation) ? etab.organisation[0] : etab?.organisation;
+  if (!etab || !org?.actif) return null;
+  return { etab, org: org as { id: string; slug: string; nom: string; actif: boolean } };
+}
 
 // GET — validate a code and return the établissement info (public)
 export async function GET(req: Request) {
@@ -11,32 +27,26 @@ export async function GET(req: Request) {
   const code = searchParams.get("code")?.toUpperCase().trim();
   if (!code) return NextResponse.json({ error: "Code manquant" }, { status: 400 });
 
-  const supabase = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!,
-  );
+  const supabase = createServiceClient();
 
-  const { data: etab } = await supabase
-    .from("etablissements")
-    .select("id, nom, ville, code_inscription, nb_eleves_attendus, actif")
-    .eq("code_inscription", code)
-    .eq("actif", true)
-    .single();
-
-  if (!etab) {
+  const found = await findEtab(supabase, code);
+  if (!found) {
     return NextResponse.json({ error: "Code invalide ou établissement inactif" }, { status: 404 });
   }
+  const { etab, org } = found;
+  const orgId = org.id;
 
   // Compte uniquement les élèves inscrits via le code (parent_id non null)
   // pour l'année active — exclut les élèves saisis manuellement par l'admin
   const { data: annee } = await supabase
-    .from("annees").select("id").eq("active", true).single();
+    .from("annees").select("id").eq("organisation_id", orgId).eq("active", true).single();
 
   let inscritCount = 0;
   if (annee) {
     const { count } = await supabase
       .from("eleves")
       .select("*", { count: "exact", head: true })
+      .eq("organisation_id", orgId)
       .eq("etablissement_id", etab.id)
       .eq("annee_id", annee.id)
       .not("parent_id", "is", null); // uniquement les inscriptions via code
@@ -45,9 +55,11 @@ export async function GET(req: Request) {
 
   const limit = etab.nb_eleves_attendus ?? 0;
   const isFull = limit > 0 && inscritCount >= limit;
+  const club = await getClubInfo(orgId);
 
   return NextResponse.json({
     etab: { id: etab.id, nom: etab.nom, ville: etab.ville },
+    club: { nom: club.nom !== DEFAULT_CLUB_NOM ? club.nom : org.nom, slug: org.slug },
     inscritCount,
     limit,
     isFull,
@@ -74,26 +86,19 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Mot de passe trop court (8 caractères minimum)" }, { status: 400 });
   }
 
-  const supabase = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!,
-  );
+  const supabase = createServiceClient();
 
   // 1. Validate code
-  const { data: etab } = await supabase
-    .from("etablissements")
-    .select("id, nom, nb_eleves_attendus, actif")
-    .eq("code_inscription", code.toUpperCase().trim())
-    .eq("actif", true)
-    .single();
-
-  if (!etab) {
+  const found = await findEtab(supabase, String(code).toUpperCase().trim());
+  if (!found) {
     return NextResponse.json({ error: "Code invalide ou établissement inactif" }, { status: 404 });
   }
+  const { etab, org } = found;
+  const orgId = org.id;
 
   // 2. Get active year
   const { data: annee } = await supabase
-    .from("annees").select("id, label").eq("active", true).single();
+    .from("annees").select("id, label").eq("organisation_id", orgId).eq("active", true).single();
 
   // 3. Check student limit — uniquement les inscrits via code (parent_id non null)
   // Les élèves saisis manuellement par l'admin ne comptent pas dans le quota
@@ -101,6 +106,7 @@ export async function POST(req: Request) {
     const { count } = await supabase
       .from("eleves")
       .select("*", { count: "exact", head: true })
+      .eq("organisation_id", orgId)
       .eq("etablissement_id", etab.id)
       .eq("annee_id", annee.id)
       .not("parent_id", "is", null); // uniquement inscriptions via code
@@ -118,6 +124,7 @@ export async function POST(req: Request) {
   const { data: existingDossier } = await supabase
     .from("eleves")
     .select("id")
+    .eq("organisation_id", orgId)
     .ilike("parent_email", parentEmail)
     .limit(1);
   if (existingDossier?.length) {
@@ -145,15 +152,22 @@ export async function POST(req: Request) {
 
   // 5. Update profile (DB trigger creates it; wait briefly)
   await new Promise((r) => setTimeout(r, 600));
-  await supabase.from("profiles").update({
+  const { error: profileError } = await supabase.from("profiles").update({
+    organisation_id: orgId,
     nom: parent.nom.trim(),
     prenom: parent.prenom.trim(),
     telephone: parent.telephone?.trim() || null,
     roles: ["parent"],
   }).eq("id", userId);
+  if (profileError) {
+    await supabase.from("profiles").delete().eq("id", userId);
+    await supabase.auth.admin.deleteUser(userId);
+    return NextResponse.json({ error: `Erreur création du compte: ${profileError.message}` }, { status: 500 });
+  }
 
   // 6. Create eleves
   const elevesPayload = enfants.map((e: any) => ({
+    organisation_id: orgId,
     nom: e.nom.trim(),
     prenom: e.prenom.trim(),
     date_naissance: e.date_naissance || null,
@@ -177,9 +191,11 @@ export async function POST(req: Request) {
   }
 
   // 7. Send welcome email
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "https://bia-manager-acba.vercel.app";
   if (process.env.RESEND_API_KEY) {
     const resend = new Resend(process.env.RESEND_API_KEY);
+    const club = await getClubInfo(orgId);
+    const clubNom = club.nom !== DEFAULT_CLUB_NOM ? club.nom : org.nom;
+    const loginUrl = clubUrl(org.slug, "/auth/connexion", new URL(req.url).origin);
     const enfantsHtml = enfants
       .map((e: any) => `<li>${escHtml(e.prenom)} ${escHtml(e.nom)}</li>`)
       .join("");
@@ -192,6 +208,7 @@ export async function POST(req: Request) {
         <div style="font-family:system-ui,sans-serif;max-width:520px;margin:0 auto;padding:32px 24px;background:#fff">
           <div style="margin-bottom:24px">
             <span style="background:#1b3a5c;color:#fff;padding:6px 14px;border-radius:8px;font-weight:700;font-size:14px">BIA Manager</span>
+            ${clubNom ? `<span style="color:#64748b;font-size:13px;margin-left:8px">${escHtml(clubNom)}</span>` : ""}
           </div>
           <h2 style="margin:0 0 8px;font-size:22px;color:#111">Inscription confirmée !</h2>
           <p style="color:#555;margin:0 0 16px">
@@ -205,7 +222,7 @@ export async function POST(req: Request) {
           <p style="color:#555;margin:0 0 16px">
             Connectez-vous à votre espace parent pour suivre l'avancement du BIA, signer l'attestation parentale et réserver les vols.
           </p>
-          <a href="${appUrl}/auth/connexion" style="display:inline-block;background:#1b3a5c;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:600;font-size:15px">
+          <a href="${loginUrl}" style="display:inline-block;background:#1b3a5c;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:600;font-size:15px">
             Accéder à mon espace →
           </a>
           <p style="color:#aaa;font-size:12px;margin-top:24px">

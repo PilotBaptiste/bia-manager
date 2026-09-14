@@ -290,7 +290,7 @@ export default function VolsPage() {
       return;
     }
     if (!isSA && availableEtabs.length === 0) {
-      setError("Aucun etablissement assigne. Contactez le SuperAdmin.");
+      setError("Aucun etablissement assigne. Contactez l'admin du club.");
       return;
     }
     if (!isSA && form.etablissements.length === 0) {
@@ -1191,7 +1191,7 @@ export default function VolsPage() {
               <div>
                 <label className="label">Établissements {!isSA ? "*" : ""}</label>
                 {!isSA && availableEtabs.length === 0 && (
-                  <p className="text-xs text-red-500 mt-1">Aucun etablissement assigne. Contactez le SuperAdmin.</p>
+                  <p className="text-xs text-red-500 mt-1">Aucun etablissement assigne. Contactez l&apos;admin du club.</p>
                 )}
                 <div className="border border-gray-200 rounded-lg overflow-hidden">
                   {isSA && (

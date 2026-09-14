@@ -22,9 +22,9 @@ import ConfirmModal from "@/components/ConfirmModal";
 const ALL_ROLES = [
   {
     value: "superadmin",
-    label: "SuperAdmin",
+    label: "Admin du club",
     color: "text-red-600 bg-red-50",
-    desc: "Tous les droits",
+    desc: "Tous les droits sur ce club",
   },
   {
     value: "coordinateur",
@@ -227,11 +227,11 @@ export default function UtilisateursPage() {
     const original = users.find((u) => u.id === editing.id);
     const removesSA = original?.roles?.includes("superadmin") && !editing.roles?.includes("superadmin");
     if (removesSA && editing.id === currentUserId) {
-      toast.error("Vous ne pouvez pas retirer votre propre rôle SuperAdmin.");
+      toast.error("Vous ne pouvez pas retirer votre propre rôle Admin du club.");
       return;
     }
     if (removesSA && users.filter((u) => u.roles?.includes("superadmin")).length <= 1) {
-      toast.error("Impossible de retirer le rôle SuperAdmin au dernier SuperAdmin.");
+      toast.error("Impossible de retirer le rôle Admin du club au dernier admin.");
       return;
     }
     setSaving(true);

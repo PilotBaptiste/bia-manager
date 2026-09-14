@@ -1,6 +1,6 @@
-import { createClient } from "@supabase/supabase-js";
 import { NextResponse } from "next/server";
 import { requireRole } from "@/lib/auth";
+import { createServiceClient } from "@/lib/supabase/server";
 
 const STAFF = ["superadmin", "coordinateur", "gerant", "pilote"];
 
@@ -20,21 +20,20 @@ export async function GET(req: Request) {
     return new NextResponse("Server not configured", { status: 500 });
   }
 
-  const supabase = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL,
-    process.env.SUPABASE_SERVICE_ROLE_KEY,
-  );
+  const supabase = createServiceClient();
 
-  if (!auth.roles.some((r) => STAFF.includes(r))) {
-    const { data: owned } = await supabase
-      .from("eleves")
-      .select("id")
-      .eq("parent_id", auth.userId)
-      .eq("attestation_url", path)
-      .limit(1);
-    if (!owned?.length) {
-      return new NextResponse("Accès refusé", { status: 403 });
-    }
+  const isStaff = auth.roles.some((r) => STAFF.includes(r));
+  let ownerQuery = supabase
+    .from("eleves")
+    .select("id")
+    .eq("organisation_id", auth.orgId!)
+    .eq("attestation_url", path);
+  if (!isStaff) ownerQuery = ownerQuery.eq("parent_id", auth.userId);
+  const { data: owned } = await ownerQuery.limit(1);
+  if (!owned?.length) {
+    return isStaff
+      ? new NextResponse("File not found", { status: 404 })
+      : new NextResponse("Accès refusé", { status: 403 });
   }
 
   const { data, error } = await supabase.storage

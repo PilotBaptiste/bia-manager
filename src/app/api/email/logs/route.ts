@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireRole } from "@/lib/auth";
-import { createClient } from "@supabase/supabase-js";
+import { createServiceClient } from "@/lib/supabase/server";
 
 export async function GET(req: Request) {
   const auth = await requireRole(["superadmin", "coordinateur", "gerant", "pilote"]);
@@ -15,14 +15,12 @@ export async function GET(req: Request) {
       return NextResponse.json({ error: "email, eleve_id or creneau_id required" }, { status: 400 });
     }
 
-    const supabase = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_ROLE_KEY!,
-    );
+    const supabase = createServiceClient();
 
     let query = supabase
       .from("email_logs")
       .select("id, created_at, type, to_email, subject, statut, resend_id")
+      .eq("organisation_id", auth.orgId!)
       .order("created_at", { ascending: false })
       .limit(100);
 

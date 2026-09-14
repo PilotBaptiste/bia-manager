@@ -1,5 +1,6 @@
 import { cache } from "react";
-import { createClient } from "@supabase/supabase-js";
+import { createServiceClient } from "@/lib/supabase/server";
+import { getOrgById, getRequestOrg } from "@/lib/org";
 
 export type ClubInfo = {
   nom: string;
@@ -23,23 +24,26 @@ const KEYS = {
   telephoneSupport: "telephone_support",
 } as const satisfies Record<keyof ClubInfo, string>;
 
-export const getClubInfo = cache(async (): Promise<ClubInfo> => {
+// `orgId` omitted = club of the current request (subdomain, then signed-in user).
+export const getClubInfo = cache(async (orgId?: string | null): Promise<ClubInfo> => {
   const p: Record<string, string> = {};
+  let orgNom = "";
   try {
-    const supabase = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_ROLE_KEY!
-    );
-    const { data } = await supabase
-      .from("parametres")
-      .select("cle, valeur")
-      .in("cle", Object.values(KEYS));
-    for (const row of data ?? []) p[row.cle] = (row.valeur ?? "").trim();
+    const org = orgId ? await getOrgById(orgId) : await getRequestOrg();
+    if (org) {
+      orgNom = org.nom;
+      const { data } = await createServiceClient()
+        .from("parametres")
+        .select("cle, valeur")
+        .eq("organisation_id", org.id)
+        .in("cle", Object.values(KEYS));
+      for (const row of data ?? []) p[row.cle] = (row.valeur ?? "").trim();
+    }
   } catch (e) {
     console.error("getClubInfo:", e);
   }
   return {
-    nom: p[KEYS.nom] || DEFAULT_CLUB_NOM,
+    nom: p[KEYS.nom] || orgNom || DEFAULT_CLUB_NOM,
     sigle: p[KEYS.sigle] || "",
     email: p[KEYS.email] || "",
     telephone: p[KEYS.telephone] || "",

@@ -194,7 +194,7 @@ export default function ParametresPage() {
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-xl font-bold text-gray-900">Paramètres</h1>
-          <p className="text-sm text-gray-500 mt-0.5">Configuration générale — SuperAdmin</p>
+          <p className="text-sm text-gray-500 mt-0.5">Configuration générale — Admin du club</p>
         </div>
       </div>
 
