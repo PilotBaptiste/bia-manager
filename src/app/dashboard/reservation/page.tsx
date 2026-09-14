@@ -1,6 +1,7 @@
 "use client";
 import { useState, useEffect } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { inActiveEtab } from "@/lib/etablissements";
 import { useYear } from "@/contexts/YearContext";
 import { toast } from "sonner";
 import {
@@ -58,14 +59,15 @@ export default function ReservationPage() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ userId: user.id, email: user.email }),
     }).catch(() => {});
-    const [eR, cR] = await Promise.all([
+    const [eR, cR, etR] = await Promise.all([
       supabase
         .from("eleves")
         .select(
-          "*, etablissement:etablissements(nom), reservations(*, creneau:creneaux(date_vol, heure_debut, heure_fin, statut, pilote:profiles!pilote_id(nom, prenom, email, telephone), aeronef:aeronefs(type_aeronef, immatriculation)))",
+          "*, etablissement:etablissements!inner(nom, actif), reservations(*, creneau:creneaux(date_vol, heure_debut, heure_fin, statut, pilote:profiles!pilote_id(nom, prenom, email, telephone), aeronef:aeronefs(type_aeronef, immatriculation)))",
         )
         .eq("parent_id", user.id)
-        .eq("archive", false),
+        .eq("archive", false)
+        .eq("etablissement.actif", true),
       supabase
         .from("creneaux")
         .select(
@@ -74,9 +76,11 @@ export default function ReservationPage() {
         .in("statut", ["ouvert", "confirme"])
         .gte("date_vol", today)
         .order("date_vol"),
+      supabase.from("etablissements").select("id").eq("actif", true),
     ]);
+    const activeIds = new Set<string>((etR.data || []).map((e: any) => e.id));
     setEnfants(eR.data || []);
-    setCreneaux(cR.data || []);
+    setCreneaux((cR.data || []).filter((c: any) => inActiveEtab(c, activeIds)));
     setLoading(false);
   }
 

@@ -2,6 +2,7 @@
 import { useState, useEffect, useMemo } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { fetchAll } from "@/lib/fetchAll";
+import { inActiveEtab } from "@/lib/etablissements";
 import { useYear } from "@/contexts/YearContext";
 import { matchDesiderata } from "@/components/DesiderataGrid";
 import { toast } from "sonner";
@@ -128,8 +129,9 @@ export default function VolsPage() {
 
     let elevesQuery = supabase
       .from("eleves")
-      .select("id, nom, prenom, etablissement_id, desiderata, abandonne, bia_resultat, vol2_autorise, vol1_effectue, vol1_skippe, vol1_numero_aerogest, vol1_prix, vol1_temps_minutes, vol1_pilote_nom, vol1_aeronef_id, vol2_effectue, vol2_numero_aerogest, vol2_prix, vol2_temps_minutes, vol2_pilote_nom, vol2_aeronef_id")
+      .select("id, nom, prenom, etablissement_id, etablissement:etablissements!inner(actif), desiderata, abandonne, bia_resultat, vol2_autorise, vol1_effectue, vol1_skippe, vol1_numero_aerogest, vol1_prix, vol1_temps_minutes, vol1_pilote_nom, vol1_aeronef_id, vol2_effectue, vol2_numero_aerogest, vol2_prix, vol2_temps_minutes, vol2_pilote_nom, vol2_aeronef_id")
       .eq("archive", false)
+      .eq("etablissement.actif", true)
       .order("nom")
       .order("id");
     if (selectedAnneeId) elevesQuery = elevesQuery.eq("annee_id", selectedAnneeId);
@@ -137,7 +139,7 @@ export default function VolsPage() {
     let volsQuery = supabase
       .from("vols_effectues")
       .select(
-        "*, creneau:creneaux!inner(date_vol,heure_debut,heure_fin,pilote_id,aeronef_id,etablissement_id,annee_id,pilote:profiles!pilote_id(nom,prenom),aeronef:aeronefs(type_aeronef,immatriculation,nb_places_eleves),etablissement:etablissements(nom),reservations(id,type_vol,statut,eleve:eleves(id,nom,prenom)))",
+        "*, creneau:creneaux!inner(date_vol,heure_debut,heure_fin,pilote_id,aeronef_id,etablissement_id,etablissement_ids,annee_id,pilote:profiles!pilote_id(nom,prenom),aeronef:aeronefs(type_aeronef,immatriculation,nb_places_eleves),etablissement:etablissements(nom),reservations(id,type_vol,statut,eleve:eleves(id,nom,prenom)))",
       )
       .order("created_at", { ascending: false })
       .order("id");
@@ -163,10 +165,11 @@ export default function VolsPage() {
         fetchAll((from, to) => elevesQuery.range(from, to)),
       ]);
     setProfile(profRes.data);
-    setCreneaux(crRes.data || []);
+    const activeEtabIds = new Set<string>((eRes.data || []).map((e: any) => e.id));
+    setCreneaux((crRes.data || []).filter((c: any) => inActiveEtab(c, activeEtabIds)));
     setAeronefs(aRes.data || []);
     setEtabs(eRes.data || []);
-    setVolsHisto((vhRes.data || []).sort((a: any, b: any) => {
+    setVolsHisto((vhRes.data || []).filter((v: any) => inActiveEtab(v.creneau, activeEtabIds)).sort((a: any, b: any) => {
       const da = `${a.creneau?.date_vol ?? ""}${a.creneau?.heure_debut ?? ""}`;
       const db = `${b.creneau?.date_vol ?? ""}${b.creneau?.heure_debut ?? ""}`;
       return db.localeCompare(da); // desc: plus récent en premier

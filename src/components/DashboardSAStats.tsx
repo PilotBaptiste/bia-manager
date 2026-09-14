@@ -3,6 +3,7 @@ import { useState, useEffect } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { useYear } from "@/contexts/YearContext";
 import { useClub } from "@/contexts/ClubContext";
+import { inActiveEtab } from "@/lib/etablissements";
 import { Users, CheckCircle2, Plane, Euro, Calendar, AlertCircle } from "lucide-react";
 import Link from "next/link";
 
@@ -39,12 +40,12 @@ export default function DashboardSAStats() {
     async function load() {
       setLoading(true);
       function q() {
-        const base = supabase.from("eleves").select("*", { count: "exact" }).eq("archive", false);
-        return base.eq("annee_id", selectedAnneeId);
-      }
-      function cq() {
-        const base = supabase.from("creneaux").select("*", { count: "exact" }).in("statut", ["ouvert", "confirme"]);
-        return base.eq("annee_id", selectedAnneeId);
+        return supabase
+          .from("eleves")
+          .select("id, etablissement:etablissements!inner(actif)", { count: "exact", head: true })
+          .eq("archive", false)
+          .eq("etablissement.actif", true)
+          .eq("annee_id", selectedAnneeId);
       }
 
       const [
@@ -56,8 +57,8 @@ export default function DashboardSAStats() {
         { count: vol1Effectues },
         { count: vol2Effectues },
         { count: vol2Autorises },
-        { count: volsPrevus },
-        { data: prochains },
+        { data: etabsActifs },
+        { data: creneauxOuverts },
       ] = await Promise.all([
         q(),
         q().eq("attestation_signee", true),
@@ -67,14 +68,17 @@ export default function DashboardSAStats() {
         q().eq("vol1_effectue", true),
         q().eq("vol2_effectue", true),
         q().eq("vol2_autorise", true),
-        cq(),
+        supabase.from("etablissements").select("id").eq("actif", true),
         supabase.from("creneaux")
           .select("*, pilote:profiles!pilote_id(nom, prenom), aeronef:aeronefs(type_aeronef, immatriculation), reservations(id, statut, eleve:eleves(nom, prenom))")
           .in("statut", ["ouvert", "confirme"])
           .eq("annee_id", selectedAnneeId)
           .order("date_vol")
-          .limit(5),
+          .order("heure_debut"),
       ]);
+      const activeIds = new Set<string>((etabsActifs || []).map((e: any) => e.id));
+      const prochains = (creneauxOuverts || []).filter((c: any) => inActiveEtab(c, activeIds));
+      const volsPrevus = prochains.length;
 
       setStats({
         total: total || 0, attestations: attestations || 0,
@@ -83,7 +87,7 @@ export default function DashboardSAStats() {
         vol2Effectues: vol2Effectues || 0, vol2Autorises: vol2Autorises || 0,
         volsPrevus: volsPrevus || 0,
       });
-      setProchainsCrenaux(prochains || []);
+      setProchainsCrenaux(prochains.slice(0, 5));
       setLoading(false);
     }
     load();

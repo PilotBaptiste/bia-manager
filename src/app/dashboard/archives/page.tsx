@@ -1,6 +1,7 @@
 "use client";
 import { useState, useEffect, useMemo } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { inActiveEtab } from "@/lib/etablissements";
 import { useYear } from "@/contexts/YearContext";
 import {
   Archive,
@@ -70,22 +71,23 @@ export default function ArchivesPage() {
     if (!selectedAnneeId) return;
     async function loadData() {
       setLoadingData(true);
-      const [eR, cR] = await Promise.all([
+      const [eR, cR, etR] = await Promise.all([
         supabase
           .from("eleves")
           .select(
             `id, nom, prenom, parent_email, parent_telephone, abandonne,
              vol1_effectue, vol2_effectue, attestation_signee, paiement_effectue,
-             etablissement:etablissements(nom),
+             etablissement:etablissements!inner(nom, actif),
              vol1_aeronef:aeronefs!vol1_aeronef_id(type_aeronef, immatriculation),
              vol2_aeronef:aeronefs!vol2_aeronef_id(type_aeronef, immatriculation)`
           )
           .eq("annee_id", selectedAnneeId)
+          .eq("etablissement.actif", true)
           .order("nom"),
         supabase
           .from("creneaux")
           .select(
-            `id, date_vol, heure_debut, heure_fin, statut,
+            `id, date_vol, heure_debut, heure_fin, statut, etablissement_id, etablissement_ids,
              etablissement:etablissements(nom),
              pilote:profiles!pilote_id(nom, prenom),
              aeronef:aeronefs(type_aeronef, immatriculation, prix_heure),
@@ -96,7 +98,10 @@ export default function ArchivesPage() {
           )
           .eq("annee_id", selectedAnneeId)
           .order("date_vol"),
+        supabase.from("etablissements").select("id").eq("actif", true),
       ]);
+      const activeIds = new Set<string>((etR.data || []).map((e: any) => e.id));
+      cR.data = (cR.data || []).filter((c: any) => inActiveEtab(c, activeIds));
       setEleves(eR.data || []);
       setCreneaux(cR.data || []);
       setLoadingData(false);

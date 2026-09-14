@@ -2,6 +2,7 @@
 import { useState, useEffect } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { fetchAll } from "@/lib/fetchAll";
+import { inActiveEtab } from "@/lib/etablissements";
 import { useYear } from "@/contexts/YearContext";
 import { Loader2, Plane, Euro, Users, TrendingUp, ChevronDown, ChevronUp, Download, BarChart2 } from "lucide-react";
 import { toast } from "sonner";
@@ -33,7 +34,7 @@ export default function StatistiquesPage() {
 
     let volsQ = supabase
       .from("vols_effectues")
-      .select("*, creneau:creneaux!inner(annee_id,date_vol,heure_debut,aeronef_id,etablissement_id,pilote:profiles!pilote_id(nom,prenom),aeronef:aeronefs(type_aeronef,immatriculation,nb_places_eleves,prix_heure),etablissement:etablissements(nom))")
+      .select("*, creneau:creneaux!inner(annee_id,date_vol,heure_debut,aeronef_id,etablissement_id,etablissement_ids,pilote:profiles!pilote_id(nom,prenom),aeronef:aeronefs(type_aeronef,immatriculation,nb_places_eleves,prix_heure),etablissement:etablissements(nom))")
       .order("created_at", { ascending: false })
       .order("id");
     if (selectedAnneeId) volsQ = volsQ.eq("creneau.annee_id", selectedAnneeId);
@@ -57,7 +58,7 @@ export default function StatistiquesPage() {
     if (loadError) toast.error(`Chargement incomplet : ${loadError.message}`);
 
     const activeEtabIds = new Set((etR.data || []).map((e: any) => e.id));
-    setVols((vR.data || []).filter((v: any) => !v.creneau?.etablissement_id || activeEtabIds.has(v.creneau.etablissement_id)));
+    setVols((vR.data || []).filter((v: any) => inActiveEtab(v.creneau, activeEtabIds)));
     setEleves((eR.data || []).filter((e: any) => activeEtabIds.has(e.etablissement_id)));
     setAeronefs(aR.data || []);
     setManualOps(mR.data || []);

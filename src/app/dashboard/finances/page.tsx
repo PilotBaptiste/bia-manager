@@ -2,6 +2,7 @@
 import { useState, useEffect } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { fetchAll } from "@/lib/fetchAll";
+import { inActiveEtab } from "@/lib/etablissements";
 import { Euro, Plane, Users, School, TrendingUp, Loader2, Edit, Save, X, Clock, History, UserCheck, Plus, Trash2, Check, Download, HandCoins } from "lucide-react";
 import { useYear } from "@/contexts/YearContext";
 import { toast } from "sonner";
@@ -62,7 +63,7 @@ export default function FinancesPage() {
 
     let volsQuery = supabase
       .from("vols_effectues")
-      .select("*, creneau:creneaux!inner(annee_id,etablissement_id,date_vol,heure_debut,pilote:profiles!pilote_id(nom,prenom),aeronef:aeronefs(type_aeronef,immatriculation,prix_heure),etablissement:etablissements(nom),reservations(eleve:eleves(nom,prenom)))")
+      .select("*, creneau:creneaux!inner(annee_id,etablissement_id,etablissement_ids,date_vol,heure_debut,pilote:profiles!pilote_id(nom,prenom),aeronef:aeronefs(type_aeronef,immatriculation,prix_heure),etablissement:etablissements(nom),reservations(eleve:eleves(nom,prenom)))")
       .order("created_at", { ascending: false })
       .order("id");
     if (selectedAnneeId) volsQuery = volsQuery.eq("creneau.annee_id", selectedAnneeId);
@@ -91,7 +92,7 @@ export default function FinancesPage() {
     if (loadError) toast.error(`Chargement incomplet : ${loadError.message}`);
     const activeEtabIds = new Set((etR.data || []).map((e: any) => e.id));
     setEleves((eR.data || []).filter((e: any) => activeEtabIds.has(e.etablissement_id)));
-    setVols((vR.data || []).filter((v: any) => !v.creneau?.etablissement_id || activeEtabIds.has(v.creneau.etablissement_id)));
+    setVols((vR.data || []).filter((v: any) => inActiveEtab(v.creneau, activeEtabIds)));
     setEtabs(etR.data || []);
     setLogs(lR.data || []);
     setManualOps(mR.data || []);
