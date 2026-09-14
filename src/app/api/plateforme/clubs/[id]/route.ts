@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { requireRole } from "@/lib/auth";
 import { createServiceClient } from "@/lib/supabase/server";
+import { MODULE_KEYS } from "@/lib/modules";
 
 // PATCH : renommer ou (dés)activer un club
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -15,7 +16,13 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     return NextResponse.json({ error: "Requête invalide" }, { status: 400 });
   }
 
-  const update: { nom?: string; actif?: boolean } = {};
+  const update: { nom?: string; actif?: boolean; modules?: string[] } = {};
+  if (body.modules !== undefined) {
+    if (!Array.isArray(body.modules) || body.modules.some((m: unknown) => typeof m !== "string" || !MODULE_KEYS.includes(m))) {
+      return NextResponse.json({ error: "Module inconnu" }, { status: 400 });
+    }
+    update.modules = Array.from(new Set(body.modules as string[]));
+  }
   if (body.nom !== undefined) {
     const nom = String(body.nom).trim();
     if (!nom) return NextResponse.json({ error: "Le nom de l'aéroclub ne peut pas être vide" }, { status: 400 });
@@ -41,6 +48,9 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     .eq("id", id)
     .select("id, slug, nom, actif, created_at")
     .maybeSingle();
+  if (error?.message?.includes("modules")) {
+    return NextResponse.json({ error: "Les modules ne sont pas encore installés : lancez le script supabase-modules-2026-09.sql dans Supabase." }, { status: 500 });
+  }
   if (error) return NextResponse.json({ error: `Modification impossible : ${error.message}` }, { status: 500 });
   if (!organisation) return NextResponse.json({ error: "Aéroclub introuvable" }, { status: 404 });
 

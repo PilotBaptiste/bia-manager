@@ -18,8 +18,10 @@ import {
   ExternalLink,
   MapPin,
   Mail,
+  Puzzle,
 } from "lucide-react";
 import { ROOT_DOMAIN, clubUrl } from "@/lib/tenant";
+import { MODULES } from "@/lib/modules";
 
 type Club = {
   id: string;
@@ -30,6 +32,7 @@ type Club = {
   annee: string | null;
   counts: { etablissements: number; eleves: number; users: number; parents: number; vol1: number; vol2: number; vols: number; creneauxClotures: number };
   admins: { prenom: string; nom: string; email: string }[];
+  modules: string[];
 };
 
 function slugify(nom: string) {
@@ -85,6 +88,8 @@ export default function PlateformePage() {
   const [result, setResult] = useState<{ nom: string; siteUrl: string; inviteLink?: string; warning?: string } | null>(null);
   const [copied, setCopied] = useState<string | null>(null);
 
+  const [modulesFor, setModulesFor] = useState<Club | null>(null);
+  const [modulesDraft, setModulesDraft] = useState<string[]>([]);
   const [renaming, setRenaming] = useState<Club | null>(null);
   const [newNom, setNewNom] = useState("");
   const [toggling, setToggling] = useState<Club | null>(null);
@@ -179,6 +184,21 @@ export default function PlateformePage() {
       setTimeout(() => setCopied(null), 2000);
     } catch {
       toast.error("Copie impossible, sélectionnez le lien manuellement");
+    }
+  }
+
+  async function handleSaveModules() {
+    if (!modulesFor) return;
+    setSaving(true);
+    try {
+      await api(`/api/plateforme/clubs/${modulesFor.id}`, { method: "PATCH", body: JSON.stringify({ modules: modulesDraft }) });
+      toast.success(`Modules de ${modulesFor.nom} enregistrés`);
+      setModulesFor(null);
+      load();
+    } catch (e: any) {
+      toast.error(e.message);
+    } finally {
+      setSaving(false);
     }
   }
 
@@ -351,6 +371,14 @@ export default function PlateformePage() {
                               Accéder au site
                             </button>
                           )}
+                          <button
+                            onClick={() => { setModulesFor(c); setModulesDraft(c.modules ?? []); }}
+                            className="relative p-1.5 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-gray-700 transition-colors"
+                            title="Modules du club"
+                          >
+                            <Puzzle className="w-3.5 h-3.5" />
+                            {(c.modules?.length ?? 0) > 0 && <span className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-brand-400" />}
+                          </button>
                           <button
                             onClick={() => { setRenaming(c); setNewNom(c.nom); }}
                             className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-gray-700 transition-colors"
@@ -564,6 +592,43 @@ export default function PlateformePage() {
               <button onClick={handleToggle} disabled={saving} className={toggling.actif ? "btn-danger btn-sm" : "btn-primary btn-sm"}>
                 {saving && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
                 {toggling.actif ? "Désactiver" : "Réactiver"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {modulesFor && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" onClick={() => !saving && setModulesFor(null)}>
+          <div className="absolute inset-0 bg-black/40" />
+          <div onClick={(e) => e.stopPropagation()} className="relative bg-white rounded-2xl p-6 w-full max-w-md shadow-xl">
+            <div className="flex items-center justify-between mb-1">
+              <h3 className="text-lg font-bold text-gray-900">Modules — {modulesFor.nom}</h3>
+              <button onClick={() => setModulesFor(null)} className="p-1.5 rounded-lg hover:bg-gray-100"><X className="w-4 h-4" /></button>
+            </div>
+            <p className="text-sm text-gray-500 mb-4">Un module désactivé est invisible pour ce club : ni onglet dans le menu, ni accès par son adresse.</p>
+            <div className="space-y-2">
+              {MODULES.map((m) => {
+                const on = modulesDraft.includes(m.key);
+                return (
+                  <label key={m.key} className="flex items-start gap-3 rounded-xl border border-gray-200 p-3 cursor-pointer hover:bg-gray-50">
+                    <input
+                      type="checkbox"
+                      className="mt-1"
+                      checked={on}
+                      onChange={() => setModulesDraft(on ? modulesDraft.filter((k) => k !== m.key) : [...modulesDraft, m.key])}
+                    />
+                    <span>
+                      <span className="block text-sm font-semibold text-gray-900">{m.label}</span>
+                      <span className="block text-xs text-gray-500 mt-0.5">{m.description}</span>
+                    </span>
+                  </label>
+                );
+              })}
+            </div>
+            <div className="flex justify-end gap-2 mt-5 pt-4 border-t border-gray-100">
+              <button onClick={() => setModulesFor(null)} className="btn-secondary btn-sm">Annuler</button>
+              <button onClick={handleSaveModules} disabled={saving} className="btn-primary btn-sm">
+                {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : null} Enregistrer
               </button>
             </div>
           </div>
