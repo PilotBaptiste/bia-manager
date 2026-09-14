@@ -1,11 +1,15 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
-import { ROOT_DOMAIN, ORG_SLUG_HEADER, authCookieOptionsFor, clubUrl, isRootHost, platformUrl, slugFromHost } from "@/lib/tenant";
+import {
+  ROOT_DOMAIN, ORG_SLUG_HEADER, authCookieOptionsFor, clubUrl, isAdminHost, isRootHost, platformUrl, slugFromHost,
+} from "@/lib/tenant";
 
 export async function middleware(request: NextRequest) {
   const host = request.headers.get("host");
   const slug = slugFromHost(host);
   const authCookieOptions = authCookieOptionsFor(host);
+  const onShowcase = isRootHost(host);
+  const onAdmin = isAdminHost(host);
 
   // The club slug header is derived from the host only; never trust a client-sent value.
   const requestHeaders = new Headers(request.headers);
@@ -44,11 +48,29 @@ export async function middleware(request: NextRequest) {
     return res;
   };
 
-  if (!user && !isAuth && !isApi && !isInscription && !isRoot) {
+  const isOwnerLogin = pathname.startsWith("/auth/proprietaire");
+
+  if (ROOT_DOMAIN && !isApi) {
+    // The owner console and its login only exist on admin.<domain>; anywhere else they answer "not found".
+    if ((isPlatform || isOwnerLogin) && !onAdmin) {
+      return NextResponse.rewrite(new URL("/page-introuvable", request.url), { status: 404 });
+    }
+    // On admin.<domain>, the regular login is replaced by the dedicated owner login.
+    if (onAdmin && isLoginPage && !user) {
+      return NextResponse.rewrite(new URL("/auth/proprietaire", request.url));
+    }
+    // The showcase home page is public, signed in or not.
+    if (onShowcase && isRoot) return supabaseResponse;
+  }
+
+  if (!user && !isAuth && !isApi && !isInscription && !(isRoot && !slug && !onAdmin)) {
+    return redirectTo(new URL("/auth/connexion", request.url).toString());
+  }
+  if (onAdmin && !user && isInscription) {
     return redirectTo(new URL("/auth/connexion", request.url).toString());
   }
 
-  // Subdomain routing: send each signed-in user to their own club's site.
+  // Subdomain routing: send each signed-in user to the right site.
   if (ROOT_DOMAIN && user && !isApi && !pathname.startsWith("/auth/callback") && !pathname.startsWith("/auth/set-password")) {
     const { data: profile } = await supabase
       .from("profiles")
@@ -59,20 +81,18 @@ export async function middleware(request: NextRequest) {
     const isOwner = roles.includes("proprietaire");
     const ownSlug: string | undefined = (profile?.organisation as any)?.slug;
 
-    if (isRootHost(host)) {
-      if (isOwner) {
-        if (!isPlatform && !isAuth) return redirectTo(platformUrl("/plateforme", origin));
-      } else if (ownSlug) {
-        return redirectTo(clubUrl(ownSlug, isRoot || isLoginPage ? "/dashboard" : `${pathname}${search}`, origin));
+    if (onAdmin) {
+      if (!isOwner) {
+        return redirectTo(ownSlug ? clubUrl(ownSlug, "/dashboard", origin) : new URL("/auth/connexion", request.url).toString());
       }
-    } else if (slug) {
-      if (isPlatform) return redirectTo(platformUrl(`${pathname}${search}`, origin));
-      if (ownSlug && slug !== ownSlug) {
-        // The owner works inside one club at a time: switching clubs goes through the platform console.
-        return redirectTo(isOwner
-          ? platformUrl(`/plateforme?club=${encodeURIComponent(slug)}`, origin)
-          : clubUrl(ownSlug, "/dashboard", origin));
-      }
+      if (!isPlatform) return redirectTo(platformUrl("/plateforme", origin));
+    } else if (onShowcase) {
+      if (ownSlug) return redirectTo(clubUrl(ownSlug, isLoginPage ? "/dashboard" : `${pathname}${search}`, origin));
+    } else if (slug && ownSlug && slug !== ownSlug) {
+      // The owner works inside one club at a time: switching clubs goes through the console.
+      return redirectTo(isOwner
+        ? platformUrl(`/plateforme?club=${encodeURIComponent(slug)}`, origin)
+        : clubUrl(ownSlug, "/dashboard", origin));
     }
   }
 

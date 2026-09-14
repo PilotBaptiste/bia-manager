@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils";
 import { useYear } from "@/contexts/YearContext";
 import { useClub } from "@/contexts/ClubContext";
+import { platformUrl } from "@/lib/tenant";
 import {
   Plane,
   LayoutDashboard,
@@ -200,7 +201,7 @@ export default function Sidebar({ profile }: { profile: any }) {
       </div>
       {isOwner && profile.organisation?.nom && (
         <button
-          onClick={() => router.push("/plateforme")}
+          onClick={() => { window.location.href = platformUrl("/plateforme", window.location.origin); }}
           className="mx-1 mb-3 px-3 py-2 rounded-lg bg-brand-50 border border-brand-100 text-left hover:bg-brand-100 transition-colors"
           title="Changer de club depuis la plateforme"
         >
@@ -245,7 +246,8 @@ export default function Sidebar({ profile }: { profile: any }) {
             <button
               key={item.key}
               onClick={() => {
-                router.push(item.href);
+                if (item.href === "/plateforme") window.location.href = platformUrl("/plateforme", window.location.origin);
+                else router.push(item.href);
                 setOpen(false);
               }}
               aria-current={active ? "page" : undefined}

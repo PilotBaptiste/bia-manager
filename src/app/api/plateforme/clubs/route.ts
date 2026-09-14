@@ -33,12 +33,26 @@ export async function GET() {
     const clubs = await Promise.all(
       (orgsRes.data ?? []).map(async (org) => {
         const annee = activeYear.get(org.id) ?? null;
-        const [etabs, users, eleves, vols] = await Promise.all([
+        // Students of the active year, in active établissements, not archived (same scope as the club dashboard).
+        const eleveCount = (extra?: (q: any) => any) => {
+          if (!annee) return Promise.resolve({ count: 0 });
+          let q: any = db
+            .from("eleves")
+            .select("id, etablissement:etablissements!inner(actif)", { count: "exact", head: true })
+            .eq("organisation_id", org.id)
+            .eq("annee_id", annee.id)
+            .eq("archive", false)
+            .eq("etablissement.actif", true);
+          if (extra) q = extra(q);
+          return q;
+        };
+        const [etabs, users, parents, eleves, vol1, vol2, creneauxClotures] = await Promise.all([
           db.from("etablissements").select("id", { count: "exact", head: true }).eq("organisation_id", org.id).eq("actif", true),
           db.from("profiles").select("id", { count: "exact", head: true }).eq("organisation_id", org.id),
-          annee
-            ? db.from("eleves").select("id", { count: "exact", head: true }).eq("organisation_id", org.id).eq("annee_id", annee.id)
-            : Promise.resolve({ count: 0 }),
+          db.from("profiles").select("id", { count: "exact", head: true }).eq("organisation_id", org.id).contains("roles", ["parent"]),
+          eleveCount(),
+          eleveCount((q) => q.eq("vol1_effectue", true)),
+          eleveCount((q) => q.eq("vol2_effectue", true)),
           annee
             ? db
                 .from("vols_effectues")
@@ -54,7 +68,11 @@ export async function GET() {
             etablissements: etabs.count ?? 0,
             eleves: eleves.count ?? 0,
             users: users.count ?? 0,
-            vols: vols.count ?? 0,
+            parents: parents.count ?? 0,
+            vol1: vol1.count ?? 0,
+            vol2: vol2.count ?? 0,
+            vols: (vol1.count ?? 0) + (vol2.count ?? 0),
+            creneauxClotures: creneauxClotures.count ?? 0,
           },
           admins: (adminsRes.data ?? [])
             .filter((p) => p.organisation_id === org.id)

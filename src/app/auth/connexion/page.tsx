@@ -20,6 +20,7 @@ function ConnexionInner() {
   const searchParams = useSearchParams();
   const supabase = createClient();
   const club = useClub();
+  const clubLabel = club.nom && club.nom !== "BIA Manager" ? club.nom : "Plateforme de gestion du BIA";
 
   useEffect(() => {
     if (searchParams.get("error")) {
@@ -71,7 +72,7 @@ function ConnexionInner() {
             </div>
             <div>
               <h1 className="text-2xl font-bold">BIA Manager</h1>
-              <p className="text-sm text-white/70">{club.nom}</p>
+              <p className="text-sm text-white/70">{clubLabel}</p>
             </div>
           </div>
           <h2 className="text-3xl font-bold mb-4">Gestion simplifiée du BIA</h2>
@@ -89,7 +90,7 @@ function ConnexionInner() {
             </div>
             <div>
               <h1 className="text-lg font-bold text-brand-500">BIA Manager</h1>
-              <p className="text-xs text-gray-500">{club.sigle || club.nom}</p>
+              <p className="text-xs text-gray-500">{clubLabel}</p>
             </div>
           </div>
 

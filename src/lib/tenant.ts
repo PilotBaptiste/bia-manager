@@ -21,10 +21,17 @@ export function slugFromHost(host: string | null | undefined): string | null {
   return sub;
 }
 
+/** Public showcase site: biamanager.com and www. */
 export function isRootHost(host: string | null | undefined) {
   if (!ROOT_DOMAIN) return false;
   const h = hostWithoutPort(host);
-  return h === ROOT_DOMAIN || RESERVED_SLUGS.some((r) => h === `${r}.${ROOT_DOMAIN}`);
+  return h === ROOT_DOMAIN || h === `www.${ROOT_DOMAIN}`;
+}
+
+/** Owner console: admin.biamanager.com. */
+export function isAdminHost(host: string | null | undefined) {
+  if (!ROOT_DOMAIN) return false;
+  return hostWithoutPort(host) === `admin.${ROOT_DOMAIN}`;
 }
 
 /** Absolute URL of a club site (falls back to the current origin when subdomains are not configured). */
@@ -37,7 +44,7 @@ export function clubUrl(slug: string, path = "/", currentOrigin?: string) {
 export function platformUrl(path = "/", currentOrigin?: string) {
   if (!ROOT_DOMAIN) return `${currentOrigin || ""}${path}`;
   const protocol = currentOrigin?.startsWith("http://") ? "http" : "https";
-  return `${protocol}://${ROOT_DOMAIN}${path}`;
+  return `${protocol}://admin.${ROOT_DOMAIN}${path}`;
 }
 
 /**
