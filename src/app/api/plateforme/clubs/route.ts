@@ -26,7 +26,7 @@ export async function GET() {
   try {
     const db = createServiceClient();
     const [orgsRes, anneesRes, adminsRes] = await Promise.all([
-      db.from("organisations").select("id, slug, nom, actif, created_at").order("nom"),
+      db.from("organisations").select("*").order("nom"),
       db.from("annees").select("id, label, organisation_id").eq("active", true),
       db.from("profiles").select("id, prenom, nom, email, organisation_id").contains("roles", ["superadmin"]),
     ]);
@@ -68,6 +68,7 @@ export async function GET() {
         ]);
         return {
           ...org,
+          modules: Array.isArray((org as any).modules) ? (org as any).modules : [],
           annee: annee?.label ?? null,
           counts: {
             etablissements: etabs.count ?? 0,

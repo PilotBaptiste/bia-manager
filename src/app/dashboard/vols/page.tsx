@@ -103,7 +103,7 @@ export default function VolsPage() {
   const [closeForm, setCloseForm] = useState({
     numero_aerogest: "",
     numeros_aerogest: [] as string[],
-    useIndividualAerogest: false,
+    useIndividualAerogest: true,
     temps_vol_minutes: "",
     nb_eleves: "",
     prix_total: "",
@@ -388,7 +388,7 @@ export default function VolsPage() {
   function handleCloseFlight() {
     setError(null);
     const nbActive = (showClose?.reservations || []).filter((r: any) => r.statut !== "annule").length;
-    const indiv = closeForm.useIndividualAerogest || (is2027Plus && nbActive >= 2);
+    const indiv = nbActive >= 2 && (closeForm.useIndividualAerogest || is2027Plus);
     const needsAerogest = indiv
       ? Array.from({ length: nbActive }, (_, i) => closeForm.numeros_aerogest[i] || "").some(n => !n.trim())
       : !closeForm.numero_aerogest.trim();
@@ -414,7 +414,7 @@ export default function VolsPage() {
     const activeRes = (showClose.reservations || []).filter(
       (r: any) => r.statut !== "annule",
     );
-    const useMulti = closeForm.useIndividualAerogest || (is2027Plus && activeRes.length >= 2);
+    const useMulti = activeRes.length >= 2 && (closeForm.useIndividualAerogest || is2027Plus);
     const numerosArray = useMulti
       ? Array.from({ length: activeRes.length }, (_, i) => (closeForm.numeros_aerogest[i] || "").trim())
       : null;
@@ -444,7 +444,7 @@ export default function VolsPage() {
     setCloseForm({
       numero_aerogest: "",
       numeros_aerogest: [],
-      useIndividualAerogest: false,
+      useIndividualAerogest: true,
       temps_vol_minutes: "",
       nb_eleves: "",
       prix_total: "",
@@ -1633,7 +1633,7 @@ export default function VolsPage() {
                           setCloseForm({
                             numero_aerogest: "",
                             numeros_aerogest: [],
-                            useIndividualAerogest: false,
+                            useIndividualAerogest: true,
                             temps_vol_minutes: "",
                             prix_total: "",
                             notes: "",
@@ -1793,32 +1793,41 @@ export default function VolsPage() {
                 const canMulti = activeRes.length >= 2;
                 return (
                   <div className="space-y-2">
-                    <div className="flex items-center justify-between">
-                      <label className="label !mb-0">N° Aérogest *</label>
-                      {canMulti && !is2027Plus && (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            const next = !closeForm.useIndividualAerogest;
-                            setCloseForm({
-                              ...closeForm,
-                              useIndividualAerogest: next,
-                              numeros_aerogest: next ? Array(activeRes.length).fill("") : [],
-                              numero_aerogest: next ? "" : closeForm.numero_aerogest,
-                            });
-                          }}
-                          className={`text-xs px-2 py-0.5 rounded border font-medium transition-colors ${closeForm.useIndividualAerogest ? "bg-brand-50 border-brand-300 text-brand-600" : "border-gray-200 text-gray-500 hover:border-brand-300"}`}
-                        >
-                          {closeForm.useIndividualAerogest ? "✓ Numéros individuels" : "Numéros individuels"}
-                        </button>
-                      )}
-                      {canMulti && is2027Plus && (
-                        <span className="text-xs px-2 py-0.5 rounded bg-brand-50 border border-brand-300 text-brand-600 font-medium">
-                          1 numéro/élève · obligatoire dès 2027
-                        </span>
-                      )}
-                    </div>
-                    {(closeForm.useIndividualAerogest || (is2027Plus && canMulti)) ? (
+                    <label className="label !mb-0">N° Aérogest *</label>
+                    {canMulti && !is2027Plus && (
+                      <div className="grid grid-cols-2 gap-1 rounded-lg bg-gray-100 p-1" role="radiogroup" aria-label="Mode de saisie du numéro Aérogest">
+                        {[
+                          { indiv: true, label: "Un numéro par élève", sub: `${activeRes.length} numéros` },
+                          { indiv: false, label: "Numéro unique", sub: "pour tout le vol" },
+                        ].map((opt) => {
+                          const selected = closeForm.useIndividualAerogest === opt.indiv;
+                          return (
+                            <button
+                              key={opt.label}
+                              type="button"
+                              role="radio"
+                              aria-checked={selected}
+                              onClick={() => setCloseForm({
+                                ...closeForm,
+                                useIndividualAerogest: opt.indiv,
+                                numeros_aerogest: opt.indiv ? closeForm.numeros_aerogest : [],
+                                numero_aerogest: opt.indiv ? "" : closeForm.numero_aerogest,
+                              })}
+                              className={`rounded-md px-3 py-2 text-left transition-all ${selected ? "bg-white shadow-sm ring-1 ring-brand-200" : "hover:bg-white/60"}`}
+                            >
+                              <span className={`block text-sm font-semibold ${selected ? "text-brand-600" : "text-gray-600"}`}>{opt.label}</span>
+                              <span className="block text-[11px] text-gray-400">{opt.sub}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
+                    {canMulti && is2027Plus && (
+                      <p className="text-xs px-2.5 py-1.5 rounded-lg bg-brand-50 border border-brand-200 text-brand-600 font-medium">
+                        Un numéro par élève · obligatoire à partir de 2027
+                      </p>
+                    )}
+                    {canMulti && (closeForm.useIndividualAerogest || is2027Plus) ? (
                       <div className="space-y-1.5">
                         {activeRes.map((r: any, idx: number) => (
                           <div key={r.id} className="flex items-center gap-2">

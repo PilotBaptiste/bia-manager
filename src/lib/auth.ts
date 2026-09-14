@@ -13,6 +13,17 @@ export async function getCurrentProfile() {
   if (profile.actif === false) redirect("/auth/compte-desactive");
   const isOwner = (profile.roles || []).includes("proprietaire");
   if (!isOwner && (!profile.organisation_id || profile.organisation?.actif === false)) redirect("/auth/club-indisponible");
+  // Read separately and tolerantly: the column may not exist yet if its SQL script has not been run.
+  const { data: org } = profile.organisation_id
+    ? await supabase.from("organisations").select("modules").eq("id", profile.organisation_id).maybeSingle()
+    : { data: null };
+  profile.modules = Array.isArray((org as any)?.modules) ? (org as any).modules : [];
+  return profile;
+}
+
+export async function requireModulePage(key: string, roles: string[]) {
+  const profile = await requireRolePage(roles);
+  if (!(profile.modules || []).includes(key)) redirect("/dashboard");
   return profile;
 }
 

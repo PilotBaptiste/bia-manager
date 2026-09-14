@@ -31,7 +31,9 @@ import {
   ChevronDown,
   BarChart2,
   Building2,
+  FlaskConical,
 } from "lucide-react";
+import { MODULES } from "@/lib/modules";
 
 const iconMap: Record<string, any> = {
   LayoutDashboard,
@@ -53,6 +55,7 @@ const iconMap: Record<string, any> = {
   MessageCircle,
   BarChart2,
   Building2,
+  FlaskConical,
 };
 
 function getNav(roles: string[]) {
@@ -166,7 +169,11 @@ export default function Sidebar({ profile }: { profile: any }) {
   const pathname = usePathname();
   const router = useRouter();
   const supabase = createClient();
-  const nav = getNav(profile.roles || []);
+  const nav = [
+    ...getNav(profile.roles || []),
+    ...MODULES.filter((m) => (profile.modules || []).includes(m.key) && m.roles.some((r) => (profile.roles || []).includes(r)))
+      .map((m) => ({ key: m.key, label: m.label, icon: m.icon, href: m.href })),
+  ];
   const roleLabel = getRoleLabel(profile.roles || []);
   const { annees, selectedAnneeId, setSelectedAnneeId, selectedAnnee, activeAnneeId } = useYear();
   const club = useClub();
