@@ -20,14 +20,16 @@ export async function POST(req: Request) {
   if (!nom || !aeroclub || !EMAIL_RE.test(email) || message.length < 10) {
     return NextResponse.json({ error: "Merci de renseigner votre nom, votre aéroclub, un email valide et un message." }, { status: 400 });
   }
-  if (!process.env.RESEND_API_KEY || !process.env.CONTACT_EMAIL) {
+  // CONTACT_EMAIL may list several recipients separated by commas.
+  const recipients = (process.env.CONTACT_EMAIL || "").split(",").map((r) => r.trim()).filter((r) => EMAIL_RE.test(r));
+  if (!process.env.RESEND_API_KEY || recipients.length === 0) {
     return NextResponse.json({ error: "Le formulaire est momentanément indisponible. Réessayez plus tard." }, { status: 503 });
   }
 
   const resend = new Resend(process.env.RESEND_API_KEY);
   const { error } = await resend.emails.send({
     from: process.env.RESEND_FROM ?? "BIA Manager <noreply@biamanager.com>",
-    to: process.env.CONTACT_EMAIL,
+    to: recipients,
     replyTo: email,
     subject: `Demande de contact — ${aeroclub}`,
     html: `
