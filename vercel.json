@@ -4,5 +4,13 @@
       "path": "/api/keepalive",
       "schedule": "0 8 * * *"
     }
+  ],
+  "redirects": [
+    {
+      "source": "/:path((?!api/).*)",
+      "has": [{ "type": "host", "value": "bia-manager-acba.vercel.app" }],
+      "destination": "https://acba.biamanager.com/:path",
+      "permanent": true
+    }
   ]
 }
