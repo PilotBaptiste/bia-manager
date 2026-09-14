@@ -1,10 +1,11 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
-import { ROOT_DOMAIN, ORG_SLUG_HEADER, authCookieOptions, clubUrl, isRootHost, platformUrl, slugFromHost } from "@/lib/tenant";
+import { ROOT_DOMAIN, ORG_SLUG_HEADER, authCookieOptionsFor, clubUrl, isRootHost, platformUrl, slugFromHost } from "@/lib/tenant";
 
 export async function middleware(request: NextRequest) {
   const host = request.headers.get("host");
   const slug = slugFromHost(host);
+  const authCookieOptions = authCookieOptionsFor(host);
 
   // The club slug header is derived from the host only; never trust a client-sent value.
   const requestHeaders = new Headers(request.headers);

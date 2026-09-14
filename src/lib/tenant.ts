@@ -40,5 +40,12 @@ export function platformUrl(path = "/", currentOrigin?: string) {
   return `${protocol}://${ROOT_DOMAIN}${path}`;
 }
 
-/** Auth cookies shared by every club subdomain so a login follows the user across redirects. */
-export const authCookieOptions = ROOT_DOMAIN ? { domain: `.${ROOT_DOMAIN}` } : undefined;
+/**
+ * Auth cookies shared by every club subdomain so a login follows the user across redirects.
+ * Only on hosts under ROOT_DOMAIN: a browser rejects a `.biamanager.com` cookie on another host (e.g. *.vercel.app).
+ */
+export function authCookieOptionsFor(host: string | null | undefined) {
+  if (!ROOT_DOMAIN) return undefined;
+  const h = hostWithoutPort(host);
+  return h === ROOT_DOMAIN || h.endsWith(`.${ROOT_DOMAIN}`) ? { domain: `.${ROOT_DOMAIN}` } : undefined;
+}
