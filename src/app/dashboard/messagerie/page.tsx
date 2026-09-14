@@ -2,6 +2,7 @@
 import { useEffect, useState, useMemo } from "react";
 import { useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
+import { fetchAll } from "@/lib/fetchAll";
 import { useYear } from "@/contexts/YearContext";
 import { Mail, Users, School, Filter, X, Send, ChevronRight, ChevronLeft, Check, AlertCircle, Search } from "lucide-react";
 
@@ -83,12 +84,13 @@ export default function MessageriePage() {
         .select("id, prenom, nom, parent_email, parent_prenom, etablissement_id, annee_id, archive, vol1_effectue, vol1_skippe, vol2_effectue, vol2_autorise, paiement_effectue, attestation_signee, bia_passe, bia_resultat")
         .eq("archive", false)
         .not("parent_email", "is", null)
-        .order("nom");
+        .order("nom")
+        .order("id");
       if (isCoord) elevesQuery = elevesQuery.in("etablissement_id", coordEtabIds);
 
       const [{ data: etabsAll }, { data: elevesData }] = await Promise.all([
         supabase.from("etablissements").select("id, nom").eq("actif", true).order("nom"),
-        elevesQuery,
+        fetchAll((from, to) => elevesQuery.range(from, to)),
       ]);
 
       const filteredEtabs = isCoord

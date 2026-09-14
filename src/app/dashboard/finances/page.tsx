@@ -1,6 +1,7 @@
 "use client";
 import { useState, useEffect } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { fetchAll } from "@/lib/fetchAll";
 import { Euro, Plane, Users, School, TrendingUp, Loader2, Edit, Save, X, Clock, History, UserCheck, Plus, Trash2, Check, Download } from "lucide-react";
 import { useYear } from "@/contexts/YearContext";
 import { toast } from "sonner";
@@ -46,29 +47,31 @@ export default function FinancesPage() {
     let elevesQuery = supabase
       .from("eleves")
       .select("*, etablissement:etablissements(nom), vol1_aeronef:aeronefs!vol1_aeronef_id(type_aeronef,immatriculation), vol2_aeronef:aeronefs!vol2_aeronef_id(type_aeronef,immatriculation)")
-      .eq("archive", false);
+      .eq("archive", false)
+      .order("id");
     if (selectedAnneeId) elevesQuery = elevesQuery.eq("annee_id", selectedAnneeId);
 
     let volsQuery = supabase
       .from("vols_effectues")
       .select("*, creneau:creneaux!inner(annee_id,etablissement_id,date_vol,heure_debut,pilote:profiles!pilote_id(nom,prenom),aeronef:aeronefs(type_aeronef,immatriculation,prix_heure),etablissement:etablissements(nom),reservations(eleve:eleves(nom,prenom)))")
-      .order("created_at", { ascending: false });
+      .order("created_at", { ascending: false })
+      .order("id");
     if (selectedAnneeId) volsQuery = volsQuery.eq("creneau.annee_id", selectedAnneeId);
 
     // operations_manuelles has no annee_id: scope it to the school year (1 Sept → 31 Aug) from the year label.
-    let opsQuery = supabase.from("operations_manuelles").select("*").order("date", { ascending: false });
+    let opsQuery = supabase.from("operations_manuelles").select("*").order("date", { ascending: false }).order("id");
     const startYear = parseInt(anneeLabel.split(/[-/]/)[0]);
     if (Number.isFinite(startYear)) {
       opsQuery = opsQuery.gte("date", `${startYear}-09-01`).lte("date", `${startYear + 1}-08-31`);
     }
 
     const [eR, vR, etR, pR, lR, mR] = await Promise.all([
-      elevesQuery,
-      volsQuery,
+      fetchAll((from, to) => elevesQuery.range(from, to)),
+      fetchAll((from, to) => volsQuery.range(from, to)),
       supabase.from("etablissements").select("*").eq("actif", true),
       supabase.from("parametres").select("*"),
       supabase.from("activity_logs").select("*, user:profiles!user_id(nom,prenom)").order("created_at", { ascending: false }).limit(100),
-      opsQuery,
+      fetchAll((from, to) => opsQuery.range(from, to)),
     ]);
     const loadError = [eR, vR, etR, pR, mR].find((r: any) => r.error)?.error;
     if (loadError) toast.error(`Chargement incomplet : ${loadError.message}`);

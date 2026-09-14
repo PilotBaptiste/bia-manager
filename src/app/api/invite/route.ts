@@ -2,6 +2,7 @@ import { createClient } from "@supabase/supabase-js";
 import { Resend } from "resend";
 import { NextResponse } from "next/server";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
+import { getClubInfo, DEFAULT_CLUB_NOM } from "@/lib/club";
 
 const STAFF_ROLES = ["superadmin", "coordinateur", "gerant"];
 const escHtml = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
@@ -75,6 +76,19 @@ export async function POST(req: Request) {
   const resetLink = linkData.properties.action_link;
   const displayName = nom && prenom ? `${prenom} ${nom}` : escHtml(email);
 
+  const club = await getClubInfo();
+  const clubNom = club.nom !== DEFAULT_CLUB_NOM ? escHtml(club.nom) : "";
+  const waUrl = club.whatsapp
+    ? `https://wa.me/${club.whatsapp}?text=Bonjour%2C%20j%27ai%20besoin%20d%27aide%20sur%20BIA%20Manager.`
+    : "";
+  const whatsappBlock = waUrl
+    ? `<div style="margin-top:32px;padding-top:24px;border-top:1px solid #eee;text-align:center">
+            <p style="color:#555;font-size:14px;margin:0 0 12px;font-weight:600">Besoin d'aide ? Contactez-nous sur WhatsApp</p>
+            <img src="https://api.qrserver.com/v1/create-qr-code/?size=140x140&data=${encodeURIComponent(waUrl)}" alt="QR Code WhatsApp support" width="140" height="140" style="border-radius:8px;border:1px solid #eee" />
+            <p style="color:#aaa;font-size:12px;margin:8px 0 0">Scannez ce QR code avec votre téléphone${club.telephoneSupport ? ` · ${escHtml(club.telephoneSupport)}` : ""}</p>
+          </div>`
+    : "";
+
   const subject = isRecovery
     ? "BIA Manager — Réinitialisez votre mot de passe"
     : "Accès BIA Manager — Définissez votre mot de passe";
@@ -91,18 +105,14 @@ export async function POST(req: Request) {
           <p style="color:#aaa;font-size:12px;margin-top:24px">Ce lien est valable 24 heures. Si vous n'avez pas demandé cette réinitialisation, ignorez cet email.</p>`
     : `<h2 style="margin:0 0 8px;font-size:22px;color:#111">Bonjour ${displayName},</h2>
           <p style="color:#555;margin:0 0 24px">
-            Vous avez été invité(e) sur la plateforme BIA Manager de l'Aéro-Club du Bassin d'Arcachon.
+            Vous avez été invité(e) sur la plateforme BIA Manager${clubNom ? ` — ${clubNom}` : ""}.
             Cliquez sur le bouton ci-dessous pour définir votre mot de passe et accéder à votre espace.
           </p>
           <a href="${resetLink}" style="display:inline-block;background:#1b3a5c;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:600;font-size:15px">
             Définir mon mot de passe →
           </a>
           <p style="color:#aaa;font-size:12px;margin-top:24px">Ce lien est valable 24 heures. Si vous n'avez pas demandé cet accès, ignorez cet email.</p>
-          <div style="margin-top:32px;padding-top:24px;border-top:1px solid #eee;text-align:center">
-            <p style="color:#555;font-size:14px;margin:0 0 12px;font-weight:600">Besoin d'aide ? Contactez-nous sur WhatsApp</p>
-            <img src="https://api.qrserver.com/v1/create-qr-code/?size=140x140&data=https%3A%2F%2Fwa.me%2F33756919167%3Ftext%3DBonjour%252C%2520j%2527ai%2520besoin%2520d%2527aide%2520sur%2520BIA%2520Manager." alt="QR Code WhatsApp support" width="140" height="140" style="border-radius:8px;border:1px solid #eee" />
-            <p style="color:#aaa;font-size:12px;margin:8px 0 0">Scannez ce QR code avec votre téléphone · 07 56 91 91 67</p>
-          </div>`;
+          ${whatsappBlock}`;
 
   // Send via Resend — no rate limit issues
   if (process.env.RESEND_API_KEY) {

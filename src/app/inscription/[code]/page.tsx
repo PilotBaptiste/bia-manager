@@ -2,12 +2,14 @@
 import { useState, useEffect } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { Plane, Loader2, Plus, Trash2, Eye, EyeOff, CheckCircle2, AlertCircle, User } from "lucide-react";
+import { useClub } from "@/contexts/ClubContext";
 
 const emptyEnfant = { nom: "", prenom: "", date_naissance: "", lieu_naissance: "", classe: "" };
 
 export default function InscriptionCodePage() {
   const { code } = useParams<{ code: string }>();
   const router = useRouter();
+  const club = useClub();
 
   const [etabInfo, setEtabInfo] = useState<{ nom: string; ville: string; isFull: boolean; inscritCount: number; limit: number } | null>(null);
   const [loadingEtab, setLoadingEtab] = useState(true);
@@ -213,7 +215,7 @@ export default function InscriptionCodePage() {
           </div>
           <div>
             <p className="text-white font-bold text-base leading-none">BIA Manager</p>
-            <p className="text-white/50 text-xs">Aéro-Club du Bassin d'Arcachon</p>
+            <p className="text-white/50 text-xs">{club.nom}</p>
           </div>
         </div>
 

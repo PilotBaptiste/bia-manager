@@ -86,7 +86,7 @@ export async function POST(req: Request) {
   }
 
   const [{ data: activeAnnee }, { data: activeEtabs }] = await Promise.all([
-    supabase.from("annees").select("id").eq("active", true).maybeSingle(),
+    supabase.from("annees").select("id, date_examen_bia").eq("active", true).maybeSingle(),
     supabase.from("etablissements").select("id").eq("actif", true),
   ]);
   const activeEtabIds = new Set((activeEtabs ?? []).map((e: any) => e.id));
@@ -97,13 +97,7 @@ export async function POST(req: Request) {
 
   // ── Vol 1 eligible ──────────────────────────────────
 
-  // Récupérer la date d'examen BIA de l'année en cours
-  const { data: biaParam } = await supabase
-    .from("parametres")
-    .select("valeur")
-    .eq("cle", "date_examen_bia")
-    .maybeSingle();
-  const biaExamDate: string = biaParam?.valeur || "";
+  const biaExamDate: string = activeAnnee?.date_examen_bia || "";
 
   const { data: elevesVol1 } = await applyYear(applyScope(
     supabase

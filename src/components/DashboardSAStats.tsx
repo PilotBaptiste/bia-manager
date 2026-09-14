@@ -2,6 +2,7 @@
 import { useState, useEffect } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { useYear } from "@/contexts/YearContext";
+import { useClub } from "@/contexts/ClubContext";
 import { Users, CheckCircle2, Plane, Euro, Calendar, AlertCircle } from "lucide-react";
 import Link from "next/link";
 
@@ -23,6 +24,7 @@ function Stat({ icon: Icon, label, value, sub, color = "bg-brand-50 text-brand-5
 export default function DashboardSAStats() {
   const supabase = createClient();
   const { selectedAnneeId, selectedAnnee } = useYear();
+  const club = useClub();
 
   const [stats, setStats] = useState({
     total: 0, attestations: 0, paiements: 0,
@@ -95,7 +97,7 @@ export default function DashboardSAStats() {
       <div>
         <div className="mb-6">
           <h1 className="text-xl font-bold text-gray-900">Tableau de bord — {selectedAnnee?.label ?? "…"}</h1>
-          <p className="text-sm text-gray-500 mt-1">Aéro-Club du Bassin d'Arcachon · SuperAdmin</p>
+          <p className="text-sm text-gray-500 mt-1">{club.nom} · SuperAdmin</p>
         </div>
         <div className="flex gap-3 flex-wrap mb-6">
           {[1, 2, 3, 4, 5, 6].map((i) => (
@@ -110,7 +112,7 @@ export default function DashboardSAStats() {
     <div>
       <div className="mb-6">
         <h1 className="text-xl font-bold text-gray-900">Tableau de bord — {selectedAnnee?.label ?? "—"}</h1>
-        <p className="text-sm text-gray-500 mt-1">Aéro-Club du Bassin d'Arcachon · SuperAdmin</p>
+        <p className="text-sm text-gray-500 mt-1">{club.nom} · SuperAdmin</p>
       </div>
       <div className="flex gap-3 flex-wrap mb-6">
         <Stat icon={Users} label="Élèves inscrits" value={stats.total} color="bg-brand-50 text-brand-500" />

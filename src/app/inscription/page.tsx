@@ -2,9 +2,11 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Plane, Loader2, ArrowRight, AlertCircle } from "lucide-react";
+import { useClub } from "@/contexts/ClubContext";
 
 export default function InscriptionPage() {
   const router = useRouter();
+  const club = useClub();
   const [code, setCode] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -36,7 +38,7 @@ export default function InscriptionPage() {
           </div>
           <div>
             <p className="text-white font-bold text-lg leading-none">BIA Manager</p>
-            <p className="text-white/50 text-xs">Aéro-Club du Bassin d'Arcachon</p>
+            <p className="text-white/50 text-xs">{club.nom}</p>
           </div>
         </div>
 

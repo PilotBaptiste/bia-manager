@@ -1,12 +1,20 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import { getClubInfo, DEFAULT_CLUB_NOM } from "@/lib/club";
+import { ClubProvider } from "@/contexts/ClubContext";
 
-export const metadata: Metadata = {
-  title: "BIA Manager — Aéro-Club du Bassin d'Arcachon",
-  description: "Gestion des élèves BIA, vols découverte et comptabilité",
-};
+export const revalidate = 60;
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+export async function generateMetadata(): Promise<Metadata> {
+  const club = await getClubInfo();
+  return {
+    title: club.nom && club.nom !== DEFAULT_CLUB_NOM ? `BIA Manager — ${club.nom}` : "BIA Manager",
+    description: "Gestion des élèves BIA, vols découverte et comptabilité",
+  };
+}
+
+export default async function RootLayout({ children }: { children: React.ReactNode }) {
+  const club = await getClubInfo();
   return (
     <html lang="fr">
       <head>
@@ -15,7 +23,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           rel="stylesheet"
         />
       </head>
-      <body className="bg-gray-50 text-gray-900">{children}</body>
+      <body className="bg-gray-50 text-gray-900">
+        <ClubProvider club={club}>{children}</ClubProvider>
+      </body>
     </html>
   );
 }

@@ -2,6 +2,7 @@ import { Resend } from "resend";
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { requireRole } from "@/lib/auth";
+import { getClubInfo, DEFAULT_CLUB_NOM } from "@/lib/club";
 
 const STAFF_ROLES = ["superadmin", "coordinateur", "gerant", "pilote"];
 const PARENT_TYPES = ["booking_confirm", "booking_cancel", "attestation_ready"];
@@ -30,26 +31,27 @@ const APP_URL =
   process.env.NEXT_PUBLIC_APP_URL ?? "https://bia-manager-acba.vercel.app";
 
 function wrap(inner: string, contact?: { nom?: string; email?: string; telephone?: string }) {
+  const clubNom = contact?.nom && contact.nom !== DEFAULT_CLUB_NOM ? contact.nom : "";
   const contactLines = [];
   if (contact?.telephone) contactLines.push(`📞 ${contact.telephone}`);
   if (contact?.email) contactLines.push(`✉️ <a href="mailto:${contact.email}" style="color:#1b3a5c">${contact.email}</a>`);
-  const contactBlock = contact?.nom || contactLines.length > 0 ? `
+  const contactBlock = clubNom || contactLines.length > 0 ? `
     <div style="margin-top:20px;padding:14px 16px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;font-size:12px;color:#64748b">
-      <p style="margin:0 0 4px;font-weight:700;color:#1b3a5c">${contact?.nom || "Aéro-Club"}</p>
+      <p style="margin:0 0 4px;font-weight:700;color:#1b3a5c">${clubNom || "Aéro-Club"}</p>
       ${contactLines.map(l => `<p style="margin:2px 0">${l}</p>`).join("")}
     </div>` : "";
   return `<div style="font-family:system-ui,'DM Sans',sans-serif;background:#f1f5f9;padding:40px 16px;min-height:100vh">
   <div style="max-width:540px;margin:0 auto">
     <div style="background:#1b3a5c;border-radius:12px 12px 0 0;padding:20px 28px;display:flex;align-items:center;gap:10px">
       <span style="color:#fff;font-weight:800;font-size:15px;letter-spacing:.3px">✈ BIA Manager</span>
-      <span style="color:#7b9fd1;font-size:13px">— ${contact?.nom || "Aéro-Club du Bassin d'Arcachon"}</span>
+      ${clubNom ? `<span style="color:#7b9fd1;font-size:13px">— ${clubNom}</span>` : ""}
     </div>
     <div style="background:#fff;border-radius:0 0 12px 12px;border:1px solid #e2e8f0;border-top:none;padding:32px 28px">
       ${inner}
       ${contactBlock}
       <div style="margin-top:24px;padding-top:16px;border-top:1px solid #f1f5f9;color:#94a3b8;font-size:12px;text-align:center">
         <a href="${APP_URL}" style="color:#1b3a5c;font-weight:600;text-decoration:none">Accéder à la plateforme</a>
-        &nbsp;·&nbsp; ${contact?.nom || "Aéro-Club du Bassin d'Arcachon"}
+        ${clubNom ? `&nbsp;·&nbsp; ${clubNom}` : ""}
       </div>
     </div>
   </div>
@@ -159,21 +161,15 @@ export async function POST(req: Request) {
     // Every user-supplied value is escaped before landing in HTML templates; `to`/subject/ICS are unescaped at send time.
     const body = escDeep(raw);
 
-    // Fetch aéroclub contact info from parametres table
-    const supabaseAdmin = adminSupabase();
-    let contact: { nom?: string; email?: string; telephone?: string } = {};
-    if (supabaseAdmin) {
-      const { data: params } = await supabaseAdmin.from("parametres").select("cle, valeur");
-      if (params) {
-        const p: Record<string, string> = {};
-        for (const row of params) p[row.cle] = row.valeur;
-        contact = {
-          nom: p["nom_aeroclub"] || undefined,
-          email: p["email_aeroclub"] || undefined,
-          telephone: p["telephone_aeroclub"] || undefined,
-        };
-      }
-    }
+    const club = await getClubInfo();
+    const contact = {
+      nom: escHtml(club.nom),
+      email: club.email ? escHtml(club.email) : undefined,
+      telephone: club.telephone ? escHtml(club.telephone) : undefined,
+    };
+    const lieuVolHtml = club.lieuVol
+      ? [club.nom !== DEFAULT_CLUB_NOM ? club.nom : "", ...club.lieuVol.split(/\r?\n/)].map((l) => l.trim()).filter(Boolean).map(escHtml).join("<br>")
+      : "";
 
     const emails: { to: string; subject: string; html: string; eleve_id?: string | null; attachments?: { filename: string; content: string }[] }[] = [];
 
@@ -233,9 +229,9 @@ export async function POST(req: Request) {
             ...(etablissement ? [{ label: "🏫 Établissement", value: etablissement }] : []),
           ])}
           <div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;padding:14px 16px;margin:16px 0">
-            <p style="margin:0;color:#1e40af;font-size:13px;font-weight:700">📍 Lieu du vol</p>
-            <p style="margin:6px 0 0;color:#1d4ed8;font-size:13px">Aéro-Club du Bassin d'Arcachon<br>Aérodrome de Villemarie<br>33260 La Teste de Buch</p>
-            <p style="margin:10px 0 0;color:#1e40af;font-size:13px;font-weight:700">⏰ Merci de vous présenter <strong>15 minutes avant</strong> l'heure prévue du vol.</p>
+            ${lieuVolHtml ? `<p style="margin:0;color:#1e40af;font-size:13px;font-weight:700">📍 Lieu du vol</p>
+            <p style="margin:6px 0 10px;color:#1d4ed8;font-size:13px">${lieuVolHtml}</p>` : ""}
+            <p style="margin:0;color:#1e40af;font-size:13px;font-weight:700">⏰ Merci de vous présenter <strong>15 minutes avant</strong> l'heure prévue du vol.</p>
           </div>
           <p style="color:#64748b;font-size:13px">📎 Un fichier <strong>.ics</strong> est joint à cet email — ouvrez-le pour ajouter le vol à votre calendrier (Apple, Google, Outlook…).</p>
           <p style="color:#64748b;font-size:13px">En cas d'empêchement, annulez la réservation au moins <strong>48h avant</strong> le vol depuis votre espace.</p>
@@ -652,7 +648,7 @@ export async function POST(req: Request) {
       );
     }
 
-    // Send all emails and log each one (reuse supabaseAdmin from above)
+    const supabaseAdmin = adminSupabase();
     const errors: string[] = [];
 
     for (const e of emails) {

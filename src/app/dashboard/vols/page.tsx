@@ -1,6 +1,7 @@
 "use client";
 import { useState, useEffect, useMemo } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { fetchAll } from "@/lib/fetchAll";
 import { useYear } from "@/contexts/YearContext";
 import { matchDesiderata } from "@/components/DesiderataGrid";
 import { toast } from "sonner";
@@ -30,7 +31,8 @@ import ConfirmModal from "@/components/ConfirmModal";
 
 export default function VolsPage() {
   const supabase = createClient();
-  const { selectedAnneeId, activeAnneeId, annees } = useYear();
+  const { selectedAnneeId, activeAnneeId, annees, activeExamDate } = useYear();
+  const biaExamDate = activeExamDate || "";
   // anneeId = active year used when creating new slots
   const anneeId = activeAnneeId;
   const activeAnneeLabel = annees.find((a: any) => a.id === activeAnneeId)?.label;
@@ -45,7 +47,6 @@ export default function VolsPage() {
   const [pilotes, setPilotes] = useState<any[]>([]);
   const [qualifs, setQualifs] = useState<any[]>([]);
   const [piloteEtabs, setPiloteEtabs] = useState<any[]>([]);
-  const [biaExamDate, setBiaExamDate] = useState<string>("");
   const [profile, setProfile] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [mode, setMode] = useState<"list" | "calendar" | "historique" | "statistiques">("list");
@@ -56,6 +57,7 @@ export default function VolsPage() {
   const [showCreate, setShowCreate] = useState(false);
   const [showDetail, setShowDetail] = useState<any>(null);
   const [showClose, setShowClose] = useState<any>(null);
+  const [closeTarif, setCloseTarif] = useState<number | null>(null);
   const [showEditSlot, setShowEditSlot] = useState<any>(null);
   const [editHisto, setEditHisto] = useState<any>(null);
   const [editHistoElevesLocal, setEditHistoElevesLocal] = useState<any[]>([]);
@@ -120,14 +122,16 @@ export default function VolsPage() {
         "*, pilote:profiles!pilote_id(nom,prenom,id,email,telephone), aeronef:aeronefs(*), etablissement:etablissements(nom), reservations(*, eleve:eleves(id,nom,prenom,date_naissance,lieu_naissance,classe,commentaires,vol1_temps_minutes,parent_nom,parent_prenom,parent_email,parent_telephone,etablissement:etablissements(nom)))",
       )
       .order("date_vol", { ascending: true })
-      .order("heure_debut", { ascending: true });
+      .order("heure_debut", { ascending: true })
+      .order("id");
     if (selectedAnneeId) creneauxQuery = creneauxQuery.eq("annee_id", selectedAnneeId);
 
     let elevesQuery = supabase
       .from("eleves")
       .select("id, nom, prenom, etablissement_id, desiderata, abandonne, bia_resultat, vol2_autorise, vol1_effectue, vol1_skippe, vol1_numero_aerogest, vol1_prix, vol1_temps_minutes, vol1_pilote_nom, vol1_aeronef_id, vol2_effectue, vol2_numero_aerogest, vol2_prix, vol2_temps_minutes, vol2_pilote_nom, vol2_aeronef_id")
       .eq("archive", false)
-      .order("nom");
+      .order("nom")
+      .order("id");
     if (selectedAnneeId) elevesQuery = elevesQuery.eq("annee_id", selectedAnneeId);
 
     let volsQuery = supabase
@@ -135,16 +139,17 @@ export default function VolsPage() {
       .select(
         "*, creneau:creneaux!inner(date_vol,heure_debut,heure_fin,pilote_id,aeronef_id,etablissement_id,annee_id,pilote:profiles!pilote_id(nom,prenom),aeronef:aeronefs(type_aeronef,immatriculation,nb_places_eleves),etablissement:etablissements(nom),reservations(id,type_vol,statut,eleve:eleves(id,nom,prenom)))",
       )
-      .order("created_at", { ascending: false });
+      .order("created_at", { ascending: false })
+      .order("id");
     if (selectedAnneeId) volsQuery = volsQuery.eq("creneau.annee_id", selectedAnneeId);
 
     const [profRes, crRes, aRes, eRes, vhRes, pRes, qRes, peRes, elRes] =
       await Promise.all([
         supabase.from("profiles").select("*").eq("id", user.id).single(),
-        creneauxQuery,
+        fetchAll((from, to) => creneauxQuery.range(from, to)),
         supabase.from("aeronefs").select("*").eq("actif", true),
         supabase.from("etablissements").select("*").eq("actif", true),
-        volsQuery,
+        fetchAll((from, to) => volsQuery.range(from, to)),
         supabase
           .from("profiles")
           .select("id, nom, prenom, email, telephone")
@@ -155,7 +160,7 @@ export default function VolsPage() {
         supabase
           .from("pilote_etablissements")
           .select("pilote_id, etablissement_id"),
-        elevesQuery,
+        fetchAll((from, to) => elevesQuery.range(from, to)),
       ]);
     setProfile(profRes.data);
     setCreneaux(crRes.data || []);
@@ -172,12 +177,6 @@ export default function VolsPage() {
     setEleves(elRes.data || []);
     setLoading(false);
 
-    // Charger la date BIA séparément (RLS variable selon le rôle — non bloquant)
-    try {
-      const { data: biaParam } = await supabase
-        .from("parametres").select("valeur").eq("cle", "date_examen_bia").maybeSingle();
-      setBiaExamDate(biaParam?.valeur || "");
-    } catch { /* RLS : la date BIA reste vide, pas de filtrage */ }
   }
 
   useEffect(() => {
@@ -416,74 +415,26 @@ export default function VolsPage() {
     const numerosArray = useMulti
       ? Array.from({ length: activeRes.length }, (_, i) => (closeForm.numeros_aerogest[i] || "").trim())
       : null;
-    const fail = (message: string, reload: boolean) => {
+    const piloteNom = closeForm.pilote_override
+      ? (() => { const p = pilotes.find((x) => x.id === closeForm.pilote_override); return p ? `${p.prenom} ${p.nom}` : ""; })()
+      : "";
+    // Single database transaction: the flight, the slot, the reservations and the students are saved together or not at all.
+    const { error: closeErr } = await supabase.rpc("cloturer_vol", {
+      p_creneau_id: showClose.id,
+      p_temps_vol_minutes: parseInt(closeForm.temps_vol_minutes),
+      p_prix_total: parseFloat(closeForm.prix_total),
+      p_numero_aerogest: useMulti ? null : closeForm.numero_aerogest.trim(),
+      p_numeros_par_reservation: useMulti
+        ? Object.fromEntries(activeRes.map((r: any, i: number) => [r.id, numerosArray?.[i] || ""]))
+        : null,
+      p_nb_eleves: parseInt(closeForm.nb_eleves) || activeRes.length,
+      p_notes: closeForm.notes || null,
+      p_pilote_nom: piloteNom || null,
+    });
+    if (closeErr) {
       setSaving(false);
-      toast.error(message);
-      if (reload) load();
-    };
-
-    const { error: volErr } = await supabase
-      .from("vols_effectues")
-      .insert({
-        creneau_id: showClose.id,
-        numero_aerogest: useMulti ? null : closeForm.numero_aerogest.trim(),
-        numeros_aerogest: numerosArray,
-        temps_vol_minutes: parseInt(closeForm.temps_vol_minutes),
-        nb_eleves:
-          parseInt(closeForm.nb_eleves) || activeRes.length || 0,
-        prix_total: parseFloat(closeForm.prix_total),
-        notes: closeForm.notes || null,
-        valide_par: profile.id,
-      });
-    if (volErr) return fail(volErr.message, false);
-    const { error: crErr } = await supabase
-      .from("creneaux")
-      .update({ statut: "termine" })
-      .eq("id", showClose.id);
-    if (crErr) return fail(crErr.message, true);
-    for (let idx = 0; idx < activeRes.length; idx++) {
-      const r = activeRes[idx];
-      const { error: resErr } = await supabase
-        .from("reservations")
-        .update({ statut: "effectue" })
-        .eq("id", r.id);
-      if (resErr) return fail(resErr.message, true);
-      if (r.eleve?.id) {
-        const prixParEleve =
-          parseFloat(closeForm.prix_total) / Math.max(activeRes.length, 1);
-        const piloteNom = closeForm.pilote_override
-          ? (() => { const p = pilotes.find((x) => x.id === closeForm.pilote_override); return p ? `${p.prenom} ${p.nom}` : ""; })()
-          : showClose.pilote
-          ? `${showClose.pilote.prenom} ${showClose.pilote.nom}`
-          : "";
-        const eleveAerogest = useMulti
-          ? (numerosArray?.[idx] || null)
-          : (closeForm.numero_aerogest.trim() || null);
-        const { error: elErr } = r.type_vol === 2
-          ? await supabase
-            .from("eleves")
-            .update({
-              vol2_effectue: true,
-              vol2_temps_minutes: parseInt(closeForm.temps_vol_minutes),
-              vol2_aeronef_id: showClose.aeronef_id,
-              vol2_prix: prixParEleve,
-              vol2_pilote_nom: piloteNom,
-              vol2_numero_aerogest: eleveAerogest,
-            })
-            .eq("id", r.eleve.id)
-          : await supabase
-            .from("eleves")
-            .update({
-              vol1_effectue: true,
-              vol1_temps_minutes: parseInt(closeForm.temps_vol_minutes),
-              vol1_aeronef_id: showClose.aeronef_id,
-              vol1_prix: prixParEleve,
-              vol1_pilote_nom: piloteNom,
-              vol1_numero_aerogest: eleveAerogest,
-            })
-            .eq("id", r.eleve.id);
-        if (elErr) return fail(elErr.message, true);
-      }
+      toast.error(closeErr.message);
+      return;
     }
     setSaving(false);
     setShowClose(null);
@@ -1666,11 +1617,16 @@ export default function VolsPage() {
                 const canEditSlot = isSA || isCoord || showDetail.pilote_id === profile?.id;
                 return (
                   <div className="flex gap-2 pt-3 border-t border-gray-100 flex-wrap">
-                    {canEditSlot && (
+                    {(isSA || showDetail.pilote_id === profile?.id) && (
                       <button
                         onClick={() => {
                           setShowDetail(null);
                           setShowClose(showDetail);
+                          setCloseTarif(showDetail.aeronef?.prix_heure ?? null);
+                          // Price the flight with the hourly rate in force on the flight date, not today's.
+                          supabase
+                            .rpc("tarif_aeronef", { p_aeronef_id: showDetail.aeronef_id, p_date: showDetail.date_vol })
+                            .then(({ data }) => { if (data != null) setCloseTarif(Number(data)); });
                           setCloseForm({
                             numero_aerogest: "",
                             numeros_aerogest: [],
@@ -1901,7 +1857,7 @@ export default function VolsPage() {
                     value={closeForm.temps_vol_minutes}
                     onChange={(e) => {
                       const mins = e.target.value;
-                      const prixHeure = showClose?.aeronef?.prix_heure;
+                      const prixHeure = closeTarif;
                       const auto = prixHeure && mins
                         ? String(Math.round((parseInt(mins) / 60) * prixHeure * 100) / 100)
                         : closeForm.prix_total;
@@ -1925,9 +1881,9 @@ export default function VolsPage() {
               <div>
                 <div className="flex items-center justify-between mb-1">
                   <label className="label !mb-0">Prix total (€) *</label>
-                  {showClose?.aeronef?.prix_heure && (
+                  {closeTarif != null && (
                     <span className="text-[11px] text-gray-400">
-                      Tarif : {showClose.aeronef.prix_heure}€/h
+                      Tarif au {showClose?.date_vol ? new Date(`${showClose.date_vol}T12:00:00`).toLocaleDateString("fr-FR") : ""} : {closeTarif}€/h
                       {closeForm.temps_vol_minutes && ` · calculé automatiquement`}
                     </span>
                   )}

@@ -3,6 +3,7 @@ import { useState, useEffect } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { useRouter } from "next/navigation";
 import { Plane, Eye, EyeOff, Loader2 } from "lucide-react";
+import { useClub } from "@/contexts/ClubContext";
 
 export default function ResetPasswordPage() {
   const [password, setPassword] = useState("");
@@ -13,6 +14,7 @@ export default function ResetPasswordPage() {
   const [success, setSuccess] = useState(false);
   const router = useRouter();
   const supabase = createClient();
+  const club = useClub();
 
   useEffect(() => {
     // Supabase envoie le token via le hash de l'URL (#access_token=...)
@@ -52,7 +54,7 @@ export default function ResetPasswordPage() {
             </div>
             <div>
               <h1 className="text-2xl font-bold">BIA Manager</h1>
-              <p className="text-sm text-white/70">Aéro-Club du Bassin d&apos;Arcachon</p>
+              <p className="text-sm text-white/70">{club.nom}</p>
             </div>
           </div>
           <h2 className="text-3xl font-bold mb-4">Créez votre mot de passe</h2>
@@ -69,7 +71,7 @@ export default function ResetPasswordPage() {
             </div>
             <div>
               <h1 className="text-lg font-bold text-brand-500">BIA Manager</h1>
-              <p className="text-xs text-gray-500">ACBA</p>
+              <p className="text-xs text-gray-500">{club.sigle || club.nom}</p>
             </div>
           </div>
           <h2 className="text-2xl font-bold text-gray-900 mb-1">Définir mon mot de passe</h2>

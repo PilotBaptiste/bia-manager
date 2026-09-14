@@ -4,6 +4,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils";
 import { useYear } from "@/contexts/YearContext";
+import { useClub } from "@/contexts/ClubContext";
 import {
   Plane,
   LayoutDashboard,
@@ -164,6 +165,8 @@ export default function Sidebar({ profile }: { profile: any }) {
   const nav = getNav(profile.roles || []);
   const roleLabel = getRoleLabel(profile.roles || []);
   const { annees, selectedAnneeId, setSelectedAnneeId, selectedAnnee, activeAnneeId } = useYear();
+  const club = useClub();
+  const clubSigle = club.sigle || club.nom;
 
   const roles = profile.roles || [];
   const isParent = roles.includes("parent") && !roles.includes("superadmin");
@@ -188,7 +191,7 @@ export default function Sidebar({ profile }: { profile: any }) {
         </div>
         <div>
           <p className="text-sm font-bold text-brand-500">BIA Manager</p>
-          <p className="text-[10px] text-gray-400">ACBA · {new Date().getFullYear()}</p>
+          <p className="text-[10px] text-gray-400">{clubSigle} · {new Date().getFullYear()}</p>
         </div>
       </div>
       {/* ── Year selector ── */}
@@ -287,7 +290,7 @@ export default function Sidebar({ profile }: { profile: any }) {
           <div className="w-8 h-8 rounded-lg bg-brand-500 flex items-center justify-center">
             <Plane className="w-4 h-4 text-white" />
           </div>
-          <span className="text-sm font-bold text-brand-500">ACBA · BIA</span>
+          <span className="text-sm font-bold text-brand-500">{clubSigle} · BIA</span>
         </div>
         <button onClick={() => setOpen(!open)} className="p-1.5">
           {open ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}

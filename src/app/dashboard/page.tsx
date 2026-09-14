@@ -4,6 +4,7 @@ import { Users, CheckCircle2, Plane, Euro, Calendar, Clock, School, FileSignatur
 import Link from "next/link";
 import ParentOnboarding from "@/components/ParentOnboarding";
 import DashboardSAStats from "@/components/DashboardSAStats";
+import { getClubInfo } from "@/lib/club";
 
 // ─── Stat Card ──────────────────────────────────────────
 function Stat({ icon: Icon, label, value, sub, color = "bg-brand-50 text-brand-500" }: any) {
@@ -24,7 +25,10 @@ function Stat({ icon: Icon, label, value, sub, color = "bg-brand-50 text-brand-5
 // ─── SuperAdmin Dashboard ───────────────────────────────
 async function DashboardSuperAdmin({ supabase }: { supabase: any }) {
   // Fetch active year to scope all queries
-  const { data: anData } = await supabase.from("annees").select("id, label").eq("active", true).single();
+  const [{ data: anData }, club] = await Promise.all([
+    supabase.from("annees").select("id, label").eq("active", true).single(),
+    getClubInfo(),
+  ]);
   const aid = anData?.id ?? null;
 
   function eleveBase() {
@@ -72,7 +76,7 @@ async function DashboardSuperAdmin({ supabase }: { supabase: any }) {
     <div>
       <div className="mb-6">
         <h1 className="text-xl font-bold text-gray-900">Tableau de bord — {anData?.label ?? new Date().getFullYear()}</h1>
-        <p className="text-sm text-gray-500 mt-1">Aéro-Club du Bassin d&apos;Arcachon · SuperAdmin</p>
+        <p className="text-sm text-gray-500 mt-1">{club.nom} · SuperAdmin</p>
       </div>
       <div className="flex gap-3 flex-wrap mb-6">
         <Stat icon={Users} label="Élèves inscrits" value={total} color="bg-brand-50 text-brand-500" />
@@ -429,15 +433,11 @@ async function DashboardGerant({ supabase, profile }: { supabase: any; profile: 
 
 // ─── Parent Dashboard ───────────────────────────────────
 async function DashboardParent({ supabase, profile }: { supabase: any; profile: any }) {
-  const [{ data: mesEnfants }, { data: paramsData }] = await Promise.all([
+  const [{ data: mesEnfants }, club] = await Promise.all([
     supabase.from("eleves").select("*, etablissement:etablissements(nom), reservations(*, creneau:creneaux(date_vol, heure_debut, heure_fin, statut, pilote:profiles!pilote_id(nom, prenom, email, telephone), aeronef:aeronefs(type_aeronef, immatriculation)))").eq("parent_id", profile.id).eq("archive", false),
-    supabase.from("parametres").select("cle, valeur"),
+    getClubInfo(),
   ]);
   const enfants = mesEnfants || [];
-  const params = Object.fromEntries((paramsData || []).map((p: any) => [p.cle, p.valeur]));
-  const contactNom = params["nom_aeroclub"] || "Aéro-Club du Bassin d'Arcachon";
-  const contactEmail = params["email_aeroclub"] || "contact@acba.fr";
-  const contactTel = params["telephone_aeroclub"] || null;
 
   // Show onboarding modal if profile incomplete
   // Check nom + prenom + telephone — ensures parents who had their account deleted+recreated
@@ -456,7 +456,7 @@ async function DashboardParent({ supabase, profile }: { supabase: any; profile: 
       )}
       <div className="mb-6">
         <h1 className="text-xl font-bold text-gray-900">Bonjour{profile.prenom ? `, ${profile.prenom}` : ""} !</h1>
-        <p className="text-sm text-gray-500 mt-1">Espace parent · Aéro-Club du Bassin d&apos;Arcachon</p>
+        <p className="text-sm text-gray-500 mt-1">Espace parent · {club.nom}</p>
       </div>
 
       {enfants.length > 0 ? (
@@ -563,9 +563,9 @@ async function DashboardParent({ supabase, profile }: { supabase: any; profile: 
       {/* Contact */}
       <div className="card mt-4">
         <h2 className="text-sm font-semibold text-gray-900 mb-2">Contact</h2>
-        <p className="text-sm text-gray-700 font-medium">{contactNom}</p>
-        <p className="text-sm text-gray-500">{contactEmail}</p>
-        {contactTel && <p className="text-sm text-gray-500">{contactTel}</p>}
+        <p className="text-sm text-gray-700 font-medium">{club.nom}</p>
+        {club.email && <p className="text-sm text-gray-500">{club.email}</p>}
+        {club.telephone && <p className="text-sm text-gray-500">{club.telephone}</p>}
       </div>
     </div>
   );

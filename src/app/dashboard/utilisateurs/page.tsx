@@ -1,6 +1,7 @@
 "use client";
 import { useState, useEffect, useMemo } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { fetchAll } from "@/lib/fetchAll";
 import { useYear } from "@/contexts/YearContext";
 import { toast } from "sonner";
 import {
@@ -101,18 +102,22 @@ export default function UtilisateursPage() {
   async function load() {
     const { data: { user } } = await supabase.auth.getUser();
     const [usersRes, etabsRes, elevesRes, profRes] = await Promise.all([
-      supabase
+      fetchAll((from, to) => supabase
         .from("profiles")
         .select("*, etablissement_ids, etablissement:etablissements(nom)")
-        .order("nom"),
+        .order("nom")
+        .order("id")
+        .range(from, to)),
       supabase
         .from("etablissements")
         .select("*")
         .eq("actif", true)
         .order("nom"),
-      supabase
+      fetchAll((from, to) => supabase
         .from("eleves")
-        .select("prenom, nom, parent_email, parent_nom, parent_prenom, etablissement_id, archive, annee_id"),
+        .select("prenom, nom, parent_email, parent_nom, parent_prenom, etablissement_id, archive, annee_id")
+        .order("id")
+        .range(from, to)),
       user
         ? supabase.from("profiles").select("roles, etablissement_id, etablissement_ids").eq("id", user.id).single()
         : Promise.resolve({ data: null }),

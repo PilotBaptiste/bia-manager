@@ -1,7 +1,8 @@
 "use client";
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
+import { fetchAll } from "@/lib/fetchAll";
 import { toast } from "sonner";
 import { useYear } from "@/contexts/YearContext";
 import type { Eleve, Etablissement } from "@/types";
@@ -88,6 +89,15 @@ function fmtDay(dateStr: string) {
   });
 }
 
+const PAGE_SIZE = 50;
+
+const ELEVES_LIST_SELECT =
+  "*, etablissement:etablissements!inner(*), vol1_aeronef:aeronefs!vol1_aeronef_id(type_aeronef,immatriculation,prix_heure), vol2_aeronef:aeronefs!vol2_aeronef_id(type_aeronef,immatriculation,prix_heure), reservations(id,statut,type_vol,creneau:creneaux(id,date_vol,heure_debut,heure_fin,statut,pilote:profiles!pilote_id(nom,prenom),aeronef:aeronefs(type_aeronef,immatriculation)))";
+
+const ELEVES_EXPORT_SELECT = "*, etablissement:etablissements!inner(nom,actif)";
+
+const SEARCH_FIELDS = ["nom", "prenom", "parent_nom", "parent_prenom", "parent_email", "vol1_numero_aerogest", "vol2_numero_aerogest"];
+
 const emptyForm = {
   nom: "",
   prenom: "",
@@ -164,8 +174,56 @@ export default function ElevesPage() {
   const [confirmLoading, setConfirmLoading] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [bulkBusy, setBulkBusy] = useState(false);
+  const [debouncedQ, setDebouncedQ] = useState("");
+  const [totalCount, setTotalCount] = useState(0);
+  const [fetching, setFetching] = useState(false);
+  // undefined = not loaded yet, null = no établissement restriction
+  const [scopeEtabIds, setScopeEtabIds] = useState<string[] | null | undefined>(undefined);
+  const requestIdRef = useRef(0);
+
+  const filterKey = JSON.stringify([selectedAnneeId, debouncedQ, fEtab, fPaiement, fAttest, fVol1, fBia]);
+  const [pageState, setPageState] = useState({ key: filterKey, page: 1 });
+  const page = pageState.key === filterKey ? pageState.page : 1;
+  const setPage = (p: number) => setPageState({ key: filterKey, page: p });
+  const pageCount = Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
+
+  function applyFilters(q: any) {
+    q = q.eq("archive", false).eq("etablissement.actif", true);
+    if (selectedAnneeId) q = q.eq("annee_id", selectedAnneeId);
+    if (scopeEtabIds) q = q.in("etablissement_id", scopeEtabIds.length > 0 ? scopeEtabIds : ["00000000-0000-0000-0000-000000000000"]);
+    const words = debouncedQ.replace(/[,()%*\\"]/g, " ").split(/\s+/).filter(Boolean);
+    for (const w of words) q = q.or(SEARCH_FIELDS.map((f) => `${f}.ilike.%${w}%`).join(","));
+    if (fEtab !== "all") q = q.eq("etablissement_id", fEtab);
+    if (fPaiement !== "all") q = q.eq("paiement_effectue", fPaiement === "oui");
+    if (fAttest !== "all") q = q.eq("attestation_signee", fAttest === "oui");
+    if (fVol1 !== "all") q = q.eq("vol1_effectue", fVol1 === "oui");
+    if (fBia === "admis") q = q.not("bia_resultat", "is", null).neq("bia_resultat", "Non admis");
+    if (fBia === "non") q = q.or("bia_resultat.is.null,bia_resultat.eq.Non admis");
+    return q.order("nom").order("prenom").order("id");
+  }
 
   async function load() {
+    if (scopeEtabIds === undefined || !selectedAnneeId) return;
+    const requestId = ++requestIdRef.current;
+    setFetching(true);
+    const from = (page - 1) * PAGE_SIZE;
+    const { data, count, error } = await applyFilters(
+      supabase.from("eleves").select(ELEVES_LIST_SELECT, { count: "exact" }),
+    ).range(from, from + PAGE_SIZE - 1);
+    if (requestId !== requestIdRef.current) return;
+    setFetching(false);
+    setLoading(false);
+    if (error) {
+      // Out-of-range page (e.g. after deleting the last rows of the last page)
+      if (page > 1 && error.code === "PGRST103") { setPage(1); return; }
+      toast.error(`Erreur de chargement : ${error.message}`);
+      return;
+    }
+    setEleves(data || []);
+    setTotalCount(count ?? 0);
+  }
+
+  async function loadContext() {
     const {
       data: { user },
     } = await supabase.auth.getUser();
@@ -190,41 +248,28 @@ export default function ElevesPage() {
     const gerantEtabIds = etabIdsFromProfile(prof?.etablissement_ids, prof?.etablissement_id);
     const isPiloteRole = prof?.roles?.includes("pilote") && !isSARole && !isCoordRole && !isGerant;
 
-    let elevesQuery = supabase
-      .from("eleves")
-      .select(
-        "*, etablissement:etablissements(*), vol1_aeronef:aeronefs!vol1_aeronef_id(type_aeronef,immatriculation,prix_heure), vol2_aeronef:aeronefs!vol2_aeronef_id(type_aeronef,immatriculation,prix_heure), reservations(id,statut,type_vol,creneau:creneaux(id,date_vol,heure_debut,heure_fin,statut,pilote:profiles!pilote_id(nom,prenom),aeronef:aeronefs(type_aeronef,immatriculation)))",
-      )
-      .eq("archive", false)
-      .order("nom");
-
-    if (selectedAnneeId) elevesQuery = elevesQuery.eq("annee_id", selectedAnneeId);
-
+    let scope: string[] | null = null;
     if (isCoordRole) {
-      elevesQuery = elevesQuery.in("etablissement_id", coordEtabIds.length > 0 ? coordEtabIds : ["__none__"]);
+      scope = coordEtabIds;
     } else if (isGerant) {
-      elevesQuery = elevesQuery.in("etablissement_id", gerantEtabIds.length > 0 ? gerantEtabIds : ["__none__"]);
+      scope = gerantEtabIds;
     } else if (isPiloteRole) {
       const { data: peData } = await supabase
         .from("pilote_etablissements")
         .select("etablissement_id")
         .eq("pilote_id", user.id);
-      const piloteEtabIds = (peData || []).map((x: any) => x.etablissement_id);
-      elevesQuery = elevesQuery.in("etablissement_id", piloteEtabIds.length > 0 ? piloteEtabIds : ["__none__"]);
+      scope = (peData || []).map((x: any) => x.etablissement_id);
     }
 
-    const [eR, etR, aR, pR, profR, pilotesR] = await Promise.all([
-      elevesQuery,
+    const [etR, aR, pR, profR, pilotesR] = await Promise.all([
       isCoordRole && coordEtabIds.length > 0
         ? supabase.from("etablissements").select("*").in("id", coordEtabIds).order("nom")
         : supabase.from("etablissements").select("*").eq("actif", true).order("nom"),
       supabase.from("aeronefs").select("*").eq("actif", true).order("type_aeronef"),
       supabase.from("parametres").select("cle,valeur").eq("cle", "prix_inscription").single(),
-      supabase.from("profiles").select("email, nom, prenom, telephone").contains("roles", ["parent"]),
+      fetchAll((from, to) => supabase.from("profiles").select("email, nom, prenom, telephone").contains("roles", ["parent"]).order("id").range(from, to)),
       supabase.from("profiles").select("id, nom, prenom").contains("roles", ["pilote"]).eq("actif", true).order("nom"),
     ]);
-    const activeEtabIds = new Set((etR.data || []).filter((e: any) => e.actif !== false).map((e: any) => e.id));
-    setEleves((eR.data || []).filter((e: any) => activeEtabIds.has(e.etablissement_id)));
     setEtablissements((etR.data || []).filter((e: any) => e.actif !== false));
     setAeronefs(aR.data || []);
     setPilotes(pilotesR.data || []);
@@ -235,14 +280,29 @@ export default function ElevesPage() {
       if (p.email) pmap[p.email.toLowerCase()] = p;
     }
     setParentProfiles(pmap);
-    setLoading(false);
+    setScopeEtabIds(scope);
   }
 
   useEffect(() => {
-    setSelectedIds(new Set());
+    loadContext();
+  }, []);
+
+  useEffect(() => {
     setSelected(null);
-    if (selectedAnneeId) load();
   }, [selectedAnneeId]);
+
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedQ(searchQ.trim()), 300);
+    return () => clearTimeout(t);
+  }, [searchQ]);
+
+  useEffect(() => {
+    setSelectedIds(new Set());
+  }, [filterKey, page]);
+
+  useEffect(() => {
+    load();
+  }, [scopeEtabIds, filterKey, page]);
 
   async function loadEmailLogs(eleve: any) {
     if (!eleve?.parent_email) return;
@@ -264,29 +324,8 @@ export default function ElevesPage() {
     else setEmailLogs([]);
   }, [selected?.id]);
 
-  const filtered = useMemo(
-    () =>
-      eleves.filter((s) => {
-        if (
-          searchQ &&
-          !`${s.nom} ${s.prenom} ${s.parent_nom} ${s.parent_prenom} ${s.parent_email} ${s.vol1_numero_aerogest || ""} ${s.vol2_numero_aerogest || ""}`
-            .toLowerCase()
-            .includes(searchQ.toLowerCase())
-        )
-          return false;
-        if (fEtab !== "all" && s.etablissement_id !== fEtab) return false;
-        if (fPaiement === "oui" && !s.paiement_effectue) return false;
-        if (fPaiement === "non" && s.paiement_effectue) return false;
-        if (fAttest === "oui" && !s.attestation_signee) return false;
-        if (fAttest === "non" && s.attestation_signee) return false;
-        if (fVol1 === "oui" && !s.vol1_effectue) return false;
-        if (fVol1 === "non" && s.vol1_effectue) return false;
-        if (fBia === "admis" && (!s.bia_resultat || s.bia_resultat === "Non admis")) return false;
-        if (fBia === "non" && s.bia_resultat && s.bia_resultat !== "Non admis") return false;
-        return true;
-      }),
-    [eleves, searchQ, fEtab, fPaiement, fAttest, fVol1, fBia],
-  );
+  // Current page rows, already filtered server-side
+  const filtered = eleves;
 
   const activeFilters = [fEtab, fPaiement, fAttest, fVol1, fBia].filter(
     (f) => f !== "all",
@@ -445,7 +484,9 @@ export default function ElevesPage() {
     }
     setSaving(true);
 
-    const original = editingId ? eleves.find((e: any) => e.id === editingId) : null;
+    const original = editingId
+      ? eleves.find((e: any) => e.id === editingId) ?? (selected?.id === editingId ? selected : null)
+      : null;
     const montantParse = parseFloat(String(form.paiement_montant).replace(",", "."));
     const montantSaisi = Number.isFinite(montantParse) ? montantParse : (parseFloat(defaultMontant) || 80);
     const attestationDate = form.attestation_signee
@@ -590,9 +631,15 @@ export default function ElevesPage() {
     load();
   }
 
-  function handleExport() {
+  async function handleExport() {
+    const tid = toast.loading("Préparation de l'export…");
+    const { data: allRows, error } = await fetchAll((from, to) =>
+      applyFilters(supabase.from("eleves").select(ELEVES_EXPORT_SELECT)).range(from, to),
+    );
+    toast.dismiss(tid);
+    if (error) { toast.error(`Erreur lors de l'export : ${error.message}`); return; }
     const headers = ["Nom","Prenom","Date naissance","Lieu naissance","Adresse","Etablissement","Classe","Parent nom","Parent prenom","Email parent","Tel parent","Paiement","Montant","Mode paiement","Attestation","Vol 1","Temps vol 1 (min)","Prix vol 1","BIA resultat","Vol 2 autorise","Vol 2","Temps vol 2 (min)","Prix vol 2","Commentaires"];
-    const rows = filtered.map(s => [
+    const rows = allRows.map((s: any) => [
       s.nom, s.prenom,
       s.date_naissance ? new Date(s.date_naissance).toLocaleDateString("fr-FR") : "",
       s.lieu_naissance || "",
@@ -624,12 +671,18 @@ export default function ElevesPage() {
     URL.revokeObjectURL(url);
   }
 
-  function exportFFA() {
-    const biaStudents = filtered.filter((s) => s.bia_passe);
-    if (biaStudents.length === 0) { toast.info("Aucun élève avec BIA dans la sélection actuelle"); return; }
+  async function exportFFA() {
+    // Open the window synchronously so the popup blocker doesn't reject it after the fetch
+    const w = window.open("", "_blank");
+    if (!w) { toast.error("Fenêtre bloquée — autorise les popups"); return; }
+    const { data: biaStudents, error } = await fetchAll((from, to) =>
+      applyFilters(supabase.from("eleves").select(ELEVES_EXPORT_SELECT)).eq("bia_passe", true).range(from, to),
+    );
+    if (error) { w.close(); toast.error(`Erreur lors de l'export : ${error.message}`); return; }
+    if (biaStudents.length === 0) { w.close(); toast.info("Aucun élève avec BIA dans la sélection actuelle"); return; }
     const date = new Date().toLocaleDateString("fr-FR", { day: "2-digit", month: "long", year: "numeric" });
     const esc = (v: any) => String(v ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
-    const rows = biaStudents.map((s) => {
+    const rows = biaStudents.map((s: any) => {
       const recu = s.bia_resultat && s.bia_resultat !== "Non admis";
       const mention = s.bia_resultat === "Mention";
       return `<tr>
@@ -672,8 +725,6 @@ export default function ElevesPage() {
 </table>
 </body>
 </html>`;
-    const w = window.open("", "_blank");
-    if (!w) { toast.error("Fenêtre bloquée — autorise les popups"); return; }
     w.document.write(html);
     w.document.close();
     w.focus();
@@ -2129,7 +2180,7 @@ export default function ElevesPage() {
         <div>
           <h1 className="text-xl font-bold text-gray-900">Eleves BIA</h1>
           <p className="text-sm text-gray-500 mt-0.5">
-            {filtered.length} eleve{filtered.length > 1 ? "s" : ""}
+            {totalCount} eleve{totalCount > 1 ? "s" : ""}
           </p>
         </div>
         <div className="flex gap-2">
@@ -2268,7 +2319,7 @@ export default function ElevesPage() {
           </button>
           <button
             onClick={() => {
-              const ids = Array.from(selectedIds).join(",");
+              const ids = visibleSelected.map((e) => e.id).join(",");
               router.push(`/dashboard/messagerie?eleves=${ids}`);
             }}
             disabled={bulkBusy}
@@ -2290,7 +2341,8 @@ export default function ElevesPage() {
           <Loader2 className="w-6 h-6 animate-spin text-brand-400" />
         </div>
       ) : (
-        <div className="card p-0 overflow-auto">
+        <>
+        <div className={`card p-0 overflow-auto transition-opacity ${fetching ? "opacity-60" : ""}`}>
           <table className="w-full text-sm min-w-[780px]">
             <thead>
               <tr className="bg-gray-50">
@@ -2328,7 +2380,7 @@ export default function ElevesPage() {
                     colSpan={11}
                     className="px-3 py-12 text-center text-gray-400"
                   >
-                    {eleves.length === 0 ? (
+                    {activeFilters === 0 && !debouncedQ ? (
                       <div className="flex flex-col items-center gap-2">
                         <Users className="w-8 h-8 text-gray-300" />
                         <p>Aucun eleve</p>
@@ -2342,7 +2394,7 @@ export default function ElevesPage() {
                         )}
                       </div>
                     ) : (
-                      "Aucun resultat"
+                      "Aucun élève ne correspond à ces filtres."
                     )}
                   </td>
                 </tr>
@@ -2437,6 +2489,31 @@ export default function ElevesPage() {
             </tbody>
           </table>
         </div>
+        <div className="flex items-center justify-between gap-3 mt-3 flex-wrap">
+          <span className="text-sm text-gray-500">
+            {totalCount} élève{totalCount > 1 ? "s" : ""}
+          </span>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setPage(page - 1)}
+              disabled={page <= 1 || fetching}
+              className="btn-secondary btn-sm"
+            >
+              <ChevronLeft className="w-3.5 h-3.5" /> Précédent
+            </button>
+            <span className="text-sm text-gray-500">
+              page {page} / {pageCount}
+            </span>
+            <button
+              onClick={() => setPage(page + 1)}
+              disabled={page >= pageCount || fetching}
+              className="btn-secondary btn-sm"
+            >
+              Suivant <ChevronRight className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        </div>
+        </>
       )}
 
       <ConfirmModal

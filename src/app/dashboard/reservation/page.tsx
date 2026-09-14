@@ -1,6 +1,7 @@
 "use client";
 import { useState, useEffect } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { useYear } from "@/contexts/YearContext";
 import { toast } from "sonner";
 import {
   CalendarPlus,
@@ -31,7 +32,8 @@ export default function ReservationPage() {
   const [success, setSuccess] = useState<string | null>(null);
   const [confirmCancelId, setConfirmCancelId] = useState<string | null>(null);
   const [confirmCancelLoading, setConfirmCancelLoading] = useState(false);
-  const [biaExamDate, setBiaExamDate] = useState<string>("");
+  const { activeExamDate } = useYear();
+  const biaExamDate = activeExamDate || "";
 
   function parisToday() {
     return new Date().toLocaleDateString("en-CA", { timeZone: "Europe/Paris" });
@@ -56,7 +58,7 @@ export default function ReservationPage() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ userId: user.id, email: user.email }),
     }).catch(() => {});
-    const [eR, cR, pR] = await Promise.all([
+    const [eR, cR] = await Promise.all([
       supabase
         .from("eleves")
         .select(
@@ -72,15 +74,9 @@ export default function ReservationPage() {
         .in("statut", ["ouvert", "confirme"])
         .gte("date_vol", today)
         .order("date_vol"),
-      supabase
-        .from("parametres")
-        .select("valeur")
-        .eq("cle", "date_examen_bia")
-        .maybeSingle(),
     ]);
     setEnfants(eR.data || []);
     setCreneaux(cR.data || []);
-    setBiaExamDate(pR.data?.valeur || "");
     setLoading(false);
   }
 
@@ -119,14 +115,13 @@ export default function ReservationPage() {
       const r = (e.reservations || []).find((r: any) => r.id === id);
       if (r) { cancelledRes = { ...r, eleve: e }; break; }
     }
-    const { data: updated, error: cancelError } = await supabase
-      .from("reservations")
-      .update({ statut: "annule" })
-      .eq("id", id)
-      .select("id");
+    const { error: cancelError } = await supabase.rpc("annuler_reservation", {
+      p_reservation_id: id,
+      p_motif: "Annulation par le parent",
+    });
     setSaving(false);
-    if (cancelError || !updated || updated.length === 0) {
-      toast.error(`Annulation impossible${cancelError ? ` : ${cancelError.message}` : ""}`);
+    if (cancelError) {
+      toast.error(`Annulation impossible : ${cancelError.message}`);
       load();
       return;
     }
@@ -191,51 +186,18 @@ export default function ReservationPage() {
       return;
     }
     setSaving(true);
-    const { data: slotRes, error: slotErr } = await supabase
-      .from("reservations")
-      .select("id, statut")
-      .eq("creneau_id", booking.creneauId);
-    if (slotErr) {
-      setSaving(false);
-      setError(slotErr.message);
-      toast.error(`Impossible de vérifier les places : ${slotErr.message}`);
-      return;
-    }
-    const slotCapacity = slot.aeronef?.nb_places_eleves ?? slot.places_disponibles ?? 1;
-    const slotActive = (slotRes || []).filter((r: any) => r.statut !== "annule").length;
-    if (slotActive >= slotCapacity) {
-      setSaving(false);
-      setError("Ce créneau est complet.");
-      toast.error("Ce créneau est complet, veuillez en choisir un autre.");
-      setBooking(null);
-      load();
-      return;
-    }
-    // Upsert: reactivate a cancelled reservation if one exists (avoids unique constraint violation)
-    const { data: cancelled } = await supabase
-      .from("reservations")
-      .select("id")
-      .eq("creneau_id", booking.creneauId)
-      .eq("eleve_id", booking.eleveId)
-      .eq("statut", "annule")
-      .maybeSingle();
-
-    let err: any = null;
-    if (cancelled) {
-      const { error: e } = await supabase
-        .from("reservations")
-        .update({ statut: "reserve", type_vol: booking.typeVol })
-        .eq("id", cancelled.id);
-      err = e;
-    } else {
-      const { error: e } = await supabase
-        .from("reservations")
-        .insert({ creneau_id: booking.creneauId, eleve_id: booking.eleveId, type_vol: booking.typeVol });
-      err = e;
-    }
+    // The database checks capacity, eligibility and the BIA date inside one locked transaction.
+    const { error: bookErr } = await supabase.rpc("reserver_vol", {
+      p_creneau_id: booking.creneauId,
+      p_eleve_id: booking.eleveId,
+      p_type_vol: booking.typeVol,
+    });
     setSaving(false);
-    if (err) {
-      setError(err.message);
+    if (bookErr) {
+      setError(bookErr.message);
+      toast.error(bookErr.message);
+      if (bookErr.message.includes("complet")) setBooking(null);
+      load();
       return;
     }
     setSuccess("Reservation confirmee !");

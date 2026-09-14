@@ -1,11 +1,14 @@
 "use client";
 import { QRCodeSVG } from "qrcode.react";
 import { MessageCircle, Smartphone, ExternalLink } from "lucide-react";
-
-const WHATSAPP_NUMBER = "33756919167";
-const WHATSAPP_URL = `https://wa.me/${WHATSAPP_NUMBER}?text=Bonjour%2C%20j%27ai%20besoin%20d%27aide%20sur%20BIA%20Manager.`;
+import { useClub } from "@/contexts/ClubContext";
 
 export default function SupportPage() {
+  const club = useClub();
+  const WHATSAPP_URL = club.whatsapp
+    ? `https://wa.me/${club.whatsapp}?text=Bonjour%2C%20j%27ai%20besoin%20d%27aide%20sur%20BIA%20Manager.`
+    : "";
+
   return (
     <div>
       <div className="mb-6">
@@ -14,6 +17,7 @@ export default function SupportPage() {
       </div>
 
       <div className="max-w-lg">
+        {WHATSAPP_URL ? (
         <div className="card text-center">
           {/* Icon */}
           <div className="flex justify-center mb-4">
@@ -65,10 +69,25 @@ export default function SupportPage() {
             <ExternalLink className="w-3.5 h-3.5 opacity-70" />
           </a>
 
-          <p className="text-xs text-gray-400 mt-4">
-            Numéro support : 07 56 91 91 67
-          </p>
+          {club.telephoneSupport && (
+            <p className="text-xs text-gray-400 mt-4">
+              Numéro support : {club.telephoneSupport}
+            </p>
+          )}
         </div>
+        ) : (
+          <div className="card">
+            <h2 className="text-lg font-bold text-gray-900 mb-1">{club.nom}</h2>
+            {club.email && (
+              <p className="text-sm text-gray-600">
+                <a href={`mailto:${club.email}`} className="text-brand-500 hover:underline">{club.email}</a>
+              </p>
+            )}
+            {(club.telephoneSupport || club.telephone) && (
+              <p className="text-sm text-gray-600">{club.telephoneSupport || club.telephone}</p>
+            )}
+          </div>
+        )}
 
         <div className="card mt-4 bg-blue-50 border-blue-100">
           <p className="text-sm text-blue-800 font-medium mb-1">Avant de nous contacter</p>

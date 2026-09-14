@@ -1,6 +1,7 @@
 "use client";
 import { useState, useEffect } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { fetchAll } from "@/lib/fetchAll";
 import { useYear } from "@/contexts/YearContext";
 import { Loader2, Plane, Euro, Users, TrendingUp, ChevronDown, ChevronUp, Download, BarChart2 } from "lucide-react";
 import { toast } from "sonner";
@@ -25,24 +26,26 @@ export default function StatistiquesPage() {
     let elevesQ = supabase
       .from("eleves")
       .select("*, etablissement:etablissements(nom,actif), vol1_aeronef:aeronefs!vol1_aeronef_id(type_aeronef,immatriculation,nb_places_eleves), vol2_aeronef:aeronefs!vol2_aeronef_id(type_aeronef,immatriculation,nb_places_eleves)")
-      .eq("archive", false);
+      .eq("archive", false)
+      .order("id");
     if (selectedAnneeId) elevesQ = elevesQ.eq("annee_id", selectedAnneeId);
 
     let volsQ = supabase
       .from("vols_effectues")
       .select("*, creneau:creneaux!inner(annee_id,date_vol,heure_debut,aeronef_id,etablissement_id,pilote:profiles!pilote_id(nom,prenom),aeronef:aeronefs(type_aeronef,immatriculation,nb_places_eleves,prix_heure),etablissement:etablissements(nom))")
-      .order("created_at", { ascending: false });
+      .order("created_at", { ascending: false })
+      .order("id");
     if (selectedAnneeId) volsQ = volsQ.eq("creneau.annee_id", selectedAnneeId);
-    let opsQ = supabase.from("operations_manuelles").select("*");
+    let opsQ = supabase.from("operations_manuelles").select("*").order("id");
     const startYear = parseInt(anneeLabel.split(/[-/]/)[0]);
     if (Number.isFinite(startYear)) opsQ = opsQ.gte("date", `${startYear}-09-01`).lte("date", `${startYear + 1}-08-31`);
 
     const [vR, eR, aR, pR, mR, etR] = await Promise.all([
-      volsQ,
-      elevesQ,
+      fetchAll((from, to) => volsQ.range(from, to)),
+      fetchAll((from, to) => elevesQ.range(from, to)),
       supabase.from("aeronefs").select("*"),
       supabase.from("parametres").select("*"),
-      opsQ,
+      fetchAll((from, to) => opsQ.range(from, to)),
       supabase.from("etablissements").select("id,nom").eq("actif", true),
     ]);
     const loadError = [vR, eR, aR, pR, mR, etR].find((r: any) => r.error)?.error;
