@@ -1,5 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
 import { NextResponse } from "next/server";
+import { requireRole } from "@/lib/auth";
 
 /**
  * POST /api/email/notify-slot
@@ -22,6 +23,8 @@ import { NextResponse } from "next/server";
  *         date_vol, heure_debut, heure_fin, pilote_nom, aeronef }
  */
 export async function POST(req: Request) {
+  const auth = await requireRole(["superadmin", "pilote", "coordinateur", "gerant"]);
+  if (auth instanceof NextResponse) return auth;
   if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
     return NextResponse.json({ skipped: true });
   }
@@ -52,12 +55,14 @@ export async function POST(req: Request) {
 
   // Anti-spam: skip Vol 1 notifications if open slots already exist for this scope
   // Vol 2 notifications are NEVER blocked by anti-spam (different eligible group)
+  const today = new Date().toLocaleDateString("en-CA", { timeZone: "Europe/Paris" });
   let antiSpamBlocksVol1 = false;
   if (!force && !isTargeted) {
     let countQuery = supabase
       .from("creneaux")
       .select("id", { count: "exact", head: true })
-      .eq("statut", "ouvert");
+      .eq("statut", "ouvert")
+      .gte("date_vol", today);
     if (creneau_id) countQuery = countQuery.neq("id", creneau_id);
     if (hasMultiEtabs) {
       countQuery = countQuery.overlaps("etablissement_ids", etablissement_ids);
@@ -80,8 +85,17 @@ export async function POST(req: Request) {
     return query; // all
   }
 
+  const [{ data: activeAnnee }, { data: activeEtabs }] = await Promise.all([
+    supabase.from("annees").select("id").eq("active", true).maybeSingle(),
+    supabase.from("etablissements").select("id").eq("actif", true),
+  ]);
+  const activeEtabIds = new Set((activeEtabs ?? []).map((e: any) => e.id));
+  const inScope = (e: any) => activeEtabIds.has(e.etablissement_id);
+  function applyYear(query: any) {
+    return activeAnnee?.id ? query.eq("annee_id", activeAnnee.id) : query;
+  }
+
   // ── Vol 1 eligible ──────────────────────────────────
-  const today = new Date().toISOString().split("T")[0];
 
   // Récupérer la date d'examen BIA de l'année en cours
   const { data: biaParam } = await supabase
@@ -91,7 +105,7 @@ export async function POST(req: Request) {
     .maybeSingle();
   const biaExamDate: string = biaParam?.valeur || "";
 
-  const { data: elevesVol1 } = await applyScope(
+  const { data: elevesVol1 } = await applyYear(applyScope(
     supabase
       .from("eleves")
       .select("id, prenom, nom, parent_email, parent_prenom, etablissement_id, bia_resultat, reservations(id, statut, type_vol)")
@@ -100,10 +114,12 @@ export async function POST(req: Request) {
       .eq("paiement_effectue", true)
       .eq("attestation_signee", true)
       .eq("vol1_effectue", false)
+      .eq("vol1_skippe", false)
       .not("parent_email", "is", null)
-  );
+  ));
 
   const vol1Eligible = (elevesVol1 ?? []).filter((e: any) => {
+    if (!inScope(e)) return false;
     // Non admis : BIA échoué, plus éligibles
     if (e.bia_resultat === "Non admis") return false;
     // Date BIA de l'année passée : plus éligibles pour Vol 1
@@ -116,7 +132,7 @@ export async function POST(req: Request) {
 
   // ── Vol 2 eligible ──────────────────────────────────
   // vol2_autorise = true means they have BIA (Admis or Mention)
-  const { data: elevesVol2 } = await applyScope(
+  const { data: elevesVol2 } = await applyYear(applyScope(
     supabase
       .from("eleves")
       .select("id, prenom, nom, parent_email, parent_prenom, etablissement_id, reservations(id, statut, type_vol)")
@@ -126,9 +142,10 @@ export async function POST(req: Request) {
       .or("vol1_effectue.eq.true,vol1_skippe.eq.true")
       .eq("vol2_effectue", false)
       .not("parent_email", "is", null)
-  );
+  ));
 
   const vol2Eligible = (elevesVol2 ?? []).filter((e: any) => {
+    if (!inScope(e)) return false;
     const activeVol2 = (e.reservations ?? []).some(
       (r: any) => r.type_vol === 2 && r.statut !== "annule",
     );
@@ -146,7 +163,7 @@ export async function POST(req: Request) {
 
   for (const e of elevesCibles) {
     if (!e.parent_email) continue;
-    const key = `${e.parent_email}|${e.id}`; // per parent+élève (a parent can have 2 kids)
+    const key = `${e.parent_email.toLowerCase()}|${e.id}`; // per parent+élève (a parent can have 2 kids)
     if (seen.has(key)) continue;
     seen.add(key);
     parents.push({
@@ -168,11 +185,9 @@ export async function POST(req: Request) {
   });
   const heureFormatted = heure_debut?.slice(0, 5) || "";
 
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "https://bia-manager-acba.vercel.app";
-
-  const res = await fetch(`${appUrl}/api/email`, {
+  const res = await fetch(new URL("/api/email", req.url), {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", cookie: req.headers.get("cookie") ?? "" },
     body: JSON.stringify({
       type: reminder ? "slot_reminder" : "slot_available",
       parents,
@@ -185,5 +200,9 @@ export async function POST(req: Request) {
     }),
   }).catch(() => null);
 
-  return NextResponse.json({ sent: parents.length, ok: res?.ok });
+  if (!res?.ok) {
+    return NextResponse.json({ error: "Échec de l'envoi des notifications", sent: 0 }, { status: 502 });
+  }
+  const result = await res.json().catch(() => ({}));
+  return NextResponse.json({ sent: result.sent ?? parents.length, ok: true });
 }

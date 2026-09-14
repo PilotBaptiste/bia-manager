@@ -200,10 +200,10 @@ export default function ElevesPage() {
 
     if (selectedAnneeId) elevesQuery = elevesQuery.eq("annee_id", selectedAnneeId);
 
-    if (isCoordRole && coordEtabIds.length > 0) {
-      elevesQuery = elevesQuery.in("etablissement_id", coordEtabIds);
-    } else if (isGerant && gerantEtabIds.length > 0) {
-      elevesQuery = elevesQuery.in("etablissement_id", gerantEtabIds);
+    if (isCoordRole) {
+      elevesQuery = elevesQuery.in("etablissement_id", coordEtabIds.length > 0 ? coordEtabIds : ["__none__"]);
+    } else if (isGerant) {
+      elevesQuery = elevesQuery.in("etablissement_id", gerantEtabIds.length > 0 ? gerantEtabIds : ["__none__"]);
     } else if (isPiloteRole) {
       const { data: peData } = await supabase
         .from("pilote_etablissements")
@@ -223,8 +223,9 @@ export default function ElevesPage() {
       supabase.from("profiles").select("email, nom, prenom, telephone").contains("roles", ["parent"]),
       supabase.from("profiles").select("id, nom, prenom").contains("roles", ["pilote"]).eq("actif", true).order("nom"),
     ]);
-    setEleves(eR.data || []);
-    setEtablissements(etR.data || []);
+    const activeEtabIds = new Set((etR.data || []).filter((e: any) => e.actif !== false).map((e: any) => e.id));
+    setEleves((eR.data || []).filter((e: any) => activeEtabIds.has(e.etablissement_id)));
+    setEtablissements((etR.data || []).filter((e: any) => e.actif !== false));
     setAeronefs(aR.data || []);
     setPilotes(pilotesR.data || []);
     if (pR.data?.valeur) setDefaultMontant(pR.data.valeur);
@@ -238,6 +239,8 @@ export default function ElevesPage() {
   }
 
   useEffect(() => {
+    setSelectedIds(new Set());
+    setSelected(null);
     if (selectedAnneeId) load();
   }, [selectedAnneeId]);
 
@@ -291,6 +294,10 @@ export default function ElevesPage() {
 
   // Pilots: read-only access to their établissements, can only edit statuts + vols
   const isPiloteOnly = !!profile && profile.roles?.includes("pilote") && !profile.roles?.includes("superadmin") && !profile.roles?.includes("coordinateur") && !profile.roles?.includes("gerant");
+  const isSuperadmin = !!profile?.roles?.includes("superadmin");
+  const canBulk = isSuperadmin || !!profile?.roles?.includes("gerant");
+  // Bulk actions only ever touch rows the user can currently see.
+  const visibleSelected = filtered.filter((e) => selectedIds.has(e.id));
 
   function calcPrix(aeronefId: string, minutes: string): string {
     if (!aeronefId || !minutes) return "";
@@ -438,15 +445,22 @@ export default function ElevesPage() {
     }
     setSaving(true);
 
+    const original = editingId ? eleves.find((e: any) => e.id === editingId) : null;
+    const montantParse = parseFloat(String(form.paiement_montant).replace(",", "."));
+    const montantSaisi = Number.isFinite(montantParse) ? montantParse : (parseFloat(defaultMontant) || 80);
+    const attestationDate = form.attestation_signee
+      ? (original?.attestation_signee && original?.attestation_date ? original.attestation_date : new Date().toISOString())
+      : null;
+
     // Pilot-only payload: only statuts + vols
     if (isPiloteOnly && editingId) {
       const pilotePayload: any = {
         paiement_effectue: form.paiement_effectue,
         paiement_mode: form.paiement_mode || null,
-        paiement_montant: form.paiement_effectue ? parseFloat(form.paiement_montant) || 80 : null,
+        paiement_montant: form.paiement_effectue ? montantSaisi : null,
         attestation_signee: form.attestation_signee,
         attestation_parent_signataire: form.attestation_signee ? (form.attestation_parent_signataire || `${form.parent_prenom} ${form.parent_nom}`) : null,
-        attestation_date: form.attestation_signee ? new Date().toISOString() : null,
+        attestation_date: attestationDate,
         vol_fi_mode: form.vol_fi_mode,
         vol1_effectue: form.vol1_effectue,
         vol1_temps_minutes: form.vol1_effectue && form.vol1_temps_minutes ? parseInt(form.vol1_temps_minutes) : null,
@@ -487,24 +501,19 @@ export default function ElevesPage() {
       adresse: [form.adresse_rue, [form.adresse_cp, form.adresse_ville].filter(Boolean).join(" ")].filter(Boolean).join(", ") || null,
       etablissement_id: form.etablissement_id || null,
       classe: form.classe || "—",
-      annee_id: anneeId,
       parent_nom: form.parent_nom,
       parent_prenom: form.parent_prenom,
       parent_email: form.parent_email,
       parent_telephone: form.parent_telephone,
       paiement_effectue: form.paiement_effectue,
       paiement_mode: form.paiement_mode || null,
-      paiement_montant: form.paiement_effectue
-        ? parseFloat(form.paiement_montant) || 80
-        : null,
+      paiement_montant: form.paiement_effectue ? montantSaisi : null,
       attestation_signee: form.attestation_signee,
       attestation_parent_signataire: form.attestation_signee
         ? form.attestation_parent_signataire ||
           `${form.parent_prenom} ${form.parent_nom}`
         : null,
-      attestation_date: form.attestation_signee
-        ? new Date().toISOString()
-        : null,
+      attestation_date: attestationDate,
       vol_fi_mode: form.vol_fi_mode,
       vol1_effectue: form.vol1_effectue,
       vol1_temps_minutes: form.vol1_effectue && form.vol1_temps_minutes ? parseInt(form.vol1_temps_minutes) : null,
@@ -529,12 +538,18 @@ export default function ElevesPage() {
     // Only update attestation_url if a new file was uploaded
     if (form.attestation_url_manual)
       payload.attestation_url = form.attestation_url_manual;
-    const { data: parentProfile } = await supabase
-      .from("profiles")
-      .select("id")
-      .eq("email", form.parent_email)
-      .single();
-    if (parentProfile) payload.parent_id = parentProfile.id;
+    // An existing student keeps its school year; only new students go into the active year.
+    if (!editingId) payload.annee_id = anneeId;
+    const parentEmail = (form.parent_email || "").trim().toLowerCase();
+    payload.parent_email = parentEmail;
+    const { data: parentProfile } = parentEmail
+      ? await supabase.from("profiles").select("id").ilike("email", parentEmail).maybeSingle()
+      : { data: null };
+    if (parentProfile) {
+      payload.parent_id = parentProfile.id;
+    } else if (original && (original.parent_email || "").toLowerCase() !== parentEmail) {
+      payload.parent_id = null;
+    }
 
     let result;
     if (editingId) {
@@ -613,17 +628,18 @@ export default function ElevesPage() {
     const biaStudents = filtered.filter((s) => s.bia_passe);
     if (biaStudents.length === 0) { toast.info("Aucun élève avec BIA dans la sélection actuelle"); return; }
     const date = new Date().toLocaleDateString("fr-FR", { day: "2-digit", month: "long", year: "numeric" });
+    const esc = (v: any) => String(v ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
     const rows = biaStudents.map((s) => {
       const recu = s.bia_resultat && s.bia_resultat !== "Non admis";
       const mention = s.bia_resultat === "Mention";
       return `<tr>
-        <td>${s.nom}</td>
-        <td>${s.prenom}</td>
-        <td>${s.etablissement?.nom || "—"}</td>
+        <td>${esc(s.nom)}</td>
+        <td>${esc(s.prenom)}</td>
+        <td>${esc(s.etablissement?.nom || "—")}</td>
         <td>${s.date_naissance ? new Date(s.date_naissance).toLocaleDateString("fr-FR") : "—"}</td>
         <td class="${recu ? "ok" : "ko"}">${recu ? "Reçu" : "Non reçu"}</td>
         <td class="${mention ? "ok" : ""}">${mention ? "Oui" : "Non"}</td>
-        <td>${mention && (s as any).bia_mention ? (s as any).bia_mention : "—"}</td>
+        <td>${mention && (s as any).bia_mention ? esc((s as any).bia_mention) : "—"}</td>
       </tr>`;
     }).join("");
     const html = `<!DOCTYPE html>
@@ -1000,7 +1016,7 @@ export default function ElevesPage() {
                           const file = e.target.files?.[0];
                           if (!file) return;
                           const ext = file.name.split(".").pop();
-                          const fileName = `attestation_manuelle_${form.nom}_${form.prenom}_${Date.now()}.${ext}`;
+                          const fileName = `${editingId || "nouveau"}/attestation_manuelle_${Date.now()}.${ext}`;
                           const { error } = await supabase.storage
                             .from("attestations")
                             .upload(fileName, file);
@@ -1233,6 +1249,9 @@ export default function ElevesPage() {
                       className="select"
                     >
                       <option value="">— Choisir le pilote —</option>
+                      {form.vol1_pilote_nom && !pilotes.some((p) => `${p.prenom} ${p.nom}` === form.vol1_pilote_nom) && (
+                        <option value={form.vol1_pilote_nom}>{form.vol1_pilote_nom} (ancien pilote)</option>
+                      )}
                       {pilotes.map((p) => (
                         <option key={p.id} value={`${p.prenom} ${p.nom}`}>{p.prenom} {p.nom}</option>
                       ))}
@@ -1343,6 +1362,9 @@ export default function ElevesPage() {
                       className="select"
                     >
                       <option value="">— Choisir le pilote —</option>
+                      {form.vol2_pilote_nom && !pilotes.some((p) => `${p.prenom} ${p.nom}` === form.vol2_pilote_nom) && (
+                        <option value={form.vol2_pilote_nom}>{form.vol2_pilote_nom} (ancien pilote)</option>
+                      )}
                       {pilotes.map((p) => (
                         <option key={p.id} value={`${p.prenom} ${p.nom}`}>{p.prenom} {p.nom}</option>
                       ))}
@@ -2018,9 +2040,12 @@ export default function ElevesPage() {
         onConfirm={async () => {
           if (!confirmAction) return;
           setConfirmLoading(true);
-          await confirmAction.onConfirm();
-          setConfirmLoading(false);
-          setConfirmAction(null);
+          try {
+            await confirmAction.onConfirm();
+          } finally {
+            setConfirmLoading(false);
+            setConfirmAction(null);
+          }
         }}
       />
       </>
@@ -2028,41 +2053,57 @@ export default function ElevesPage() {
   }
 
   async function handleBulkPaid() {
-    if (selectedIds.size === 0) return;
+    const targets = visibleSelected.filter((e) => !e.paiement_effectue);
+    if (targets.length === 0) { toast.info("Tous les élèves sélectionnés ont déjà payé"); return; }
     setBulkBusy(true);
-    const ids = Array.from(selectedIds);
-    await supabase.from("eleves").update({ paiement_effectue: true }).in("id", ids);
-    toast.success(`${ids.length} paiement${ids.length > 1 ? "s" : ""} validé${ids.length > 1 ? "s" : ""}`);
-    setSelectedIds(new Set());
+    const montant = parseFloat(defaultMontant) || 80;
+    const { data, error } = await supabase
+      .from("eleves")
+      .update({ paiement_effectue: true, paiement_montant: montant })
+      .in("id", targets.map((e) => e.id))
+      .select("id");
     setBulkBusy(false);
+    if (error) { toast.error(`Erreur : ${error.message}`); return; }
+    const n = data?.length ?? 0;
+    if (n < targets.length) toast.warning(`${n} paiement${n > 1 ? "s" : ""} validé${n > 1 ? "s" : ""} sur ${targets.length} (droits insuffisants pour les autres)`);
+    else toast.success(`${n} paiement${n > 1 ? "s" : ""} validé${n > 1 ? "s" : ""} (${montant} €)`);
+    setSelectedIds(new Set());
     load();
   }
 
   async function handleBulkDelete() {
-    if (selectedIds.size === 0) return;
-    const ids = Array.from(selectedIds);
-    const names = filtered.filter(e => selectedIds.has(e.id)).map(e => `${e.prenom} ${e.nom}`).join(", ");
+    const targets = visibleSelected;
+    if (targets.length === 0) return;
+    const withFlights = targets.filter((e) => e.vol1_effectue || e.vol2_effectue || (e.reservations || []).some((r: any) => r.statut !== "annule"));
+    if (withFlights.length > 0) {
+      toast.error(`Suppression impossible : ${withFlights.map((e) => `${e.prenom} ${e.nom}`).join(", ")} ${withFlights.length > 1 ? "ont" : "a"} une réservation ou un vol. Annulez les réservations d'abord, ou marquez l'élève « abandonné » pour garder l'historique financier.`);
+      return;
+    }
+    const ids = targets.map((e) => e.id);
+    const names = targets.map(e => `${e.prenom} ${e.nom}`).join(", ");
     setConfirmAction({
       title: `Supprimer ${ids.length} élève${ids.length > 1 ? "s" : ""}`,
       message: `Supprimer définitivement : ${names} ?\n\nCette action est irréversible.`,
       variant: "danger",
       onConfirm: async () => {
         setBulkBusy(true);
-        await supabase.from("eleves").delete().in("id", ids);
-        toast.success(`${ids.length} élève${ids.length > 1 ? "s" : ""} supprimé${ids.length > 1 ? "s" : ""}`);
-        setSelectedIds(new Set());
+        const { data, error } = await supabase.from("eleves").delete().in("id", ids).select("id");
         setBulkBusy(false);
+        if (error) { toast.error(`Erreur : ${error.message}`); return; }
+        const n = data?.length ?? 0;
+        if (n < ids.length) toast.warning(`${n} élève${n > 1 ? "s" : ""} supprimé${n > 1 ? "s" : ""} sur ${ids.length}`);
+        else toast.success(`${n} élève${n > 1 ? "s" : ""} supprimé${n > 1 ? "s" : ""}`);
+        setSelectedIds(new Set());
         load();
       },
     });
   }
 
   async function handleBulkInvite() {
-    if (selectedIds.size === 0) return;
-    const targets = filtered.filter((e) => selectedIds.has(e.id) && e.parent_email);
+    const targets = visibleSelected.filter((e) => e.parent_email);
     if (targets.length === 0) { toast.error("Aucun élève sélectionné n'a d'email parent"); return; }
     // Deduplicate by parent_email — a parent with multiple children only gets one invite
-    const unique = Array.from(new Map(targets.map(e => [e.parent_email, e])).values());
+    const unique = Array.from(new Map(targets.map(e => [e.parent_email.toLowerCase(), e])).values());
     setBulkBusy(true);
     const tid = toast.loading(`Envoi de ${unique.length} invitation${unique.length > 1 ? "s" : ""}…`);
     let ok = 0;
@@ -2071,7 +2112,8 @@ export default function ElevesPage() {
       if (res.ok) ok++;
     }
     toast.dismiss(tid);
-    toast.success(`${ok} invitation${ok > 1 ? "s" : ""} envoyée${ok > 1 ? "s" : ""}`);
+    if (ok < unique.length) toast.warning(`${ok} invitation${ok > 1 ? "s" : ""} envoyée${ok > 1 ? "s" : ""}, ${unique.length - ok} en échec`);
+    else toast.success(`${ok} invitation${ok > 1 ? "s" : ""} envoyée${ok > 1 ? "s" : ""}`);
     setSelectedIds(new Set());
     setBulkBusy(false);
   }
@@ -2215,9 +2257,9 @@ export default function ElevesPage() {
         </div>
       )}
 
-      {selectedIds.size > 0 && (
+      {canBulk && visibleSelected.length > 0 && (
         <div className="mb-3 flex items-center gap-3 p-3 rounded-lg bg-brand-50 border border-brand-200 flex-wrap">
-          <span className="text-sm font-semibold text-brand-700">{selectedIds.size} sélectionné{selectedIds.size > 1 ? "s" : ""}</span>
+          <span className="text-sm font-semibold text-brand-700">{visibleSelected.length} sélectionné{visibleSelected.length > 1 ? "s" : ""}</span>
           <button onClick={handleBulkPaid} disabled={bulkBusy} className="btn-primary btn-sm">
             {bulkBusy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />} Marquer payé
           </button>
@@ -2234,9 +2276,11 @@ export default function ElevesPage() {
           >
             <Mail className="w-3.5 h-3.5" /> Envoyer un mail
           </button>
-          <button onClick={handleBulkDelete} disabled={bulkBusy} className="btn-sm border border-red-200 text-red-600 bg-red-50 hover:bg-red-100 rounded-lg px-2 py-1 text-xs font-semibold flex items-center gap-1 ml-auto">
-            <Trash2 className="w-3.5 h-3.5" /> Supprimer
-          </button>
+          {isSuperadmin && (
+            <button onClick={handleBulkDelete} disabled={bulkBusy} className="btn-sm border border-red-200 text-red-600 bg-red-50 hover:bg-red-100 rounded-lg px-2 py-1 text-xs font-semibold flex items-center gap-1 ml-auto">
+              <Trash2 className="w-3.5 h-3.5" /> Supprimer
+            </button>
+          )}
           <button onClick={() => setSelectedIds(new Set())} className="text-xs text-gray-500 hover:text-gray-700">Désélectionner tout</button>
         </div>
       )}
@@ -2405,9 +2449,12 @@ export default function ElevesPage() {
         onConfirm={async () => {
           if (!confirmAction) return;
           setConfirmLoading(true);
-          await confirmAction.onConfirm();
-          setConfirmLoading(false);
-          setConfirmAction(null);
+          try {
+            await confirmAction.onConfirm();
+          } finally {
+            setConfirmLoading(false);
+            setConfirmAction(null);
+          }
         }}
       />
     </div>

@@ -1,6 +1,9 @@
 import { createClient } from "@supabase/supabase-js";
 import { Resend } from "resend";
 import { NextResponse } from "next/server";
+import { requireRole } from "@/lib/auth";
+
+const ALLOWED_ROLES = ["superadmin", "coordinateur", "pilote", "gerant", "parent"];
 
 function generatePassword(len = 12) {
   const chars = "ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789!@#$";
@@ -10,6 +13,9 @@ function generatePassword(len = 12) {
 }
 
 export async function POST(req: Request) {
+  const auth = await requireRole(["superadmin"]);
+  if (auth instanceof NextResponse) return auth;
+
   const { email, nom, prenom, telephone, roles, etablissement_id } =
     await req.json();
 
@@ -48,7 +54,7 @@ export async function POST(req: Request) {
       nom,
       prenom,
       telephone: telephone || null,
-      roles: roles ?? [],
+      roles: (Array.isArray(roles) ? roles : []).filter((r: string) => ALLOWED_ROLES.includes(r)),
       etablissement_id: etablissement_id || null,
     })
     .eq("id", data.user.id);

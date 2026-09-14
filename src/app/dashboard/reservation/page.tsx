@@ -31,19 +31,32 @@ export default function ReservationPage() {
   const [success, setSuccess] = useState<string | null>(null);
   const [confirmCancelId, setConfirmCancelId] = useState<string | null>(null);
   const [confirmCancelLoading, setConfirmCancelLoading] = useState(false);
+  const [biaExamDate, setBiaExamDate] = useState<string>("");
+
+  function parisToday() {
+    return new Date().toLocaleDateString("en-CA", { timeZone: "Europe/Paris" });
+  }
+
+  function vol1Blocage(e: any): string | null {
+    if (e.vol1_skippe) return "Le vol 1 a été passé pour cet élève.";
+    if (e.bia_resultat === "Non admis") return "Vol 1 impossible : BIA non admis.";
+    if (biaExamDate && biaExamDate < parisToday()) return "Vol 1 impossible : la date de l'examen BIA est passée.";
+    return null;
+  }
 
   async function load() {
     const {
       data: { user },
     } = await supabase.auth.getUser();
     if (!user) return;
+    const today = parisToday();
     // Auto-link any unlinked children (handles multi-child families and late additions)
     fetch("/api/link-parent", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ userId: user.id, email: user.email }),
     }).catch(() => {});
-    const [eR, cR] = await Promise.all([
+    const [eR, cR, pR] = await Promise.all([
       supabase
         .from("eleves")
         .select(
@@ -57,10 +70,17 @@ export default function ReservationPage() {
           "*, etablissement_ids, pilote:profiles!pilote_id(nom, prenom, email, telephone), aeronef:aeronefs(type_aeronef, immatriculation, nb_places_eleves), etablissement:etablissements(nom), reservations(id, statut, type_vol)",
         )
         .in("statut", ["ouvert", "confirme"])
+        .gte("date_vol", today)
         .order("date_vol"),
+      supabase
+        .from("parametres")
+        .select("valeur")
+        .eq("cle", "date_examen_bia")
+        .maybeSingle(),
     ]);
     setEnfants(eR.data || []);
     setCreneaux(cR.data || []);
+    setBiaExamDate(pR.data?.valeur || "");
     setLoading(false);
   }
 
@@ -99,8 +119,17 @@ export default function ReservationPage() {
       const r = (e.reservations || []).find((r: any) => r.id === id);
       if (r) { cancelledRes = { ...r, eleve: e }; break; }
     }
-    await supabase.from("reservations").update({ statut: "annule" }).eq("id", id);
+    const { data: updated, error: cancelError } = await supabase
+      .from("reservations")
+      .update({ statut: "annule" })
+      .eq("id", id)
+      .select("id");
     setSaving(false);
+    if (cancelError || !updated || updated.length === 0) {
+      toast.error(`Annulation impossible${cancelError ? ` : ${cancelError.message}` : ""}`);
+      load();
+      return;
+    }
     toast.success("Réservation annulée");
     // Send cancellation emails (fire-and-forget)
     if (cancelledRes) {
@@ -141,8 +170,47 @@ export default function ReservationPage() {
         );
         return;
       }
+      if (booking.typeVol === 1) {
+        const blocage = vol1Blocage(enfant);
+        if (blocage) {
+          setError(blocage);
+          toast.error(blocage);
+          return;
+        }
+      }
+      if (booking.typeVol === 2 && !(enfant.vol1_effectue || enfant.vol1_skippe)) {
+        setError("Le vol 1 doit être effectué avant de réserver le vol 2.");
+        return;
+      }
+    }
+    const slot = creneaux.find((c) => c.id === booking.creneauId);
+    if (!slot || slot.date_vol < parisToday()) {
+      setError("Ce créneau n'est plus disponible.");
+      toast.error("Ce créneau n'est plus disponible.");
+      load();
+      return;
     }
     setSaving(true);
+    const { data: slotRes, error: slotErr } = await supabase
+      .from("reservations")
+      .select("id, statut")
+      .eq("creneau_id", booking.creneauId);
+    if (slotErr) {
+      setSaving(false);
+      setError(slotErr.message);
+      toast.error(`Impossible de vérifier les places : ${slotErr.message}`);
+      return;
+    }
+    const slotCapacity = slot.aeronef?.nb_places_eleves ?? slot.places_disponibles ?? 1;
+    const slotActive = (slotRes || []).filter((r: any) => r.statut !== "annule").length;
+    if (slotActive >= slotCapacity) {
+      setSaving(false);
+      setError("Ce créneau est complet.");
+      toast.error("Ce créneau est complet, veuillez en choisir un autre.");
+      setBooking(null);
+      load();
+      return;
+    }
     // Upsert: reactivate a cancelled reservation if one exists (avoids unique constraint violation)
     const { data: cancelled } = await supabase
       .from("reservations")
@@ -206,7 +274,9 @@ export default function ReservationPage() {
 
   // Filter creneaux by student's etablissement and eleves_autorises
   function getCreneauxForEleve(enfant: any) {
+    const today = parisToday();
     return creneaux.filter((c) => {
+      if (c.date_vol < today) return false;
       // Use live aeronef capacity, not the stale stored places_disponibles
       const capacity = c.aeronef?.nb_places_eleves ?? c.places_disponibles ?? 1;
       const activeBookings = (c.reservations || []).filter(
@@ -254,7 +324,8 @@ export default function ReservationPage() {
       e.paiement_effectue &&
       e.attestation_signee &&
       !e.vol1_effectue &&
-      !hasActiveVol1
+      !hasActiveVol1 &&
+      !vol1Blocage(e)
     )
       return true;
     if (e.vol2_autorise && (e.vol1_effectue || e.vol1_skippe) && !e.vol2_effectue && !hasActiveVol2) return true;

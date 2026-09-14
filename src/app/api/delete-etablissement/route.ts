@@ -1,7 +1,11 @@
 import { createClient } from "@supabase/supabase-js";
 import { NextResponse } from "next/server";
+import { requireRole } from "@/lib/auth";
 
 export async function POST(req: Request) {
+  const auth = await requireRole(["superadmin"]);
+  if (auth instanceof NextResponse) return auth;
+
   const { id } = await req.json();
   if (!id) {
     return NextResponse.json({ error: "id obligatoire" }, { status: 400 });
@@ -27,9 +31,12 @@ export async function POST(req: Request) {
   }
 
   // Nullify nullable FK references
-  await supabase.from("profiles").update({ etablissement_id: null }).eq("etablissement_id", id);
-  await supabase.from("creneaux").update({ etablissement_id: null }).eq("etablissement_id", id);
-  await supabase.from("finances_operations").update({ etablissement_id: null }).eq("etablissement_id", id);
+  for (const table of ["profiles", "creneaux", "finances_operations"]) {
+    const { error: nullErr } = await supabase.from(table).update({ etablissement_id: null }).eq("etablissement_id", id);
+    if (nullErr) {
+      return NextResponse.json({ error: `${table} : ${nullErr.message}` }, { status: 400 });
+    }
+  }
 
   // Now delete
   const { error } = await supabase.from("etablissements").delete().eq("id", id);

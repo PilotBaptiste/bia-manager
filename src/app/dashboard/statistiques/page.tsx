@@ -7,7 +7,8 @@ import { toast } from "sonner";
 
 export default function StatistiquesPage() {
   const supabase = createClient();
-  const { selectedAnneeId } = useYear();
+  const { selectedAnneeId, annees } = useYear();
+  const anneeLabel = annees.find((a: any) => a.id === selectedAnneeId)?.label || "";
   const [loading, setLoading] = useState(true);
   const [vols, setVols] = useState<any[]>([]);
   const [eleves, setEleves] = useState<any[]>([]);
@@ -27,29 +28,40 @@ export default function StatistiquesPage() {
       .eq("archive", false);
     if (selectedAnneeId) elevesQ = elevesQ.eq("annee_id", selectedAnneeId);
 
+    let volsQ = supabase
+      .from("vols_effectues")
+      .select("*, creneau:creneaux!inner(annee_id,date_vol,heure_debut,aeronef_id,etablissement_id,pilote:profiles!pilote_id(nom,prenom),aeronef:aeronefs(type_aeronef,immatriculation,nb_places_eleves,prix_heure),etablissement:etablissements(nom))")
+      .order("created_at", { ascending: false });
+    if (selectedAnneeId) volsQ = volsQ.eq("creneau.annee_id", selectedAnneeId);
+    let opsQ = supabase.from("operations_manuelles").select("*");
+    const startYear = parseInt(anneeLabel.split(/[-/]/)[0]);
+    if (Number.isFinite(startYear)) opsQ = opsQ.gte("date", `${startYear}-09-01`).lte("date", `${startYear + 1}-08-31`);
+
     const [vR, eR, aR, pR, mR, etR] = await Promise.all([
-      supabase.from("vols_effectues").select("*, creneau:creneaux(date_vol,heure_debut,aeronef_id,etablissement_id,pilote:profiles!pilote_id(nom,prenom),aeronef:aeronefs(type_aeronef,immatriculation,nb_places_eleves,prix_heure),etablissement:etablissements(nom),reservations(eleve:eleves(nom,prenom)))").order("created_at", { ascending: false }),
+      volsQ,
       elevesQ,
-      supabase.from("aeronefs").select("*").eq("actif", true),
+      supabase.from("aeronefs").select("*"),
       supabase.from("parametres").select("*"),
-      supabase.from("operations_manuelles").select("*"),
+      opsQ,
       supabase.from("etablissements").select("id,nom").eq("actif", true),
     ]);
+    const loadError = [vR, eR, aR, pR, mR, etR].find((r: any) => r.error)?.error;
+    if (loadError) toast.error(`Chargement incomplet : ${loadError.message}`);
 
     const activeEtabIds = new Set((etR.data || []).map((e: any) => e.id));
-    setVols(vR.data || []);
+    setVols((vR.data || []).filter((v: any) => !v.creneau?.etablissement_id || activeEtabIds.has(v.creneau.etablissement_id)));
     setEleves((eR.data || []).filter((e: any) => activeEtabIds.has(e.etablissement_id)));
     setAeronefs(aR.data || []);
     setManualOps(mR.data || []);
     const params = pR.data || [];
     const pi = params.find((p: any) => p.cle === "prix_inscription");
     const sf = params.find((p: any) => p.cle === "subvention_federation");
-    if (pi) setPrixInscription(parseFloat(pi.valeur));
-    if (sf) setSubFede(parseFloat(sf.valeur));
+    if (pi && Number.isFinite(parseFloat(pi.valeur))) setPrixInscription(parseFloat(pi.valeur));
+    if (sf && Number.isFinite(parseFloat(sf.valeur))) setSubFede(parseFloat(sf.valeur));
     setLoading(false);
   }
 
-  useEffect(() => { if (selectedAnneeId) load(); }, [selectedAnneeId]);
+  useEffect(() => { if (selectedAnneeId) load(); }, [selectedAnneeId, anneeLabel]);
 
   if (loading) return (
     <div className="flex items-center justify-center h-64">
@@ -58,49 +70,78 @@ export default function StatistiquesPage() {
   );
 
   // ─── Calculations ───────────────────────────────────────────
-  const aerogestInVols = new Set<string>(vols.map((v: any) => v.numero_aerogest).filter(Boolean));
+  const aerogestInVols = new Set<string>(vols.flatMap((v: any) => [v.numero_aerogest, ...(v.numeros_aerogest || [])]).filter(Boolean));
+  const isManualFlight = (num: string | null | undefined) => !num || !aerogestInVols.has(num);
   const aerogestCount: Record<string, number> = {};
-  vols.forEach((v: any) => { if (v.numero_aerogest) aerogestCount[v.numero_aerogest] = (aerogestCount[v.numero_aerogest] || 0) + 1; });
   eleves.forEach((e: any) => {
-    if (e.vol1_effectue && e.vol1_numero_aerogest && !aerogestInVols.has(e.vol1_numero_aerogest))
+    if (e.vol1_effectue && e.vol1_numero_aerogest && isManualFlight(e.vol1_numero_aerogest))
       aerogestCount[e.vol1_numero_aerogest] = (aerogestCount[e.vol1_numero_aerogest] || 0) + 1;
-    if (e.vol2_effectue && e.vol2_numero_aerogest && !aerogestInVols.has(e.vol2_numero_aerogest))
+    if (e.vol2_effectue && e.vol2_numero_aerogest && isManualFlight(e.vol2_numero_aerogest))
       aerogestCount[e.vol2_numero_aerogest] = (aerogestCount[e.vol2_numero_aerogest] || 0) + 1;
   });
 
-  // Per-aeronef-type stats (from vols_effectues)
-  type AeronefStat = { label: string; places: number; nbVols: number; nbEleves: number; totalCost: number; totalMin: number; flights: any[] };
+  // nb_places_eleves counts student seats: 1 = biplace, 3 = quadriplace.
+  const capaciteLabel = (seats: number) => seats === 1 ? "Biplace" : seats === 3 ? "Quadriplace" : `${seats + 1} places`;
+
+  type Flight = { date: string; numero: string; nbPax: number; cost: number; mins: number; pilote: string };
+  type AeronefStat = { label: string; places: number; nbVols: number; nbEleves: number; totalCost: number; totalMin: number; flights: Flight[] };
   const aeronefStats: Record<string, AeronefStat> = {};
-  vols.forEach((v: any) => {
-    const aeronef = aeronefs.find((a: any) => a.id === v.creneau?.aeronef_id) || v.creneau?.aeronef;
+  const addFlight = (aeronef: any, f: Flight) => {
     const places = aeronef?.nb_places_eleves || 1;
-    const typeLabel = aeronef ? `${aeronef.type_aeronef} (${aeronef.immatriculation})` : "Inconnu";
-    const nbPax = (v.numeros_aerogest?.length || 0) > 1 ? v.numeros_aerogest.length : (v.nb_eleves || 1);
-    const cost = parseFloat(v.prix_total) || 0;
-    const mins = v.temps_vol_minutes || 0;
-    const key = typeLabel;
-    if (!aeronefStats[key]) aeronefStats[key] = { label: typeLabel, places, nbVols: 0, nbEleves: 0, totalCost: 0, totalMin: 0, flights: [] };
+    const key = aeronef ? `${aeronef.type_aeronef} (${aeronef.immatriculation})` : "Aéronef non renseigné";
+    if (!aeronefStats[key]) aeronefStats[key] = { label: key, places, nbVols: 0, nbEleves: 0, totalCost: 0, totalMin: 0, flights: [] };
     aeronefStats[key].nbVols++;
-    aeronefStats[key].nbEleves += nbPax;
-    aeronefStats[key].totalCost += cost;
-    aeronefStats[key].totalMin += mins;
-    aeronefStats[key].flights.push({ date: v.creneau?.date_vol, numero: v.numero_aerogest || (v.numeros_aerogest?.join(", ") || ""), nbPax, cost, mins, pilote: v.creneau?.pilote ? `${v.creneau.pilote.prenom} ${v.creneau.pilote.nom}` : "" });
+    aeronefStats[key].nbEleves += f.nbPax;
+    aeronefStats[key].totalCost += f.cost;
+    aeronefStats[key].totalMin += f.mins;
+    aeronefStats[key].flights.push(f);
+  };
+
+  vols.forEach((v: any) => {
+    const aeronef = v.creneau?.aeronef || aeronefs.find((a: any) => a.id === v.creneau?.aeronef_id);
+    const nbPax = Math.max(v.numeros_aerogest?.length || 0, v.nb_eleves || 0, 1);
+    addFlight(aeronef, {
+      date: v.creneau?.date_vol || "",
+      numero: v.numero_aerogest || (v.numeros_aerogest || []).join(", "),
+      nbPax,
+      cost: parseFloat(v.prix_total) || 0,
+      mins: v.temps_vol_minutes || 0,
+      pilote: v.creneau?.pilote ? `${v.creneau.pilote.prenom} ${v.creneau.pilote.nom}` : "",
+    });
   });
 
-  // Group by nb_places for summary
+  // Legacy flights entered directly on the student file: students sharing a number flew together,
+  // their vol_prix / vol_temps are the per-student share already divided by the number of passengers.
+  const legacyGroups: Record<string, { aeronef: any; nbPax: number; cost: number; mins: number; pilote: string }> = {};
+  eleves.forEach((e: any) => {
+    ([1, 2] as const).forEach((n) => {
+      if (!e[`vol${n}_effectue`] || !isManualFlight(e[`vol${n}_numero_aerogest`])) return;
+      const num = e[`vol${n}_numero_aerogest`];
+      const key = num || `${e.id}_vol${n}`;
+      const share = num ? (aerogestCount[num] || 1) : 1;
+      const g = legacyGroups[key] || (legacyGroups[key] = { aeronef: e[`vol${n}_aeronef`], nbPax: 0, cost: 0, mins: 0, pilote: e[`vol${n}_pilote_nom`] || "" });
+      g.nbPax++;
+      g.cost += (parseFloat(e[`vol${n}_prix`]) || 0) / share;
+      g.mins = Math.max(g.mins, e[`vol${n}_temps_minutes`] || 0);
+    });
+  });
+  Object.entries(legacyGroups).forEach(([key, g]) => {
+    addFlight(g.aeronef, { date: "", numero: key.includes("_vol") ? "" : key, nbPax: g.nbPax, cost: g.cost, mins: g.mins, pilote: g.pilote });
+  });
+
   const placeGroups: Record<number, { nbVols: number; nbEleves: number; totalCost: number; totalMin: number }> = {};
-  Object.values(aeronefStats).forEach(s => {
-    const p = s.places;
-    if (!placeGroups[p]) placeGroups[p] = { nbVols: 0, nbEleves: 0, totalCost: 0, totalMin: 0 };
-    placeGroups[p].nbVols += s.nbVols;
-    placeGroups[p].nbEleves += s.nbEleves;
-    placeGroups[p].totalCost += s.totalCost;
-    placeGroups[p].totalMin += s.totalMin;
+  Object.values(aeronefStats).forEach(st => {
+    const g = placeGroups[st.places] || (placeGroups[st.places] = { nbVols: 0, nbEleves: 0, totalCost: 0, totalMin: 0 });
+    g.nbVols += st.nbVols;
+    g.nbEleves += st.nbEleves;
+    g.totalCost += st.totalCost;
+    g.totalMin += st.totalMin;
   });
 
-  const totalVolsClotures = vols.length;
-  const totalElevesTrans = vols.reduce((a, v) => a + ((v.numeros_aerogest?.length || 0) > 1 ? v.numeros_aerogest.length : (v.nb_eleves || 1)), 0);
-  const totalCostVols = vols.reduce((a, v) => a + (parseFloat(v.prix_total) || 0), 0);
+  const allFlights = Object.values(aeronefStats);
+  const totalVolsClotures = allFlights.reduce((a, st) => a + st.nbVols, 0);
+  const totalElevesTrans = allFlights.reduce((a, st) => a + st.nbEleves, 0);
+  const totalCostVols = allFlights.reduce((a, st) => a + st.totalCost, 0);
   const avgCostPerEleve = totalElevesTrans > 0 ? totalCostVols / totalElevesTrans : 0;
 
   const totalEleves = eleves.length;
@@ -219,7 +260,7 @@ export default function StatistiquesPage() {
           <StatCard id="solde" title="Solde" value={`${solde >= 0 ? "+" : ""}${solde.toFixed(0)}€`} color={solde >= 0 ? "text-emerald-600" : "text-red-600"}
             sub="Recettes − Dépenses" />
           <StatCard id="avg_eleve" title="Coût moy./élève" value={`${avgCostPerEleve.toFixed(0)}€`}
-            sub={`sur ${totalElevesTrans} vols effectués`} />
+            sub={`sur ${totalElevesTrans} passages élève`} />
         </div>
       </section>
 
@@ -230,7 +271,7 @@ export default function StatistiquesPage() {
         {/* Summary by nb places */}
         <div className="flex gap-3 flex-wrap mb-4">
           {Object.entries(placeGroups).sort((a,b)=>parseInt(a[0])-parseInt(b[0])).map(([places, s]) => {
-            const label = parseInt(places) === 2 ? "Biplace" : parseInt(places) === 4 ? "Quadriplace" : `${places} places`;
+            const label = capaciteLabel(parseInt(places));
             const avgCostVol = s.nbVols > 0 ? s.totalCost / s.nbVols : 0;
             const avgCostEleve = s.nbEleves > 0 ? s.totalCost / s.nbEleves : 0;
             return (
@@ -271,7 +312,7 @@ export default function StatistiquesPage() {
                   <>
                     <tr key={i} className="border-t border-gray-100 cursor-pointer hover:bg-gray-50" onClick={() => toggle(`aeronef_${i}`)}>
                       <td className="px-3 py-2.5 font-semibold">{s.label}</td>
-                      <td className="px-3 py-2.5 text-gray-500">{s.places === 2 ? "Biplace" : s.places === 4 ? "Quadriplace" : `${s.places}p`}</td>
+                      <td className="px-3 py-2.5 text-gray-500">{capaciteLabel(s.places)}</td>
                       <td className="px-3 py-2.5">{s.nbVols}</td>
                       <td className="px-3 py-2.5">{s.nbEleves}</td>
                       <td className="px-3 py-2.5 text-red-600 font-semibold">{s.totalCost.toFixed(2)}€</td>

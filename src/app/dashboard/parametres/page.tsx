@@ -143,10 +143,7 @@ export default function ParametresPage() {
 
   async function downloadAttestation(attestation: any) {
     if (!attestation.attestation_url) return;
-    const fileName = attestation.attestation_url.includes("/")
-      ? attestation.attestation_url.split("/").pop()
-      : attestation.attestation_url;
-    const { data, error } = await supabase.storage.from("attestations").download(fileName);
+    const { data, error } = await supabase.storage.from("attestations").download(attestation.attestation_url.replace(/^.*\/attestations\//, ""));
     if (data) {
       const url = URL.createObjectURL(data);
       const a = document.createElement("a");

@@ -63,29 +63,41 @@ export default function MessageriePage() {
       const { data: { user } } = await supabase.auth.getUser();
       if (user?.email) setSenderEmail(user.email);
 
-      const [{ data: profData }, { data: etabsAll }, { data: elevesData }] = await Promise.all([
-        user
-          ? supabase.from("profiles").select("roles, etablissement_id, etablissement_ids").eq("id", user.id).single()
-          : Promise.resolve({ data: null }),
-        supabase.from("etablissements").select("id, nom").eq("actif", true).order("nom"),
-        supabase.from("eleves")
-          .select("id, prenom, nom, parent_email, parent_prenom, etablissement_id, annee_id, archive, vol1_effectue, vol1_skippe, vol2_effectue, vol2_autorise, paiement_effectue, attestation_signee, bia_passe, bia_resultat")
-          .eq("archive", false)
-          .not("parent_email", "is", null)
-          .order("nom"),
-      ]);
+      const { data: profData } = user
+        ? await supabase.from("profiles").select("roles, etablissement_id, etablissement_ids").eq("id", user.id).single()
+        : { data: null };
 
       const isCoord = profData?.roles?.includes("coordinateur") && !profData?.roles?.includes("superadmin");
       const coordEtabIds: string[] = isCoord
         ? (profData?.etablissement_ids?.length > 0 ? profData.etablissement_ids : profData?.etablissement_id ? [profData.etablissement_id] : [])
         : [];
 
-      const filteredEtabs = coordEtabIds.length > 0
+      if (isCoord && coordEtabIds.length === 0) {
+        setEtablissements([]);
+        setEleves([]);
+        setLoading(false);
+        return;
+      }
+
+      let elevesQuery = supabase.from("eleves")
+        .select("id, prenom, nom, parent_email, parent_prenom, etablissement_id, annee_id, archive, vol1_effectue, vol1_skippe, vol2_effectue, vol2_autorise, paiement_effectue, attestation_signee, bia_passe, bia_resultat")
+        .eq("archive", false)
+        .not("parent_email", "is", null)
+        .order("nom");
+      if (isCoord) elevesQuery = elevesQuery.in("etablissement_id", coordEtabIds);
+
+      const [{ data: etabsAll }, { data: elevesData }] = await Promise.all([
+        supabase.from("etablissements").select("id, nom").eq("actif", true).order("nom"),
+        elevesQuery,
+      ]);
+
+      const filteredEtabs = isCoord
         ? (etabsAll ?? []).filter((e: any) => coordEtabIds.includes(e.id))
         : (etabsAll ?? []);
+      const actifEtabIds = new Set(filteredEtabs.map((e: any) => e.id));
 
       setEtablissements(filteredEtabs);
-      setEleves(elevesData ?? []);
+      setEleves((elevesData ?? []).filter((e: any) => actifEtabIds.has(e.etablissement_id)));
       setLoading(false);
     }
     load();
@@ -139,10 +151,12 @@ export default function MessageriePage() {
     const seen = new Set<string>();
 
     const addEleve = (e: any) => {
-      if (!e.parent_email) return;
-      if (seen.has(e.parent_email)) return;
-      seen.add(e.parent_email);
-      list.push({ email: e.parent_email, eleve_prenom: e.prenom, eleve_nom: e.nom, etab_id: e.etablissement_id, eleve_id: e.id });
+      const email = e.parent_email?.trim();
+      if (!email) return;
+      const key = email.toLowerCase();
+      if (seen.has(key)) return;
+      seen.add(key);
+      list.push({ email, eleve_prenom: e.prenom, eleve_nom: e.nom, etab_id: e.etablissement_id, eleve_id: e.id });
     };
 
     if (mode === "etab") {
@@ -187,7 +201,7 @@ export default function MessageriePage() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Erreur envoi");
-      setResult({ sent: data.sent, errors: data.errors });
+      setResult({ sent: typeof data.sent === "number" ? data.sent : 0, errors: Array.isArray(data.errors) ? data.errors.map(String) : undefined });
       setStep(3);
     } catch (e: any) {
       setSendError(e.message);
@@ -527,12 +541,18 @@ export default function MessageriePage() {
       {/* ── STEP 3: Result ── */}
       {step === 3 && result && (
         <div className="bg-white rounded-xl border border-gray-200 p-6 text-center space-y-4">
-          <div className="w-12 h-12 bg-emerald-100 rounded-full flex items-center justify-center mx-auto">
-            <Check className="w-6 h-6 text-emerald-600" />
+          <div className={`w-12 h-12 rounded-full flex items-center justify-center mx-auto ${result.errors && result.errors.length > 0 ? "bg-amber-100" : "bg-emerald-100"}`}>
+            {result.errors && result.errors.length > 0
+              ? <AlertCircle className="w-6 h-6 text-amber-600" />
+              : <Check className="w-6 h-6 text-emerald-600" />}
           </div>
           <div>
-            <h2 className="font-bold text-gray-900 text-lg">{result.sent} email{result.sent > 1 ? "s" : ""} envoyé{result.sent > 1 ? "s" : ""} !</h2>
-            <p className="text-sm text-gray-500 mt-1">Tous les destinataires ont été notifiés.</p>
+            <h2 className="font-bold text-gray-900 text-lg">{result.sent} email{result.sent > 1 ? "s" : ""} envoyé{result.sent > 1 ? "s" : ""}{result.sent < recipients.length ? ` sur ${recipients.length}` : " !"}</h2>
+            <p className="text-sm text-gray-500 mt-1">
+              {result.sent >= recipients.length && !(result.errors && result.errors.length > 0)
+                ? "Tous les destinataires ont été notifiés."
+                : "Certains destinataires n'ont pas pu être notifiés."}
+            </p>
           </div>
           {result.errors && result.errors.length > 0 && (
             <div className="bg-amber-50 border border-amber-100 rounded-lg px-3 py-2.5 text-sm text-amber-700 text-left">

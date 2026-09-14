@@ -1,7 +1,10 @@
 import { NextResponse } from "next/server";
+import { requireRole } from "@/lib/auth";
 import { createClient } from "@supabase/supabase-js";
 
 export async function GET(req: Request) {
+  const auth = await requireRole(["superadmin", "coordinateur", "gerant", "pilote"]);
+  if (auth instanceof NextResponse) return auth;
   try {
     const { searchParams } = new URL(req.url);
     const email = searchParams.get("email");

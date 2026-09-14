@@ -1,5 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
 import { NextResponse } from "next/server";
+import { requireRole } from "@/lib/auth";
 
 /**
  * GET /api/admin/users-status
@@ -7,6 +8,9 @@ import { NextResponse } from "next/server";
  * "confirmed" = the user has set their password and activated their account.
  */
 export async function GET() {
+  const auth = await requireRole(["superadmin"]);
+  if (auth instanceof NextResponse) return auth;
+
   if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
     return NextResponse.json({});
   }

@@ -2,6 +2,9 @@ import { createClient } from "@supabase/supabase-js";
 import { Resend } from "resend";
 import { NextResponse } from "next/server";
 
+const MAX_ENFANTS = 6;
+const escHtml = (s: string) => String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+
 // GET — validate a code and return the établissement info (public)
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
@@ -58,8 +61,14 @@ export async function POST(req: Request) {
   if (!code || !parent?.email || !parent?.password || !parent?.nom || !parent?.prenom) {
     return NextResponse.json({ error: "Données parent incomplètes" }, { status: 400 });
   }
-  if (!enfants?.length) {
+  if (!Array.isArray(enfants) || !enfants.length) {
     return NextResponse.json({ error: "Au moins un enfant requis" }, { status: 400 });
+  }
+  if (enfants.length > MAX_ENFANTS) {
+    return NextResponse.json({ error: `${MAX_ENFANTS} enfants maximum par inscription` }, { status: 400 });
+  }
+  if (enfants.some((e: any) => typeof e?.nom !== "string" || typeof e?.prenom !== "string" || !e.nom.trim() || !e.prenom.trim())) {
+    return NextResponse.json({ error: "Nom et prénom obligatoires pour chaque enfant" }, { status: 400 });
   }
   if (parent.password.length < 8) {
     return NextResponse.json({ error: "Mot de passe trop court (8 caractères minimum)" }, { status: 400 });
@@ -101,6 +110,20 @@ export async function POST(req: Request) {
         error: `Limite d'inscriptions atteinte pour ${etab.nom} (${etab.nb_eleves_attendus} places)`,
       }, { status: 409 });
     }
+  }
+
+  // An address already known on existing student files must prove ownership through an emailed link,
+  // otherwise anyone could sign up with a parent's address and get access to their children.
+  const parentEmail = parent.email.trim().toLowerCase();
+  const { data: existingDossier } = await supabase
+    .from("eleves")
+    .select("id")
+    .ilike("parent_email", parentEmail)
+    .limit(1);
+  if (existingDossier?.length) {
+    return NextResponse.json({
+      error: "Cette adresse email est déjà enregistrée. Utilisez « Mot de passe oublié » sur la page de connexion pour recevoir votre lien d'accès.",
+    }, { status: 409 });
   }
 
   // 4. Create Supabase auth user
@@ -158,7 +181,7 @@ export async function POST(req: Request) {
   if (process.env.RESEND_API_KEY) {
     const resend = new Resend(process.env.RESEND_API_KEY);
     const enfantsHtml = enfants
-      .map((e: any) => `<li>${e.prenom} ${e.nom}</li>`)
+      .map((e: any) => `<li>${escHtml(e.prenom)} ${escHtml(e.nom)}</li>`)
       .join("");
 
     await resend.emails.send({
@@ -172,8 +195,8 @@ export async function POST(req: Request) {
           </div>
           <h2 style="margin:0 0 8px;font-size:22px;color:#111">Inscription confirmée !</h2>
           <p style="color:#555;margin:0 0 16px">
-            Bonjour ${parent.prenom} ${parent.nom},<br>
-            votre inscription au BIA ${annee?.label ?? ""} pour <strong>${etab.nom}</strong> a bien été enregistrée.
+            Bonjour ${escHtml(parent.prenom)} ${escHtml(parent.nom)},<br>
+            votre inscription au BIA ${annee?.label ?? ""} pour <strong>${escHtml(etab.nom)}</strong> a bien été enregistrée.
           </p>
           <div style="background:#f0f9ff;border:1px solid #bae6fd;border-radius:10px;padding:16px;margin-bottom:20px">
             <p style="margin:0 0 8px;font-size:13px;color:#0369a1;font-weight:600">Enfant(s) inscrit(s)</p>
@@ -186,8 +209,8 @@ export async function POST(req: Request) {
             Accéder à mon espace →
           </a>
           <p style="color:#aaa;font-size:12px;margin-top:24px">
-            Identifiant : ${parent.email.trim().toLowerCase()}<br>
-            Établissement : ${etab.nom}
+            Identifiant : ${escHtml(parentEmail)}<br>
+            Établissement : ${escHtml(etab.nom)}
           </p>
         </div>
       `,

@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { Baby, ChevronRight, Loader2, Check, CalendarDays } from "lucide-react";
@@ -48,10 +48,11 @@ export default function ParentOnboarding({ userId, defaultPrenom, defaultNom, de
   const [enfantForms, setEnfantForms] = useState<Record<string, any>>({});
   const [savingKids, setSavingKids] = useState(false);
   const [done, setDone] = useState(false);
+  const enfantsLoadRef = useRef<Promise<Enfant[]>>(Promise.resolve([]));
 
   useEffect(() => {
-    supabase.auth.getUser().then(async ({ data: { user } }) => {
-      if (!user?.email) return;
+    enfantsLoadRef.current = supabase.auth.getUser().then(async ({ data: { user } }) => {
+      if (!user?.email) return [];
       // Set parent_id on linked eleves before querying (same pattern as reservation page)
       await fetch("/api/link-parent", {
         method: "POST",
@@ -80,7 +81,8 @@ export default function ParentOnboarding({ userId, defaultPrenom, defaultNom, de
         });
         setEnfantForms(forms);
       }
-    });
+      return (data || []) as Enfant[];
+    }).catch(() => []);
   }, [userId]);
 
   if (done) return null;
@@ -100,10 +102,11 @@ export default function ParentOnboarding({ userId, defaultPrenom, defaultNom, de
       .from("profiles")
       .update({ prenom: prenom.trim(), nom: nom.trim(), telephone: telephone.trim() || null })
       .eq("id", userId);
+    if (err) { setSaving(false); setError(err.message); return; }
+    const loadedEnfants = await enfantsLoadRef.current;
     setSaving(false);
-    if (err) { setError(err.message); return; }
 
-    if (enfants.length > 0) {
+    if (loadedEnfants.length > 0) {
       setStep(2);
     } else {
       setDone(true);

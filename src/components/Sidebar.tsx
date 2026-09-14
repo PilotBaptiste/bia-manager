@@ -129,6 +129,8 @@ function getNav(roles: string[]) {
     ["superadmin", "coordinateur", "pilote", "gerant"],
   );
   add("profil", "Mon profil", "UserCheck", "/dashboard/profil", [
+    "superadmin",
+    "coordinateur",
     "parent",
     "pilote",
     "gerant",

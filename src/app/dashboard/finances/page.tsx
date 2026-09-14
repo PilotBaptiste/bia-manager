@@ -12,7 +12,8 @@ const emptyAddForm = { type: "Autre", sens: "recette" as "recette" | "depense", 
 
 export default function FinancesPage() {
   const supabase = createClient();
-  const { selectedAnneeId } = useYear();
+  const { selectedAnneeId, annees } = useYear();
+  const anneeLabel = annees.find((a: any) => a.id === selectedAnneeId)?.label || "";
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState<"overview" | "paiements" | "operations" | "pilotes" | "roulage" | "logs">("overview");
   const [expandedPilote, setExpandedPilote] = useState<string | null>(null);
@@ -48,35 +49,52 @@ export default function FinancesPage() {
       .eq("archive", false);
     if (selectedAnneeId) elevesQuery = elevesQuery.eq("annee_id", selectedAnneeId);
 
+    let volsQuery = supabase
+      .from("vols_effectues")
+      .select("*, creneau:creneaux!inner(annee_id,etablissement_id,date_vol,heure_debut,pilote:profiles!pilote_id(nom,prenom),aeronef:aeronefs(type_aeronef,immatriculation,prix_heure),etablissement:etablissements(nom),reservations(eleve:eleves(nom,prenom)))")
+      .order("created_at", { ascending: false });
+    if (selectedAnneeId) volsQuery = volsQuery.eq("creneau.annee_id", selectedAnneeId);
+
+    // operations_manuelles has no annee_id: scope it to the school year (1 Sept → 31 Aug) from the year label.
+    let opsQuery = supabase.from("operations_manuelles").select("*").order("date", { ascending: false });
+    const startYear = parseInt(anneeLabel.split(/[-/]/)[0]);
+    if (Number.isFinite(startYear)) {
+      opsQuery = opsQuery.gte("date", `${startYear}-09-01`).lte("date", `${startYear + 1}-08-31`);
+    }
+
     const [eR, vR, etR, pR, lR, mR] = await Promise.all([
       elevesQuery,
-      supabase.from("vols_effectues").select("*, creneau:creneaux(date_vol,heure_debut,pilote:profiles!pilote_id(nom,prenom),aeronef:aeronefs(type_aeronef,immatriculation,prix_heure),etablissement:etablissements(nom),reservations(eleve:eleves(nom,prenom)))").order("created_at", { ascending: false }),
+      volsQuery,
       supabase.from("etablissements").select("*").eq("actif", true),
       supabase.from("parametres").select("*"),
       supabase.from("activity_logs").select("*, user:profiles!user_id(nom,prenom)").order("created_at", { ascending: false }).limit(100),
-      supabase.from("operations_manuelles").select("*").order("date", { ascending: false }),
+      opsQuery,
     ]);
+    const loadError = [eR, vR, etR, pR, mR].find((r: any) => r.error)?.error;
+    if (loadError) toast.error(`Chargement incomplet : ${loadError.message}`);
     const activeEtabIds = new Set((etR.data || []).map((e: any) => e.id));
     setEleves((eR.data || []).filter((e: any) => activeEtabIds.has(e.etablissement_id)));
-    setVols(vR.data || []);
+    setVols((vR.data || []).filter((v: any) => !v.creneau?.etablissement_id || activeEtabIds.has(v.creneau.etablissement_id)));
     setEtabs(etR.data || []);
     setLogs(lR.data || []);
     setManualOps(mR.data || []);
     const params = pR.data || [];
     const pi = params.find((p: any) => p.cle === "prix_inscription");
     const sf = params.find((p: any) => p.cle === "subvention_federation");
-    if (pi) setPrixInscription(parseFloat(pi.valeur));
-    if (sf) setSubFede(parseFloat(sf.valeur));
+    if (pi && Number.isFinite(parseFloat(pi.valeur))) setPrixInscription(parseFloat(pi.valeur));
+    if (sf && Number.isFinite(parseFloat(sf.valeur))) setSubFede(parseFloat(sf.valeur));
     const nc = params.find((p: any) => p.cle === "nom_club");
     if (nc) setNomClub(nc.valeur);
     setLoading(false);
   }
 
-  useEffect(() => { if (selectedAnneeId) load(); }, [selectedAnneeId]);
+  useEffect(() => { if (selectedAnneeId) load(); }, [selectedAnneeId, anneeLabel]);
 
   // ---------- Calculations ----------
   // Aerogest dedup needed first for cost calculations
-  const aerogestInVols = new Set<string>(vols.map((v: any) => v.numero_aerogest).filter(Boolean));
+  // Flights closed with one number per student store them in numeros_aerogest (numero_aerogest is then null).
+  const aerogestInVols = new Set<string>(vols.flatMap((v: any) => [v.numero_aerogest, ...(v.numeros_aerogest || [])]).filter(Boolean));
+  const isManualFlight = (num: string | null | undefined) => !num || !aerogestInVols.has(num);
   const aerogestCountAll: Record<string, number> = {};
   vols.forEach(v => { if (v.numero_aerogest) aerogestCountAll[v.numero_aerogest] = (aerogestCountAll[v.numero_aerogest] || 0) + 1; });
   eleves.forEach(e => {
@@ -98,10 +116,10 @@ export default function FinancesPage() {
   // Cost of manually-entered eleve vols (price divided by ×N shared-flight)
   const coutVolsManuels = eleves.reduce((acc, e) => {
     let c = 0;
-    if (e.vol1_effectue && e.vol1_numero_aerogest && !aerogestInVols.has(e.vol1_numero_aerogest))
-      c += e.vol1_prix ? parseFloat(e.vol1_prix) / (aerogestCountAll[e.vol1_numero_aerogest] || 1) : 0;
-    if (e.vol2_effectue && e.vol2_numero_aerogest && !aerogestInVols.has(e.vol2_numero_aerogest))
-      c += e.vol2_prix ? parseFloat(e.vol2_prix) / (aerogestCountAll[e.vol2_numero_aerogest] || 1) : 0;
+    if (e.vol1_effectue && isManualFlight(e.vol1_numero_aerogest))
+      c += e.vol1_prix ? parseFloat(e.vol1_prix) / ((e.vol1_numero_aerogest && aerogestCountAll[e.vol1_numero_aerogest]) || 1) : 0;
+    if (e.vol2_effectue && isManualFlight(e.vol2_numero_aerogest))
+      c += e.vol2_prix ? parseFloat(e.vol2_prix) / ((e.vol2_numero_aerogest && aerogestCountAll[e.vol2_numero_aerogest]) || 1) : 0;
     return acc + c;
   }, 0);
   const coutVolsTotal = coutVolsClotures + coutVolsManuels;
@@ -167,23 +185,24 @@ export default function FinancesPage() {
     if (e.bia_resultat && e.bia_resultat !== "Non admis") operations.push({ id: e.id, source: "bia", date: e.bia_date || e.updated_at, type: "Subvention BIA", sens: "recette", montant: subFede, description: `${e.prenom} ${e.nom} — ${e.bia_resultat}`, etablissement: e.etablissement?.nom });
   });
   vols.forEach(v => {
-    operations.push({ id: v.id, source: "vol", date: v.created_at, type: "Vol", sens: "depense", montant: parseFloat(v.prix_total), description: `${v.numero_aerogest} — ${v.creneau?.reservations?.map((r: any) => `${r.eleve?.prenom} ${r.eleve?.nom}`).join(", ") || "—"}`, etablissement: v.creneau?.etablissement?.nom, aeronef: v.creneau?.aeronef?.type_aeronef, pilote: v.creneau?.pilote ? `${v.creneau.pilote.prenom} ${v.creneau.pilote.nom}` : "", temps: v.temps_vol_minutes });
+    operations.push({ id: v.id, source: "vol", date: v.creneau?.date_vol || v.created_at, type: "Vol", sens: "depense", montant: parseFloat(v.prix_total) || 0, description: `${v.numero_aerogest || (v.numeros_aerogest || []).join(", ")} — ${v.creneau?.reservations?.map((r: any) => `${r.eleve?.prenom} ${r.eleve?.nom}`).join(", ") || "—"}`, etablissement: v.creneau?.etablissement?.nom, aeronef: v.creneau?.aeronef?.type_aeronef, pilote: v.creneau?.pilote ? `${v.creneau.pilote.prenom} ${v.creneau.pilote.nom}` : "", temps: v.temps_vol_minutes });
   });
   manualOps.forEach(op => {
-    operations.push({ id: op.id, source: "manuel", date: op.date, type: op.type, sens: op.sens, montant: parseFloat(op.montant), description: op.description, etablissement: op.etablissement, mode: op.mode });
+    operations.push({ id: op.id, source: "manuel", date: op.date, type: op.type, sens: op.sens, montant: parseFloat(op.montant) || 0, description: op.description, etablissement: op.etablissement, mode: op.mode });
   });
   // Add manual eleve vols (not already covered by vols_effectues)
   eleves.forEach(e => {
-    if (e.vol1_effectue && e.vol1_numero_aerogest && !aerogestInVols.has(e.vol1_numero_aerogest)) {
-      const n = aerogestCountAll[e.vol1_numero_aerogest] || 1;
-      operations.push({ id: `${e.id}_vol1`, source: "vol_manuel", date: e.updated_at, type: "Vol", sens: "depense", montant: e.vol1_prix ? parseFloat(e.vol1_prix) / n : null, description: `${e.prenom} ${e.nom} — Vol 1 (${e.vol1_numero_aerogest}${n > 1 ? ` ×${n}` : ""})`, etablissement: e.etablissement?.nom, pilote: e.vol1_pilote_nom || "", aeronef: e.vol1_aeronef?.type_aeronef || "", temps: e.vol1_temps_minutes != null ? Math.round(e.vol1_temps_minutes / n) : null });
+    if (e.vol1_effectue && isManualFlight(e.vol1_numero_aerogest)) {
+      const n = (e.vol1_numero_aerogest && aerogestCountAll[e.vol1_numero_aerogest]) || 1;
+      operations.push({ id: `${e.id}_vol1`, source: "vol_manuel", date: e.updated_at, type: "Vol", sens: "depense", montant: e.vol1_prix ? parseFloat(e.vol1_prix) / n : null, description: `${e.prenom} ${e.nom} — Vol 1 (${e.vol1_numero_aerogest || "sans n° Aérogest"}${n > 1 ? ` ×${n}` : ""})`, etablissement: e.etablissement?.nom, pilote: e.vol1_pilote_nom || "", aeronef: e.vol1_aeronef?.type_aeronef || "", temps: e.vol1_temps_minutes != null ? Math.round(e.vol1_temps_minutes / n) : null });
     }
-    if (e.vol2_effectue && e.vol2_numero_aerogest && !aerogestInVols.has(e.vol2_numero_aerogest)) {
-      const n = aerogestCountAll[e.vol2_numero_aerogest] || 1;
-      operations.push({ id: `${e.id}_vol2`, source: "vol_manuel", date: e.updated_at, type: "Vol", sens: "depense", montant: e.vol2_prix ? parseFloat(e.vol2_prix) / n : null, description: `${e.prenom} ${e.nom} — Vol 2 (${e.vol2_numero_aerogest}${n > 1 ? ` ×${n}` : ""})`, etablissement: e.etablissement?.nom, pilote: e.vol2_pilote_nom || "", aeronef: e.vol2_aeronef?.type_aeronef || "", temps: e.vol2_temps_minutes != null ? Math.round(e.vol2_temps_minutes / n) : null });
+    if (e.vol2_effectue && isManualFlight(e.vol2_numero_aerogest)) {
+      const n = (e.vol2_numero_aerogest && aerogestCountAll[e.vol2_numero_aerogest]) || 1;
+      operations.push({ id: `${e.id}_vol2`, source: "vol_manuel", date: e.updated_at, type: "Vol", sens: "depense", montant: e.vol2_prix ? parseFloat(e.vol2_prix) / n : null, description: `${e.prenom} ${e.nom} — Vol 2 (${e.vol2_numero_aerogest || "sans n° Aérogest"}${n > 1 ? ` ×${n}` : ""})`, etablissement: e.etablissement?.nom, pilote: e.vol2_pilote_nom || "", aeronef: e.vol2_aeronef?.type_aeronef || "", temps: e.vol2_temps_minutes != null ? Math.round(e.vol2_temps_minutes / n) : null });
     }
   });
-  operations.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+  const dateMs = (d: any) => { const t = new Date(d || "").getTime(); return Number.isFinite(t) ? t : 0; };
+  operations.sort((a, b) => dateMs(b.date) - dateMs(a.date));
 
   // ---------- Handlers ----------
   function openEdit(op: any) {
@@ -201,38 +220,46 @@ export default function FinancesPage() {
 
   async function handleEditSave() {
     if (!editingOp) return;
+    const montant = parseFloat(String(editForm.montant ?? "").replace(",", "."));
+    if (editForm.montant !== "" && editForm.montant != null && !Number.isFinite(montant)) { toast.error("Montant invalide"); return; }
     setSaving(true);
+    let error: any = null;
     if (editingOp.source === "inscription") {
-      await supabase.from("eleves").update({ paiement_date: editForm.date || null, paiement_montant: parseFloat(editForm.montant) || null, paiement_mode: editForm.mode || null }).eq("id", editingOp.id);
+      ({ error } = await supabase.from("eleves").update({ paiement_date: editForm.date || null, paiement_montant: Number.isFinite(montant) ? montant : null, paiement_mode: editForm.mode || null }).eq("id", editingOp.id));
     } else if (editingOp.source === "bia") {
-      await supabase.from("eleves").update({ bia_date: editForm.date || null }).eq("id", editingOp.id);
+      ({ error } = await supabase.from("eleves").update({ bia_date: editForm.date || null }).eq("id", editingOp.id));
     } else if (editingOp.source === "vol") {
       const newTemps = editForm.temps !== "" ? parseInt(editForm.temps) : null;
-      const newPrix = editForm.montant !== "" ? parseFloat(editForm.montant) : 0;
-      if (editForm.montant !== "" && isNaN(newPrix)) { setSaving(false); toast.error("Montant invalide"); return; }
-      await supabase.from("vols_effectues").update({ prix_total: newPrix, temps_vol_minutes: (!isNaN(newTemps!) && newTemps !== null) ? newTemps : null }).eq("id", editingOp.id);
+      ({ error } = await supabase.from("vols_effectues").update({ prix_total: Number.isFinite(montant) ? montant : 0, temps_vol_minutes: (newTemps !== null && !isNaN(newTemps)) ? newTemps : null }).eq("id", editingOp.id));
     } else {
-      await supabase.from("operations_manuelles").update({ type: editForm.type, sens: editForm.sens, date: editForm.date, montant: parseFloat(editForm.montant) || 0, description: editForm.description, etablissement: editForm.etablissement, mode: editForm.mode }).eq("id", editingOp.id);
+      ({ error } = await supabase.from("operations_manuelles").update({ type: editForm.type, sens: editForm.sens, date: editForm.date, montant: Number.isFinite(montant) ? montant : 0, description: editForm.description, etablissement: editForm.etablissement, mode: editForm.mode }).eq("id", editingOp.id));
     }
     setSaving(false);
+    if (error) { toast.error(`Erreur : ${error.message}`); return; }
     setEditingOp(null);
     toast.success("Opération mise à jour");
     load();
   }
 
   async function handleDelete(op: any) {
+    if (op.source === "vol" || op.source === "vol_manuel") {
+      // Deleting here left the students' vol fields in place, so the cost came back as a "manual" flight.
+      toast.error("Pour supprimer un vol, passez par Planning des vols › Historique : les élèves et réservations seront remis à jour.");
+      setConfirmDelete(null);
+      return;
+    }
     setDeleting(true);
+    let error: any = null;
     if (op.source === "inscription") {
-      await supabase.from("eleves").update({ paiement_effectue: false, paiement_date: null, paiement_montant: null, paiement_mode: null }).eq("id", op.id);
+      ({ error } = await supabase.from("eleves").update({ paiement_effectue: false, paiement_date: null, paiement_montant: null, paiement_mode: null }).eq("id", op.id));
     } else if (op.source === "bia") {
-      await supabase.from("eleves").update({ bia_resultat: null, bia_passe: false, bia_date: null }).eq("id", op.id);
-    } else if (op.source === "vol") {
-      await supabase.from("vols_effectues").delete().eq("id", op.id);
+      ({ error } = await supabase.from("eleves").update({ bia_resultat: null, bia_passe: false, bia_date: null }).eq("id", op.id));
     } else {
-      await supabase.from("operations_manuelles").delete().eq("id", op.id);
+      ({ error } = await supabase.from("operations_manuelles").delete().eq("id", op.id));
     }
     setDeleting(false);
     setConfirmDelete(null);
+    if (error) { toast.error(`Erreur : ${error.message}`); return; }
     toast.success("Opération supprimée");
     load();
   }
@@ -258,25 +285,26 @@ export default function FinancesPage() {
   }
 
   function exportReleve() {
-    const fmt = (v: any) => v == null ? "" : String(v).replace(/"/g, '""');
+    const fmt = (v: any) => v == null ? "" : String(v).replace(/^([=+\-@])/, "'$1").replace(/"/g, '""');
     const cell = (v: any) => `"${fmt(v)}"`;
     const date = new Date().toISOString().slice(0, 10);
-    const sorted = [...operations].sort((a, b) => new Date(a.date || "").getTime() - new Date(b.date || "").getTime());
+    const sorted = [...operations].sort((a, b) => dateMs(a.date) - dateMs(b.date));
+    const num = (n: number) => n.toFixed(2).replace(".", ",");
     let soldeRun = 0;
     const rows = [
       ["Date", "Description", "Établissement", "Pilote / Aéronef", "Débit (€)", "Crédit (€)", "Solde cumulé (€)"],
       ...sorted.map(op => {
-        const debit = op.sens === "depense" ? (op.montant ?? 0) : 0;
-        const credit = op.sens === "recette" ? (op.montant ?? 0) : 0;
+        const debit = op.sens === "depense" ? Math.abs(op.montant || 0) : 0;
+        const credit = op.sens === "recette" ? Math.abs(op.montant || 0) : 0;
         soldeRun += credit - debit;
         return [
           op.date ? new Date(op.date).toLocaleDateString("fr-FR") : "—",
           op.description ?? op.type ?? "",
           op.etablissement ?? "",
           [op.pilote, op.aeronef].filter(Boolean).join(" · "),
-          debit > 0 ? debit.toFixed(2) : "",
-          credit > 0 ? credit.toFixed(2) : "",
-          soldeRun.toFixed(2),
+          debit > 0 ? num(debit) : "",
+          credit > 0 ? num(credit) : "",
+          num(soldeRun),
         ].map(cell);
       }),
     ];
@@ -329,7 +357,7 @@ export default function FinancesPage() {
       rows = [
         ["Pilote", "Vols", "Heures", "Coût (€)"],
         ...Object.entries(piloteStats).map(([nom, s]: any) => [
-          nom, s.vols, (s.minutes / 60).toFixed(1), s.cout.toFixed(2),
+          nom, s.nbVols, s.heures.toFixed(1).replace(".", ","), s.cout.toFixed(2).replace(".", ","),
         ].map(cell)),
       ];
     }
@@ -350,7 +378,7 @@ export default function FinancesPage() {
     <div>
       <div className="mb-6 flex items-start justify-between gap-4 flex-wrap">
         <div>
-          <h1 className="text-xl font-bold text-gray-900">Finances — {new Date().getFullYear()}</h1>
+          <h1 className="text-xl font-bold text-gray-900">Finances — {anneeLabel || new Date().getFullYear()}</h1>
           {nomClub && <p className="text-sm text-gray-500 mt-0.5">{nomClub}</p>}
         </div>
         <div className="flex gap-2">

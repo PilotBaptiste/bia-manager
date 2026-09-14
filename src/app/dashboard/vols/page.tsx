@@ -33,6 +33,10 @@ export default function VolsPage() {
   const { selectedAnneeId, activeAnneeId, annees } = useYear();
   // anneeId = active year used when creating new slots
   const anneeId = activeAnneeId;
+  const activeAnneeLabel = annees.find((a: any) => a.id === activeAnneeId)?.label;
+  // 2027+ = label starts with "2027" or later → individual numbers mandatory
+  const is2027Plus = !!(activeAnneeLabel && parseInt(activeAnneeLabel.split(/[-/]/)[0]) >= 2027);
+  const todayParis = () => new Date().toLocaleDateString("en-CA", { timeZone: "Europe/Paris" });
   const [creneaux, setCreneaux] = useState<any[]>([]);
   const [volsHisto, setVolsHisto] = useState<any[]>([]);
   const [aeronefs, setAeronefs] = useState<any[]>([]);
@@ -45,7 +49,10 @@ export default function VolsPage() {
   const [profile, setProfile] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [mode, setMode] = useState<"list" | "calendar" | "historique" | "statistiques">("list");
-  const [calMonth, setCalMonth] = useState(new Date().getMonth());
+  const [calYM, setCalYM] = useState(() => {
+    const d = new Date();
+    return { year: d.getFullYear(), month: d.getMonth() };
+  });
   const [showCreate, setShowCreate] = useState(false);
   const [showDetail, setShowDetail] = useState<any>(null);
   const [showClose, setShowClose] = useState<any>(null);
@@ -123,18 +130,21 @@ export default function VolsPage() {
       .order("nom");
     if (selectedAnneeId) elevesQuery = elevesQuery.eq("annee_id", selectedAnneeId);
 
+    let volsQuery = supabase
+      .from("vols_effectues")
+      .select(
+        "*, creneau:creneaux!inner(date_vol,heure_debut,heure_fin,pilote_id,aeronef_id,etablissement_id,annee_id,pilote:profiles!pilote_id(nom,prenom),aeronef:aeronefs(type_aeronef,immatriculation,nb_places_eleves),etablissement:etablissements(nom),reservations(id,type_vol,statut,eleve:eleves(id,nom,prenom)))",
+      )
+      .order("created_at", { ascending: false });
+    if (selectedAnneeId) volsQuery = volsQuery.eq("creneau.annee_id", selectedAnneeId);
+
     const [profRes, crRes, aRes, eRes, vhRes, pRes, qRes, peRes, elRes] =
       await Promise.all([
         supabase.from("profiles").select("*").eq("id", user.id).single(),
         creneauxQuery,
         supabase.from("aeronefs").select("*").eq("actif", true),
         supabase.from("etablissements").select("*").eq("actif", true),
-        supabase
-          .from("vols_effectues")
-          .select(
-            "*, creneau:creneaux(date_vol,heure_debut,heure_fin,pilote_id,aeronef_id,etablissement_id,pilote:profiles!pilote_id(nom,prenom),aeronef:aeronefs(type_aeronef,immatriculation),etablissement:etablissements(nom),reservations(id,type_vol,statut,eleve:eleves(id,nom,prenom)))",
-          )
-          .order("created_at", { ascending: false }),
+        volsQuery,
         supabase
           .from("profiles")
           .select("id, nom, prenom, email, telephone")
@@ -269,7 +279,7 @@ export default function VolsPage() {
       setError("Date et aéronef obligatoires.");
       return;
     }
-    if (form.date_vol < new Date().toISOString().slice(0, 10)) {
+    if (form.date_vol < todayParis()) {
       setError("La date du vol ne peut pas être dans le passé.");
       return;
     }
@@ -376,9 +386,10 @@ export default function VolsPage() {
   function handleCloseFlight() {
     setError(null);
     const nbActive = (showClose?.reservations || []).filter((r: any) => r.statut !== "annule").length;
-    const needsAerogest = closeForm.useIndividualAerogest
-      ? closeForm.numeros_aerogest.slice(0, nbActive).some(n => !n.trim())
-      : !closeForm.numero_aerogest;
+    const indiv = closeForm.useIndividualAerogest || (is2027Plus && nbActive >= 2);
+    const needsAerogest = indiv
+      ? Array.from({ length: nbActive }, (_, i) => closeForm.numeros_aerogest[i] || "").some(n => !n.trim())
+      : !closeForm.numero_aerogest.trim();
     if (
       needsAerogest ||
       !closeForm.temps_vol_minutes ||
@@ -401,32 +412,42 @@ export default function VolsPage() {
     const activeRes = (showClose.reservations || []).filter(
       (r: any) => r.statut !== "annule",
     );
-    const useMulti = closeForm.useIndividualAerogest && closeForm.numeros_aerogest.filter(n => n.trim()).length > 1;
-    const numerosArray = useMulti ? closeForm.numeros_aerogest.slice(0, activeRes.length).map(n => n.trim()) : null;
+    const useMulti = closeForm.useIndividualAerogest || (is2027Plus && activeRes.length >= 2);
+    const numerosArray = useMulti
+      ? Array.from({ length: activeRes.length }, (_, i) => (closeForm.numeros_aerogest[i] || "").trim())
+      : null;
+    const fail = (message: string, reload: boolean) => {
+      setSaving(false);
+      toast.error(message);
+      if (reload) load();
+    };
 
-    await supabase
+    const { error: volErr } = await supabase
       .from("vols_effectues")
       .insert({
         creneau_id: showClose.id,
-        numero_aerogest: useMulti ? null : closeForm.numero_aerogest,
+        numero_aerogest: useMulti ? null : closeForm.numero_aerogest.trim(),
         numeros_aerogest: numerosArray,
         temps_vol_minutes: parseInt(closeForm.temps_vol_minutes),
         nb_eleves:
-          parseInt(closeForm.nb_eleves) || showClose.reservations?.length || 0,
+          parseInt(closeForm.nb_eleves) || activeRes.length || 0,
         prix_total: parseFloat(closeForm.prix_total),
         notes: closeForm.notes || null,
         valide_par: profile.id,
       });
-    await supabase
+    if (volErr) return fail(volErr.message, false);
+    const { error: crErr } = await supabase
       .from("creneaux")
       .update({ statut: "termine" })
       .eq("id", showClose.id);
+    if (crErr) return fail(crErr.message, true);
     for (let idx = 0; idx < activeRes.length; idx++) {
       const r = activeRes[idx];
-      await supabase
+      const { error: resErr } = await supabase
         .from("reservations")
         .update({ statut: "effectue" })
         .eq("id", r.id);
+      if (resErr) return fail(resErr.message, true);
       if (r.eleve?.id) {
         const prixParEleve =
           parseFloat(closeForm.prix_total) / Math.max(activeRes.length, 1);
@@ -437,9 +458,9 @@ export default function VolsPage() {
           : "";
         const eleveAerogest = useMulti
           ? (numerosArray?.[idx] || null)
-          : (closeForm.numero_aerogest || null);
-        if (r.type_vol === 2) {
-          await supabase
+          : (closeForm.numero_aerogest.trim() || null);
+        const { error: elErr } = r.type_vol === 2
+          ? await supabase
             .from("eleves")
             .update({
               vol2_effectue: true,
@@ -449,9 +470,8 @@ export default function VolsPage() {
               vol2_pilote_nom: piloteNom,
               vol2_numero_aerogest: eleveAerogest,
             })
-            .eq("id", r.eleve.id);
-        } else {
-          await supabase
+            .eq("id", r.eleve.id)
+          : await supabase
             .from("eleves")
             .update({
               vol1_effectue: true,
@@ -462,7 +482,7 @@ export default function VolsPage() {
               vol1_numero_aerogest: eleveAerogest,
             })
             .eq("id", r.eleve.id);
-        }
+        if (elErr) return fail(elErr.message, true);
       }
     }
     setSaving(false);
@@ -496,9 +516,11 @@ export default function VolsPage() {
     const parents = getAffectedParents(slot);
     const pilotNom = slot?.pilote ? `${slot.pilote.prenom} ${slot.pilote.nom}` : "";
     if (motif) {
-      await supabase.from("creneaux").update({ motif_annulation: motif }).eq("id", id);
+      const { error: motifErr } = await supabase.from("creneaux").update({ motif_annulation: motif }).eq("id", id);
+      if (motifErr) { toast.error(motifErr.message); return; }
     }
-    await supabase.from("creneaux").delete().eq("id", id);
+    const { error: delErr } = await supabase.from("creneaux").delete().eq("id", id);
+    if (delErr) { toast.error(delErr.message); return; }
     toast.success("Créneau supprimé");
     setShowDetail(null);
     if (parents.length > 0) {
@@ -535,8 +557,10 @@ export default function VolsPage() {
   async function doCancelSlot(id: string, slot: any, motif?: string) {
     const parents = getAffectedParents(slot);
     const pilotNom = slot?.pilote ? `${slot.pilote.prenom} ${slot.pilote.nom}` : "";
-    await supabase.from("creneaux").update({ statut: "annule", ...(motif ? { motif_annulation: motif } : {}) }).eq("id", id);
-    await supabase.from("reservations").update({ statut: "annule" }).eq("creneau_id", id).neq("statut", "annule");
+    const { error: crErr } = await supabase.from("creneaux").update({ statut: "annule", ...(motif ? { motif_annulation: motif } : {}) }).eq("id", id);
+    if (crErr) { toast.error(crErr.message); return; }
+    const { error: resErr } = await supabase.from("reservations").update({ statut: "annule" }).eq("creneau_id", id).neq("statut", "annule");
+    if (resErr) { toast.error(resErr.message); load(); return; }
     toast.success("Créneau annulé");
     setShowDetail(null);
     if (parents.length > 0) {
@@ -575,6 +599,22 @@ export default function VolsPage() {
       toast.error("L'heure de fin doit être après l'heure de début");
       return;
     }
+    if (!updated.pilote_id || !updated.aeronef_id) {
+      toast.error("Pilote et aéronef obligatoires");
+      return;
+    }
+    // Only enforce on change: a qualification removed later must not block editing notes/hours
+    const crewChanged = updated.pilote_id !== showEditSlot.pilote_id || updated.aeronef_id !== showEditSlot.aeronef_id;
+    if (crewChanged && !getQualifiedAeronefs(updated.pilote_id).some((a) => a.id === updated.aeronef_id)) {
+      toast.error("Ce pilote n'est pas qualifié sur cet aéronef");
+      return;
+    }
+    const newAeronef = aeronefs.find((a: any) => a.id === updated.aeronef_id);
+    const nbActiveRes = (showEditSlot.reservations || []).filter((r: any) => r.statut !== "annule").length;
+    if (newAeronef?.nb_places_eleves != null && newAeronef.nb_places_eleves < nbActiveRes) {
+      toast.error(`Capacité insuffisante : ${nbActiveRes} élève(s) inscrit(s) pour ${newAeronef.nb_places_eleves} place(s)`);
+      return;
+    }
     // Check overlap (excluding this slot itself)
     const editOverlap = creneaux.find((c) => {
       if (c.id === updated.id) return false;
@@ -596,16 +636,13 @@ export default function VolsPage() {
     }
     // Collect affected parents from original slot BEFORE updating
     const parents = getAffectedParents(showEditSlot);
-    // Build merged eleves_autorises from elevesByEtab (if user changed per-etab selection)
+    // Build merged eleves_autorises from elevesByEtab (pre-filled from the slot's existing restriction)
     const allEleveAut: string[] = [];
     for (const etabId of (updated.etablissements || [])) {
       const ea = (updated.elevesByEtab || {})[etabId];
       if (ea?.length > 0) allEleveAut.push(...ea);
     }
-    // If user didn't touch per-etab eleves keep existing flat list
-    const eleveAut = allEleveAut.length > 0
-      ? allEleveAut
-      : (updated.eleves_autorises?.length > 0 ? updated.eleves_autorises : null);
+    const eleveAut = allEleveAut.length > 0 ? allEleveAut : null;
     const etabIds = updated.etablissements?.length > 0 ? updated.etablissements : null;
     const singleEtabId = updated.etablissements?.length === 1 ? updated.etablissements[0] : null;
     setSaving(true);
@@ -619,6 +656,7 @@ export default function VolsPage() {
       pilote_id: updated.pilote_id,
       notes_pilote: updated.notes_pilote || null,
       eleves_autorises: eleveAut,
+      ...(newAeronef ? { places_disponibles: newAeronef.nb_places_eleves || 2 } : {}),
     }).eq("id", updated.id);
     setSaving(false);
     if (err) { toast.error(err.message); return; }
@@ -784,8 +822,10 @@ export default function VolsPage() {
           reminder: true,
         }),
       });
-      const data = await res.json();
-      if (data.sent > 0) {
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        toast.error(data.error || "Erreur lors de l'envoi");
+      } else if (data.sent > 0) {
         toast.success(`${data.sent} parent(s) notifié(s)`);
         // Refresh email logs for this slot
         fetch(`/api/email/logs?creneau_id=${slot.id}`)
@@ -804,7 +844,8 @@ export default function VolsPage() {
 
   async function doRemoveEleve(rid: string, name: string, motif?: string) {
     const removedRes = (showDetail?.reservations || []).find((r: any) => r.id === rid);
-    await supabase.from("reservations").update({ statut: "annule", ...(motif ? { motif_annulation: motif } : {}) }).eq("id", rid);
+    const { error: remErr } = await supabase.from("reservations").update({ statut: "annule", ...(motif ? { motif_annulation: motif } : {}) }).eq("id", rid);
+    if (remErr) { toast.error(remErr.message); return; }
     toast.success(`${name} retiré du créneau`);
     if (removedRes?.eleve?.parent_email) {
       fetch("/api/email", {
@@ -848,6 +889,17 @@ export default function VolsPage() {
   }
   async function handleAddEleve(eleveId: string, typeVol: 1 | 2) {
     if (!showDetail) return;
+    const { count: activeCount, error: countErr } = await supabase
+      .from("reservations")
+      .select("id", { count: "exact", head: true })
+      .eq("creneau_id", showDetail.id)
+      .neq("statut", "annule");
+    if (countErr) { toast.error(countErr.message); return; }
+    const capacity = showDetail.aeronef?.nb_places_eleves
+      ?? aeronefs.find((a: any) => a.id === showDetail.aeronef_id)?.nb_places_eleves
+      ?? showDetail.places_disponibles
+      ?? 1;
+    if ((activeCount ?? 0) >= capacity) { toast.error("Créneau complet"); return; }
     // Check if a cancelled reservation already exists (reactivate it)
     const { data: existing } = await supabase
       .from("reservations")
@@ -892,18 +944,20 @@ export default function VolsPage() {
 
   async function doDeleteHisto(v: any) {
     // Reset vol flags on linked eleves
-    const reservations = (v.creneau?.reservations || []).filter((r: any) => r.eleve?.id);
+    const reservations = (v.creneau?.reservations || []).filter((r: any) => r.eleve?.id && r.statut !== "annule");
     for (const r of reservations) {
-      if (r.type_vol === 2) {
-        await supabase.from("eleves").update({ vol2_effectue: false, vol2_numero_aerogest: null, vol2_temps_minutes: null, vol2_aeronef_id: null, vol2_prix: null, vol2_pilote_nom: null }).eq("id", r.eleve.id);
-      } else {
-        await supabase.from("eleves").update({ vol1_effectue: false, vol1_numero_aerogest: null, vol1_temps_minutes: null, vol1_aeronef_id: null, vol1_prix: null, vol1_pilote_nom: null }).eq("id", r.eleve.id);
-      }
-      await supabase.from("reservations").update({ statut: "reserve" }).eq("id", r.id);
+      const { error: elErr } = r.type_vol === 2
+        ? await supabase.from("eleves").update({ vol2_effectue: false, vol2_numero_aerogest: null, vol2_temps_minutes: null, vol2_aeronef_id: null, vol2_prix: null, vol2_pilote_nom: null }).eq("id", r.eleve.id)
+        : await supabase.from("eleves").update({ vol1_effectue: false, vol1_numero_aerogest: null, vol1_temps_minutes: null, vol1_aeronef_id: null, vol1_prix: null, vol1_pilote_nom: null }).eq("id", r.eleve.id);
+      if (elErr) { toast.error(elErr.message); load(); return; }
+      const { error: resErr } = await supabase.from("reservations").update({ statut: "reserve" }).eq("id", r.id);
+      if (resErr) { toast.error(resErr.message); load(); return; }
     }
     // Reopen the creneau
-    await supabase.from("creneaux").update({ statut: "ouvert" }).eq("id", v.creneau_id);
-    await supabase.from("vols_effectues").delete().eq("id", v.id);
+    const { error: crErr } = await supabase.from("creneaux").update({ statut: "ouvert" }).eq("id", v.creneau_id);
+    if (crErr) { toast.error(crErr.message); load(); return; }
+    const { error: delErr } = await supabase.from("vols_effectues").delete().eq("id", v.id);
+    if (delErr) { toast.error(delErr.message); load(); return; }
     toast.success("Entrée supprimée");
     load();
   }
@@ -912,10 +966,12 @@ export default function VolsPage() {
     const vol1Ids = group.ids.filter((id) => id.endsWith("_vol1")).map((id) => id.replace("_vol1", ""));
     const vol2Ids = group.ids.filter((id) => id.endsWith("_vol2")).map((id) => id.replace("_vol2", ""));
     if (vol1Ids.length) {
-      await supabase.from("eleves").update({ vol1_effectue: false, vol1_numero_aerogest: null, vol1_temps_minutes: null, vol1_aeronef_id: null, vol1_prix: null, vol1_pilote_nom: null }).in("id", vol1Ids);
+      const { error: e1 } = await supabase.from("eleves").update({ vol1_effectue: false, vol1_numero_aerogest: null, vol1_temps_minutes: null, vol1_aeronef_id: null, vol1_prix: null, vol1_pilote_nom: null }).in("id", vol1Ids);
+      if (e1) { toast.error(e1.message); return; }
     }
     if (vol2Ids.length) {
-      await supabase.from("eleves").update({ vol2_effectue: false, vol2_numero_aerogest: null, vol2_temps_minutes: null, vol2_aeronef_id: null, vol2_prix: null, vol2_pilote_nom: null }).in("id", vol2Ids);
+      const { error: e2 } = await supabase.from("eleves").update({ vol2_effectue: false, vol2_numero_aerogest: null, vol2_temps_minutes: null, vol2_aeronef_id: null, vol2_prix: null, vol2_pilote_nom: null }).in("id", vol2Ids);
+      if (e2) { toast.error(e2.message); load(); return; }
     }
     toast.success("Entrée supprimée");
     load();
@@ -1045,7 +1101,8 @@ export default function VolsPage() {
     "Novembre",
     "Decembre",
   ];
-  const cY = new Date().getFullYear(),
+  const cY = calYM.year,
+    calMonth = calYM.month,
     dIM = new Date(cY, calMonth + 1, 0).getDate(),
     fD = (new Date(cY, calMonth, 1).getDay() + 6) % 7;
   const cD: (number | null)[] = [];
@@ -1053,9 +1110,8 @@ export default function VolsPage() {
   for (let d = 1; d <= dIM; d++) cD.push(d);
   const fBD: Record<number, any[]> = {};
   filteredDisplayed.forEach((c) => {
-    const d = new Date(c.date_vol);
-    if (d.getMonth() === calMonth && d.getFullYear() === cY) {
-      const day = d.getDate();
+    const [y, m, day] = (c.date_vol || "").split("-").map(Number);
+    if (m - 1 === calMonth && y === cY) {
       if (!fBD[day]) fBD[day] = [];
       fBD[day].push(c);
     }
@@ -1232,7 +1288,7 @@ export default function VolsPage() {
                                   if (el.bia_resultat === "Non admis") return false;
                                   // Pour les non-SA : masquer les élèves dont la date BIA est passée sans avoir fait Vol 1
                                   if (!isSA) {
-                                    const today = new Date().toISOString().split("T")[0];
+                                    const today = todayParis();
                                     if (!el.vol1_effectue && !el.vol1_skippe && biaExamDate && biaExamDate < today) return false;
                                   }
                                   return true;
@@ -1520,7 +1576,7 @@ export default function VolsPage() {
                   if ((e.vol1_effectue || e.vol1_skippe) && !e.vol2_autorise) return false;
                   if (e.bia_resultat === "Non admis") return false;
                   if (!isSA) {
-                    const today = new Date().toISOString().split("T")[0];
+                    const today = todayParis();
                     if (!e.vol1_effectue && !e.vol1_skippe && biaExamDate && biaExamDate < today) return false;
                   }
                   if (showDetail.etablissement_id && e.etablissement_id !== showDetail.etablissement_id) return false;
@@ -1616,7 +1672,13 @@ export default function VolsPage() {
                           setShowDetail(null);
                           setShowClose(showDetail);
                           setCloseForm({
-                            ...closeForm,
+                            numero_aerogest: "",
+                            numeros_aerogest: [],
+                            useIndividualAerogest: false,
+                            temps_vol_minutes: "",
+                            prix_total: "",
+                            notes: "",
+                            pilote_override: "",
                             nb_eleves: String(
                               showDetail.reservations?.filter(
                                 (r: any) => r.statut !== "annule",
@@ -1633,22 +1695,20 @@ export default function VolsPage() {
                       <button
                         onClick={() => {
                           setShowDetail(null);
-                          // Pre-populate elevesByEtab from existing active reservations
-                          const elevesByEtabFromResas: Record<string, string[]> = {};
-                          for (const res of showDetail.reservations || []) {
-                            if (res.statut === "annule" || !res.eleve?.id) continue;
-                            const eleveData = eleves.find((el: any) => el.id === res.eleve.id);
-                            const etabId = eleveData?.etablissement_id;
+                          // Pre-populate elevesByEtab from the slot's existing restriction (not from bookings)
+                          const elevesByEtabFromAut: Record<string, string[]> = {};
+                          for (const eleveId of (showDetail.eleves_autorises || []) as string[]) {
+                            const etabId = eleves.find((el: any) => el.id === eleveId)?.etablissement_id;
                             if (!etabId) continue;
-                            if (!elevesByEtabFromResas[etabId]) elevesByEtabFromResas[etabId] = [];
-                            elevesByEtabFromResas[etabId].push(res.eleve.id);
+                            if (!elevesByEtabFromAut[etabId]) elevesByEtabFromAut[etabId] = [];
+                            elevesByEtabFromAut[etabId].push(eleveId);
                           }
                           setShowEditSlot({
                             ...showDetail,
                             etablissements: showDetail.etablissement_ids?.length > 0
                               ? showDetail.etablissement_ids
                               : (showDetail.etablissement_id ? [showDetail.etablissement_id] : []),
-                            elevesByEtab: elevesByEtabFromResas,
+                            elevesByEtab: elevesByEtabFromAut,
                             eleves_autorises: showDetail.eleves_autorises || [],
                           });
                         }}
@@ -1772,9 +1832,6 @@ export default function VolsPage() {
               {(() => {
                 const activeRes = (showClose?.reservations || []).filter((r: any) => r.statut !== "annule");
                 const canMulti = activeRes.length >= 2;
-                const activeAnnee = annees.find((a: any) => a.id === activeAnneeId);
-                // 2027+ = label starts with "2027" or later → individual numbers mandatory
-                const is2027Plus = !!(activeAnnee?.label && parseInt(activeAnnee.label.split(/[-/]/)[0]) >= 2027);
                 return (
                   <div className="space-y-2">
                     <div className="flex items-center justify-between">
@@ -1933,7 +1990,15 @@ export default function VolsPage() {
               {isSA && (
                 <div>
                   <label className="label">Pilote</label>
-                  <select value={showEditSlot.pilote_id} onChange={(e) => setShowEditSlot({ ...showEditSlot, pilote_id: e.target.value })} className="select">
+                  <select
+                    value={showEditSlot.pilote_id}
+                    onChange={(e) => {
+                      const pid = e.target.value;
+                      const stillQualified = getQualifiedAeronefs(pid).some((a) => a.id === showEditSlot.aeronef_id);
+                      setShowEditSlot({ ...showEditSlot, pilote_id: pid, aeronef_id: stillQualified ? showEditSlot.aeronef_id : "" });
+                    }}
+                    className="select"
+                  >
                     <option value="">— Choisir —</option>
                     {pilotes.map((p) => <option key={p.id} value={p.id}>{p.prenom} {p.nom}</option>)}
                   </select>
@@ -1951,10 +2016,7 @@ export default function VolsPage() {
                 <label className="label">Aéronef</label>
                 <select value={showEditSlot.aeronef_id} onChange={(e) => setShowEditSlot({ ...showEditSlot, aeronef_id: e.target.value })} className="select">
                   <option value="">— Choisir —</option>
-                  {(showEditSlot.pilote_id
-                    ? (getQualifiedAeronefs(showEditSlot.pilote_id).length > 0 ? getQualifiedAeronefs(showEditSlot.pilote_id) : aeronefs)
-                    : aeronefs
-                  ).map((a: any) => <option key={a.id} value={a.id}>{a.type_aeronef} ({a.immatriculation}) — {a.prix_heure}E/h</option>)}
+                  {(showEditSlot.pilote_id ? getQualifiedAeronefs(showEditSlot.pilote_id) : aeronefs).map((a: any) => <option key={a.id} value={a.id}>{a.type_aeronef} ({a.immatriculation}) — {a.prix_heure}E/h</option>)}
                 </select>
               </div>
               {/* Établissements — multi-select, même UI que la création */}
@@ -2006,7 +2068,7 @@ export default function VolsPage() {
                                   if ((el.vol1_effectue || el.vol1_skippe) && !el.vol2_autorise) return false;
                                   if (el.bia_resultat === "Non admis") return false;
                                   if (!isSA) {
-                                    const today = new Date().toISOString().split("T")[0];
+                                    const today = todayParis();
                                     if (!el.vol1_effectue && !el.vol1_skippe && biaExamDate && biaExamDate < today) return false;
                                   }
                                   // Keep: not busy, OR already on this specific slot
@@ -2371,8 +2433,9 @@ export default function VolsPage() {
                 className="select text-sm py-1.5"
               >
                 <option value="">Tous</option>
-                <option value="planifie">Planifié</option>
+                <option value="ouvert">Ouvert</option>
                 <option value="confirme">Confirmé</option>
+                <option value="complet">Complet</option>
                 <option value="termine">Terminé</option>
                 <option value="annule">Annulé</option>
               </select>
@@ -2672,13 +2735,13 @@ export default function VolsPage() {
         return (
           <div className="card p-0 overflow-hidden">
             <div className="flex items-center justify-between px-3 py-3 border-b border-gray-100">
-              <button onClick={() => setCalMonth((m) => Math.max(0, m - 1))}
+              <button onClick={() => setCalYM(({ year, month }) => (month === 0 ? { year: year - 1, month: 11 } : { year, month: month - 1 }))}
                 className="p-2 rounded-lg bg-brand-50 text-brand-600 hover:bg-brand-100 font-bold text-base shrink-0">‹</button>
               <div className="flex flex-col items-center gap-1">
                 <span className="text-sm font-bold text-gray-900">{mN[calMonth]} {cY}</span>
                 <ViewToggle current="month" />
               </div>
-              <button onClick={() => setCalMonth((m) => Math.min(11, m + 1))}
+              <button onClick={() => setCalYM(({ year, month }) => (month === 11 ? { year: year + 1, month: 0 } : { year, month: month + 1 }))}
                 className="p-2 rounded-lg bg-brand-50 text-brand-600 hover:bg-brand-100 font-bold text-base shrink-0">›</button>
             </div>
             <div className="grid grid-cols-7">
@@ -2720,7 +2783,7 @@ export default function VolsPage() {
       {/* HISTORIQUE */}
       {mode === "historique" && (isSA || isPilote) && (() => {
         // Aerogest numbers already covered by vols_effectues
-        const aerogestInVols = new Set<string>(volsHisto.map((v: any) => v.numero_aerogest).filter(Boolean));
+        const aerogestInVols = new Set<string>(volsHisto.flatMap((v: any) => [v.numero_aerogest, ...(v.numeros_aerogest || [])]).filter(Boolean));
 
         // Build manual groups from eleve vol1/vol2 fields (grouped by numero_aerogest, excluding those already in vols_effectues)
         const manualByAerogest: Record<string, { ids: string[]; noms: string[]; numero_aerogest: string; prix_total: number; temps: number | null; pilote: string; aeronef_label: string; etab_ids: string[] }> = {};
@@ -2931,7 +2994,7 @@ export default function VolsPage() {
       })()}
       {/* STATISTIQUES */}
       {mode === "statistiques" && isSA && (() => {
-        const aerogestInHisto = new Set<string>(volsHisto.map((v: any) => v.numero_aerogest).filter(Boolean));
+        const aerogestInHisto = new Set<string>(volsHisto.flatMap((v: any) => [v.numero_aerogest, ...(v.numeros_aerogest || [])]).filter(Boolean));
 
         // Stats from vols_effectues (closed vols)
         let totalVolsEffectues = 0;
@@ -2945,28 +3008,28 @@ export default function VolsPage() {
         for (const v of volsHisto) {
           const nbPax = (v.numeros_aerogest?.length || 0) > 1 ? v.numeros_aerogest.length : (v.nb_eleves || 1);
           const tpsTotal = v.temps_vol_minutes || 0;
-          const tpsParEleve = nbPax > 1 ? Math.round(tpsTotal / nbPax) : tpsTotal;
           totalVolsEffectues++;
           totalElevesTrans += nbPax;
-          totalMinutes += tpsParEleve;
+          totalMinutes += tpsTotal;
 
-          const aeronef = aeronefs.find((a: any) => a.id === v.creneau?.aeronef_id);
-          const places = aeronef?.nb_places_eleves || 1;
+          const places = v.creneau?.aeronef?.nb_places_eleves
+            || aeronefs.find((a: any) => a.id === v.creneau?.aeronef_id)?.nb_places_eleves
+            || 1;
           const aeronefLabel = v.creneau?.aeronef ? `${v.creneau.aeronef.type_aeronef} (${v.creneau.aeronef.immatriculation})` : "Inconnu";
           if (!aeronefStats[aeronefLabel]) aeronefStats[aeronefLabel] = { label: aeronefLabel, nbVols: 0, nbEleves: 0, totalMin: 0, places };
           aeronefStats[aeronefLabel].nbVols++;
           aeronefStats[aeronefLabel].nbEleves += nbPax;
-          aeronefStats[aeronefLabel].totalMin += tpsParEleve;
+          aeronefStats[aeronefLabel].totalMin += tpsTotal;
 
           if (!placeStats[places]) placeStats[places] = { nbVols: 0, nbEleves: 0, totalMin: 0 };
           placeStats[places].nbVols++;
           placeStats[places].nbEleves += nbPax;
-          placeStats[places].totalMin += tpsParEleve;
+          placeStats[places].totalMin += tpsTotal;
 
           const pNom = v.creneau?.pilote ? `${v.creneau.pilote.prenom} ${v.creneau.pilote.nom}` : "Inconnu";
           if (!piloteStatsTab[pNom]) piloteStatsTab[pNom] = { nom: pNom, nbVols: 0, totalMin: 0 };
           piloteStatsTab[pNom].nbVols++;
-          piloteStatsTab[pNom].totalMin += tpsParEleve;
+          piloteStatsTab[pNom].totalMin += tpsTotal;
 
           const etabNom = v.creneau?.etablissement?.nom || "Indéterminé";
           if (!etabStatsTab[etabNom]) etabStatsTab[etabNom] = { nom: etabNom, nbVols: 0, nbEleves: 0 };
@@ -2989,20 +3052,18 @@ export default function VolsPage() {
         for (const e of eleves) {
           if (e.vol1_effectue && e.vol1_numero_aerogest && !aerogestInHisto.has(e.vol1_numero_aerogest) && !seenManual.has(e.vol1_numero_aerogest)) {
             seenManual.add(e.vol1_numero_aerogest);
-            const n = manualAerogestCount[e.vol1_numero_aerogest] || 1;
-            if (e.vol1_temps_minutes) manualMin += Math.round(e.vol1_temps_minutes / n);
+            if (e.vol1_temps_minutes) manualMin += e.vol1_temps_minutes;
           }
           if (e.vol2_effectue && e.vol2_numero_aerogest && !aerogestInHisto.has(e.vol2_numero_aerogest) && !seenManual.has(e.vol2_numero_aerogest)) {
             seenManual.add(e.vol2_numero_aerogest);
-            const n = manualAerogestCount[e.vol2_numero_aerogest] || 1;
-            if (e.vol2_temps_minutes) manualMin += Math.round(e.vol2_temps_minutes / n);
+            if (e.vol2_temps_minutes) manualMin += e.vol2_temps_minutes;
           }
         }
 
         const grandVols = totalVolsEffectues + manualVolCount;
         const grandEleves = totalElevesTrans + manualEleveCount;
         const grandMin = Math.round(totalMinutes + manualMin);
-        const avgMin = grandVols > 0 ? Math.round(grandMin / grandEleves) : 0;
+        const avgMin = grandEleves > 0 ? Math.round(grandMin / grandEleves) : 0;
         const fmt = (m: number) => `${Math.floor(m / 60)}h${String(m % 60).padStart(2, "0")}`;
 
         return (
@@ -3012,8 +3073,8 @@ export default function VolsPage() {
               {[
                 { l: "Vols clôturés", v: grandVols, s: `${totalVolsEffectues} system · ${manualVolCount} manuels` },
                 { l: "Élèves transportés", v: grandEleves, s: "vols individuels comptés" },
-                { l: "Temps total", v: fmt(grandMin), s: "corrigé x2/x3" },
-                { l: "Moy. par élève", v: `${avgMin} min`, s: "temps de vol corrigé" },
+                { l: "Temps total", v: fmt(grandMin), s: "temps de vol réel" },
+                { l: "Moy. par élève", v: `${avgMin} min`, s: "temps total / élèves" },
               ].map((c, i) => (
                 <div key={i} className="card">
                   <p className="text-xs text-gray-500 mb-1">{c.l}</p>
@@ -3030,7 +3091,8 @@ export default function VolsPage() {
               </h2>
               <div className="flex gap-3 flex-wrap mb-4">
                 {Object.entries(placeStats).sort((a, b) => parseInt(a[0]) - parseInt(b[0])).map(([places, s]) => {
-                  const label = parseInt(places) === 1 ? "Monoplace" : parseInt(places) === 2 ? "Biplace" : `${places} places`;
+                  const n = parseInt(places);
+                  const label = n === 1 ? "Biplace" : n === 3 ? "Quadriplace" : `${n + 1} places`;
                   return (
                     <div key={places} className="flex-1 min-w-[120px] p-3 bg-gray-50 rounded-xl border border-gray-200">
                       <p className="text-xs font-semibold text-gray-500">{label}</p>

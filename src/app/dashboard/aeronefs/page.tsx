@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { toast } from "sonner";
 import { Settings, Plus, Edit, Loader2, X, History, ChevronDown, ChevronUp } from "lucide-react";
 import type { Aeronef, PrixHeureLigne } from "@/types";
 
@@ -34,17 +35,30 @@ export default function AeronefsPage() {
   }
 
   async function handleSave() {
-    if (!form.immatriculation.trim() || !form.type_aeronef.trim() || !form.prix_heure) return;
-    setSaving(true);
+    if (!form.immatriculation.trim() || !form.type_aeronef.trim() || !form.prix_heure) {
+      toast.error("Immatriculation, type et prix / heure sont obligatoires");
+      return;
+    }
     const newPrix = parseFloat(form.prix_heure);
+    const nbPlaces = parseInt(form.nb_places_eleves, 10);
+    if (!Number.isFinite(newPrix) || newPrix < 0) {
+      toast.error("Le prix / heure doit être un nombre valide");
+      return;
+    }
+    if (!Number.isInteger(nbPlaces) || nbPlaces < 1) {
+      toast.error("Le nombre de places élèves doit être un entier supérieur ou égal à 1");
+      return;
+    }
+    setSaving(true);
     const payload: any = {
       immatriculation: form.immatriculation.trim(),
       type_aeronef: form.type_aeronef.trim(),
-      nb_places_eleves: parseInt(form.nb_places_eleves),
+      nb_places_eleves: nbPlaces,
       prix_heure: newPrix,
       actif: form.actif,
     };
 
+    let error: any = null;
     if (editing) {
       // Si le prix a changé, archiver l'ancien dans l'historique
       if (newPrix !== editing.prix_heure) {
@@ -56,12 +70,17 @@ export default function AeronefsPage() {
         };
         payload.prix_heure_historique = [newEntry, ...existingHistory];
       }
-      await supabase.from("aeronefs").update(payload).eq("id", editing.id);
+      ({ error } = await supabase.from("aeronefs").update(payload).eq("id", editing.id));
     } else {
       payload.prix_heure_historique = [];
-      await supabase.from("aeronefs").insert(payload);
+      ({ error } = await supabase.from("aeronefs").insert(payload));
     }
     setSaving(false);
+    if (error) {
+      toast.error(`Erreur lors de l'enregistrement : ${error.message}`);
+      return;
+    }
+    toast.success(editing ? "Aéronef mis à jour" : "Aéronef créé");
     setShowForm(false);
     load();
   }

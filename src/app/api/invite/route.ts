@@ -1,14 +1,30 @@
 import { createClient } from "@supabase/supabase-js";
 import { Resend } from "resend";
 import { NextResponse } from "next/server";
+import { createServerSupabaseClient } from "@/lib/supabase/server";
+
+const STAFF_ROLES = ["superadmin", "coordinateur", "gerant"];
+const escHtml = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 
 export async function POST(req: Request) {
   try {
-  const { email, nom, prenom } = await req.json();
+  const payload = await req.json();
+  const email = String(payload.email || "").trim().toLowerCase();
 
   if (!email) {
     return NextResponse.json({ error: "email obligatoire" }, { status: 400 });
   }
+
+  // Public callers (forgot password) may only trigger a recovery email for an existing account.
+  const session = await createServerSupabaseClient();
+  const { data: { user: caller } } = await session.auth.getUser();
+  let isStaff = false;
+  if (caller) {
+    const { data: prof } = await session.from("profiles").select("roles").eq("id", caller.id).single();
+    isStaff = (prof?.roles || []).some((r: string) => STAFF_ROLES.includes(r));
+  }
+  const nom = isStaff && payload.nom ? escHtml(String(payload.nom)) : "";
+  const prenom = isStaff && payload.prenom ? escHtml(String(payload.prenom)) : "";
 
   if (!process.env.SUPABASE_SERVICE_ROLE_KEY) {
     return NextResponse.json({ error: "SUPABASE_SERVICE_ROLE_KEY manquant dans les variables d'environnement Vercel" }, { status: 500 });
@@ -35,8 +51,11 @@ export async function POST(req: Request) {
     options: { redirectTo },
   });
 
+  if (recovery.error && !isStaff) {
+    return NextResponse.json({ success: true });
+  }
+
   if (recovery.error) {
-    // User doesn't have an auth account yet — create it via invite
     const invite = await supabase.auth.admin.generateLink({
       type: "invite",
       email,
@@ -54,7 +73,7 @@ export async function POST(req: Request) {
   }
 
   const resetLink = linkData.properties.action_link;
-  const displayName = nom && prenom ? `${prenom} ${nom}` : email;
+  const displayName = nom && prenom ? `${prenom} ${nom}` : escHtml(email);
 
   const subject = isRecovery
     ? "BIA Manager — Réinitialisez votre mot de passe"

@@ -1,10 +1,17 @@
 import { createClient } from "@supabase/supabase-js";
 import { NextResponse } from "next/server";
+import { requireRole } from "@/lib/auth";
 
 export async function POST(req: Request) {
+  const auth = await requireRole(["superadmin"]);
+  if (auth instanceof NextResponse) return auth;
+
   const { userId } = await req.json();
   if (!userId) {
     return NextResponse.json({ error: "userId obligatoire" }, { status: 400 });
+  }
+  if (userId === auth.userId) {
+    return NextResponse.json({ error: "Vous ne pouvez pas supprimer votre propre compte." }, { status: 400 });
   }
 
   const supabase = createClient(
@@ -47,23 +54,6 @@ export async function POST(req: Request) {
     );
   }
 
-  // 3. Check for reservations linked to this user's students (belt & suspenders)
-  const { data: reservations } = await supabase
-    .from("reservations")
-    .select("id")
-    .eq("eleve_id", userId)
-    .neq("statut", "annule");
-
-  if (reservations && reservations.length > 0) {
-    return NextResponse.json(
-      {
-        error: `Ce compte a ${reservations.length} réservation${reservations.length > 1 ? "s actives" : " active"}. Annulez-les d'abord.`,
-        code: "HAS_RESERVATIONS",
-      },
-      { status: 409 },
-    );
-  }
-
   // ── All clear: delete ────────────────────────────────────────────
   // Delete related rows first to avoid FK constraint errors on auth.users
   await supabase.from("email_logs").delete().eq("user_id", userId);
@@ -71,12 +61,12 @@ export async function POST(req: Request) {
   await supabase.from("notifications").delete().eq("destinataire_id", userId);
   await supabase.from("pilote_etablissements").delete().eq("pilote_id", userId);
   await supabase.from("pilote_qualifications").delete().eq("pilote_id", userId);
-  await supabase.from("profiles").delete().eq("id", userId);
 
   const { error } = await supabase.auth.admin.deleteUser(userId);
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 400 });
   }
+  await supabase.from("profiles").delete().eq("id", userId);
 
   return NextResponse.json({ success: true });
 }

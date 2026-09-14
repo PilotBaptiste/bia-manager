@@ -376,14 +376,15 @@ export default function AttestationPage() {
 
     try {
       const { blob: pdfBlob, signatureId } = await generatePDF(enfant);
-      const fileName = `attestation_${enfant.nom}_${enfant.prenom}_${Date.now()}.pdf`;
+      // Storage keys must stay ASCII: accented names made the upload fail silently.
+      const fileName = `${enfant.id}/attestation_${Date.now()}.pdf`;
 
       const { error: uploadErr } = await supabase.storage
         .from("attestations")
         .upload(fileName, pdfBlob, { contentType: "application/pdf" });
-      if (uploadErr) console.warn("Upload:", uploadErr.message);
+      if (uploadErr) throw new Error(`Le PDF n'a pas pu être enregistré (${uploadErr.message}). Réessayez.`);
 
-      await supabase
+      const { error: updateErr } = await supabase
         .from("eleves")
         .update({
           attestation_signee: true,
@@ -392,6 +393,7 @@ export default function AttestationPage() {
           attestation_url: fileName,
         })
         .eq("id", eleveId);
+      if (updateErr) throw new Error(`La signature n'a pas pu être enregistrée (${updateErr.message}).`);
 
       setSaving(false);
       setSigning(null);
@@ -425,17 +427,11 @@ export default function AttestationPage() {
 
   async function downloadPDF(enfant: any) {
     if (!enfant.attestation_url) return;
-    const { data } = await supabase.storage
-      .from("attestations")
-      .download(enfant.attestation_url);
-    if (data) {
-      const url = URL.createObjectURL(data);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `attestation_${enfant.nom}_${enfant.prenom}.pdf`;
-      a.click();
-      URL.revokeObjectURL(url);
-    }
+    const params = new URLSearchParams({
+      path: enfant.attestation_url,
+      name: `attestation_${enfant.nom}_${enfant.prenom}.pdf`,
+    });
+    window.location.href = `/api/attestation/download?${params}`;
   }
 
   if (loading)

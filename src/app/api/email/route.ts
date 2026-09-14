@@ -1,6 +1,20 @@
 import { Resend } from "resend";
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { requireRole } from "@/lib/auth";
+
+const STAFF_ROLES = ["superadmin", "coordinateur", "gerant", "pilote"];
+const PARENT_TYPES = ["booking_confirm", "booking_cancel", "attestation_ready"];
+const CUSTOM_ROLES = ["superadmin", "coordinateur"];
+
+const escHtml = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+const unescHtml = (s: string) => s.replace(/&quot;/g, '"').replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&");
+function escDeep(v: any): any {
+  if (typeof v === "string") return escHtml(v);
+  if (Array.isArray(v)) return v.map(escDeep);
+  if (v && typeof v === "object") return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, escDeep(x)]));
+  return v;
+}
 
 function adminSupabase() {
   if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) return null;
@@ -111,15 +125,39 @@ function fmt(date: string) {
 }
 
 export async function POST(req: Request) {
+  const auth = await requireRole();
+  if (auth instanceof NextResponse) return auth;
   try {
+    const raw = await req.json();
+    const { type } = raw;
+
+    const isStaff = auth.roles.some((r) => STAFF_ROLES.includes(r));
+    if (type === "custom" && !auth.roles.some((r) => CUSTOM_ROLES.includes(r))) {
+      return NextResponse.json({ error: "Accès refusé" }, { status: 403 });
+    }
+    if (!isStaff) {
+      if (!PARENT_TYPES.includes(type)) {
+        return NextResponse.json({ error: "Accès refusé" }, { status: 403 });
+      }
+      if (String(raw.parent_email || "").toLowerCase() !== (auth.email || "").toLowerCase()) {
+        return NextResponse.json({ error: "Destinataire non autorisé" }, { status: 403 });
+      }
+      if (raw.pilote_email) {
+        const admin = adminSupabase();
+        const { data: pilote } = admin
+          ? await admin.from("profiles").select("id").ilike("email", raw.pilote_email).contains("roles", ["pilote"]).limit(1)
+          : { data: null };
+        if (!pilote?.length) raw.pilote_email = null;
+      }
+    }
+
     if (!process.env.RESEND_API_KEY) {
-      // Silently succeed in dev without RESEND configured
       return NextResponse.json({ success: true, dev: true });
     }
 
     const resend = new Resend(process.env.RESEND_API_KEY);
-    const body = await req.json();
-    const { type } = body;
+    // Every user-supplied value is escaped before landing in HTML templates; `to`/subject/ICS are unescaped at send time.
+    const body = escDeep(raw);
 
     // Fetch aéroclub contact info from parametres table
     const supabaseAdmin = adminSupabase();
@@ -173,7 +211,7 @@ export async function POST(req: Request) {
           etablissement ? `Établissement : ${etablissement}` : "",
         ].filter(Boolean).join("\n"),
       });
-      const icsAttachment = { filename: `vol-bia-${date_vol}.ics`, content: Buffer.from(icsContent).toString("base64") };
+      const icsAttachment = { filename: `vol-bia-${date_vol}.ics`, content: Buffer.from(unescHtml(icsContent)).toString("base64") };
 
       // To parent — confirmation
       emails.push({
@@ -623,8 +661,8 @@ export async function POST(req: Request) {
       try {
         const result = await resend.emails.send({
           from: FROM,
-          to: e.to,
-          subject: e.subject,
+          to: unescHtml(e.to),
+          subject: unescHtml(e.subject),
           html: e.html,
           ...(e.attachments ? { attachments: e.attachments } : {}),
         });
@@ -645,8 +683,8 @@ export async function POST(req: Request) {
         if (!supabaseAdmin) throw new Error("no supabase");
         await supabaseAdmin.from("email_logs").insert({
           type,
-          to_email: e.to,
-          subject: e.subject,
+          to_email: unescHtml(e.to),
+          subject: unescHtml(e.subject),
           eleve_id: e.eleve_id !== undefined ? e.eleve_id : (body.eleve_id ?? null),
           creneau_id: body.creneau_id ?? null,
           resend_id: resendId,
@@ -656,8 +694,8 @@ export async function POST(req: Request) {
     }
 
     return NextResponse.json({
-      success: true,
-      sent: emails.length,
+      success: errors.length < emails.length || emails.length === 0,
+      sent: emails.length - errors.length,
       errors: errors.length > 0 ? errors : undefined,
     });
   } catch (e: any) {

@@ -1,5 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
 import { NextResponse } from "next/server";
+import { requireRole } from "@/lib/auth";
 
 const BUCKET = "attestations";
 const PATH = "memos/bia-memo.pdf";
@@ -11,8 +12,9 @@ function serviceClient() {
   );
 }
 
-// GET — download/signed URL for the memo
 export async function GET() {
+  const auth = await requireRole();
+  if (auth instanceof NextResponse) return auth;
   const supabase = serviceClient();
   const { data, error } = await supabase.storage.from(BUCKET).createSignedUrl(PATH, 3600);
   if (error || !data?.signedUrl) {
@@ -21,8 +23,9 @@ export async function GET() {
   return NextResponse.json({ url: data.signedUrl });
 }
 
-// POST — upload a new PDF (superadmin only — caller must verify role)
 export async function POST(req: Request) {
+  const auth = await requireRole(["superadmin"]);
+  if (auth instanceof NextResponse) return auth;
   const formData = await req.formData();
   const file = formData.get("file") as File | null;
   if (!file || file.type !== "application/pdf") {

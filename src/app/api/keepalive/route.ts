@@ -12,7 +12,7 @@ export async function GET() {
 
     // Simple ping — juste compter les annees pour garder la DB active
     const { error } = await supabase
-      .from("annees_scolaires")
+      .from("annees")
       .select("id", { count: "exact", head: true });
 
     if (error) throw error;
