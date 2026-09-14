@@ -1,3 +1,4 @@
+import { unstable_rethrow } from "next/navigation";
 import { cache } from "react";
 import { headers } from "next/headers";
 import { createServerSupabaseClient, createServiceClient } from "@/lib/supabase/server";
@@ -36,7 +37,8 @@ export const getRequestOrg = cache(async (): Promise<Organisation | null> => {
     if (!user) return null;
     const { data: profile } = await supabase.from("profiles").select("organisation_id").eq("id", user.id).single();
     return profile?.organisation_id ? getOrgById(profile.organisation_id) : null;
-  } catch {
+  } catch (e) {
+    unstable_rethrow(e);
     return null;
   }
 });
