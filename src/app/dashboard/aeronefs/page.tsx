@@ -13,7 +13,6 @@ type Simulation = { impacts: Impact[]; nb_vols: number; total_avant: number; tot
 const todayParis = () => new Date().toLocaleDateString("en-CA", { timeZone: "Europe/Paris" });
 const fmtDate = (d: string) => new Date(`${d}T12:00:00`).toLocaleDateString("fr-FR");
 const fmtEur = (n: number | null | undefined) => (n == null ? "—" : `${Number(n).toFixed(2).replace(".", ",")} €`);
-const LONG_AGO = "2000-01-01";
 
 export default function AeronefsPage() {
   const supabase = createClient();
@@ -27,6 +26,9 @@ export default function AeronefsPage() {
   const [expandedHistorique, setExpandedHistorique] = useState<string | null>(null);
 
   const [tarifFor, setTarifFor] = useState<Aeronef | null>(null);
+  // null = new tariff; a Tarif = editing that existing tariff
+  const [tarifEdit, setTarifEdit] = useState<Tarif | null>(null);
+  const [deleteMode, setDeleteMode] = useState(false);
   const [tarifForm, setTarifForm] = useState({ prix_heure: "", date_effet: todayParis(), note: "", inclure_sans_date: false });
   const [simulation, setSimulation] = useState<Simulation | null>(null);
   const [simulating, setSimulating] = useState(false);
@@ -97,10 +99,24 @@ export default function AeronefsPage() {
     load();
   }
 
-  function openTarif(a: Aeronef) {
+  function openTarif(a: Aeronef, existing: Tarif | null = null) {
     setShowForm(false);
     setTarifFor(a);
-    setTarifForm({ prix_heure: String(a.prix_heure), date_effet: todayParis(), note: "", inclure_sans_date: false });
+    setTarifEdit(existing);
+    setDeleteMode(false);
+    setTarifForm(existing
+      ? { prix_heure: String(existing.prix_heure), date_effet: existing.date_effet, note: existing.note || "", inclure_sans_date: false }
+      : { prix_heure: String(a.prix_heure), date_effet: todayParis(), note: "", inclure_sans_date: false });
+    setSimulation(null);
+  }
+
+  const isInitialTarif = (t: Tarif | null) =>
+    !!t && !tarifs.some((x) => x.aeronef_id === t.aeronef_id && x.date_effet < t.date_effet);
+
+  function closeTarif() {
+    setTarifFor(null);
+    setTarifEdit(null);
+    setDeleteMode(false);
     setSimulation(null);
   }
 
@@ -109,15 +125,16 @@ export default function AeronefsPage() {
     setSimulation(null);
   }
 
-  function tarifParams(simulate: boolean, inclureSansDate = tarifForm.inclure_sans_date) {
-    return {
-      p_aeronef_id: tarifFor!.id,
+  function callTarifRpc(simulate: boolean, inclureSansDate = tarifForm.inclure_sans_date, supprimer = deleteMode) {
+    const common = { p_inclure_sans_date: inclureSansDate, p_simulation: simulate };
+    const values = {
       p_prix_heure: parseFloat(tarifForm.prix_heure.replace(",", ".")),
       p_date_effet: tarifForm.date_effet,
       p_note: tarifForm.note.trim() || null,
-      p_inclure_sans_date: inclureSansDate,
-      p_simulation: simulate,
     };
+    if (tarifEdit && supprimer) return supabase.rpc("supprimer_tarif_aeronef", { p_tarif_id: tarifEdit.id, ...common });
+    if (tarifEdit) return supabase.rpc("modifier_tarif_aeronef", { p_tarif_id: tarifEdit.id, ...values, ...common });
+    return supabase.rpc("changer_tarif_aeronef", { p_aeronef_id: tarifFor!.id, ...values, ...common });
   }
 
   function tarifFormError(): string | null {
@@ -127,32 +144,32 @@ export default function AeronefsPage() {
     return null;
   }
 
-  async function handleSimulate(inclureSansDate = tarifForm.inclure_sans_date) {
-    const err = tarifFormError();
+  async function handleSimulate(inclureSansDate = tarifForm.inclure_sans_date, supprimer = deleteMode) {
+    const err = supprimer ? null : tarifFormError();
     if (err) { toast.error(err); return; }
     setSimulating(true);
-    const { data, error } = await supabase.rpc("changer_tarif_aeronef", tarifParams(true, inclureSansDate));
+    const { data, error } = await callTarifRpc(true, inclureSansDate, supprimer);
     setSimulating(false);
     if (error) { toast.error(error.message); return; }
     setSimulation(data as Simulation);
   }
 
   async function handleApply() {
-    const err = tarifFormError();
+    const err = deleteMode ? null : tarifFormError();
     if (err || !simulation) { toast.error(err || "Vérifiez d'abord l'impact"); return; }
     setApplying(true);
-    const { data, error } = await supabase.rpc("changer_tarif_aeronef", tarifParams(false));
+    const { data, error } = await callTarifRpc(false);
     setApplying(false);
     if (error) { toast.error(error.message); return; }
     const res = data as Simulation;
     const delta = res.total_apres - res.total_avant;
+    const action = deleteMode ? "Tarif supprimé" : tarifEdit ? "Tarif modifié" : "Tarif enregistré";
     toast.success(
       res.nb_vols > 0
-        ? `Tarif enregistré · ${res.nb_vols} vol${res.nb_vols > 1 ? "s" : ""} recalculé${res.nb_vols > 1 ? "s" : ""} (${delta >= 0 ? "+" : ""}${fmtEur(delta)})`
-        : "Tarif enregistré · aucun vol à recalculer",
+        ? `${action} · ${res.nb_vols} vol${res.nb_vols > 1 ? "s" : ""} recalculé${res.nb_vols > 1 ? "s" : ""} (${delta >= 0 ? "+" : ""}${fmtEur(delta)})`
+        : `${action} · aucun vol à recalculer`,
     );
-    setTarifFor(null);
-    setSimulation(null);
+    closeTarif();
     load();
   }
 
@@ -225,36 +242,48 @@ export default function AeronefsPage() {
       )}
 
       {tarifFor && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" onClick={() => !applying && setTarifFor(null)}>
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" onClick={() => !applying && closeTarif()}>
           <div className="absolute inset-0 bg-black/40" />
           <div onClick={(e) => e.stopPropagation()} className="relative bg-white rounded-2xl p-6 w-full max-w-2xl shadow-xl max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between mb-1">
-              <h3 className="text-lg font-bold text-gray-900">Changer le tarif — {tarifFor.immatriculation}</h3>
-              <button onClick={() => setTarifFor(null)} disabled={applying} className="p-1.5 rounded-lg hover:bg-gray-100"><X className="w-4 h-4" /></button>
+              <h3 className="text-lg font-bold text-gray-900">
+                {deleteMode ? "Supprimer le tarif" : tarifEdit ? "Modifier le tarif" : "Changer le tarif"} — {tarifFor.immatriculation}
+              </h3>
+              <button onClick={closeTarif} disabled={applying} className="p-1.5 rounded-lg hover:bg-gray-100"><X className="w-4 h-4" /></button>
             </div>
             <p className="text-sm text-gray-500 mb-5">
-              Tarif actuel : <strong className="text-gray-900">{tarifFor.prix_heure}€/h</strong>. Une date d&apos;effet passée recalcule les vols déjà enregistrés depuis cette date, et les finances se mettent à jour.
+              {deleteMode
+                ? `Le tarif de ${tarifEdit?.prix_heure}€/h du ${tarifEdit ? fmtDate(tarifEdit.date_effet) : ""} sera supprimé : les vols de sa période reprennent le tarif précédent.`
+                : tarifEdit
+                  ? "Changer le prix ou la date d'effet recalcule les vols concernés, et les finances se mettent à jour."
+                  : <>Tarif actuel : <strong className="text-gray-900">{tarifFor.prix_heure}€/h</strong>. Une date d&apos;effet passée recalcule les vols déjà enregistrés depuis cette date, et les finances se mettent à jour.</>}
             </p>
 
+            {!deleteMode && (
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <div>
-                <label className="label">Nouveau prix / heure (€) *</label>
+                <label className="label">{tarifEdit ? "Prix / heure (€) *" : "Nouveau prix / heure (€) *"}</label>
                 <input type="number" step="0.01" min="0" className="input" value={tarifForm.prix_heure} onChange={(e) => updateTarifForm({ prix_heure: e.target.value })} />
               </div>
               <div>
                 <label className="label">Date d&apos;effet *</label>
-                <input type="date" className="input" value={tarifForm.date_effet} onChange={(e) => updateTarifForm({ date_effet: e.target.value })} />
+                {isInitialTarif(tarifEdit) ? (
+                  <p className="text-sm text-gray-500 h-[38px] flex items-center">Tarif initial</p>
+                ) : (
+                  <input type="date" className="input" value={tarifForm.date_effet} onChange={(e) => updateTarifForm({ date_effet: e.target.value })} />
+                )}
               </div>
               <div>
                 <label className="label">Note</label>
                 <input className="input" value={tarifForm.note} onChange={(e) => updateTarifForm({ note: e.target.value })} placeholder="Révision tarifaire 2026" />
               </div>
             </div>
-            {isBackdated && (
+            )}
+            {!deleteMode && !isInitialTarif(tarifEdit) && isBackdated && (
               <p className="text-xs text-amber-700 mt-2">Date antérieure à aujourd&apos;hui : les vols effectués depuis le {fmtDate(tarifForm.date_effet)} seront recalculés.</p>
             )}
 
-            <div className="flex justify-end mt-4">
+            <div className={`flex justify-end mt-4 ${deleteMode ? "hidden" : ""}`}>
               <button onClick={() => handleSimulate()} disabled={simulating || applying} className="btn-secondary btn-sm">
                 {simulating ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Euro className="w-3.5 h-3.5" />} Voir l&apos;impact
               </button>
@@ -329,12 +358,25 @@ export default function AeronefsPage() {
               </div>
             )}
 
-            <div className="flex justify-end gap-2 mt-5 pt-4 border-t border-gray-100">
-              <button onClick={() => setTarifFor(null)} disabled={applying} className="btn-secondary btn-sm">Annuler</button>
-              <button onClick={handleApply} disabled={!simulation || applying || simulating} className="btn-primary btn-sm" title={!simulation ? "Vérifiez d'abord l'impact" : undefined}>
-                {applying ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : null}
-                Appliquer le nouveau tarif
-              </button>
+            <div className="flex justify-between gap-2 mt-5 pt-4 border-t border-gray-100">
+              <div>
+                {tarifEdit && !isInitialTarif(tarifEdit) && (
+                  deleteMode ? (
+                    <button onClick={() => { setDeleteMode(false); setSimulation(null); }} disabled={applying} className="btn-secondary btn-sm">Revenir à la modification</button>
+                  ) : (
+                    <button onClick={() => { setDeleteMode(true); setSimulation(null); handleSimulate(tarifForm.inclure_sans_date, true); }} disabled={applying || simulating} className="btn-sm border border-red-200 text-red-600 bg-red-50 hover:bg-red-100 rounded-lg px-3 py-1.5 text-xs font-semibold">
+                      Supprimer ce tarif
+                    </button>
+                  )
+                )}
+              </div>
+              <div className="flex gap-2">
+                <button onClick={closeTarif} disabled={applying} className="btn-secondary btn-sm">Annuler</button>
+                <button onClick={handleApply} disabled={!simulation || applying || simulating} className={deleteMode ? "btn-sm bg-red-600 hover:bg-red-700 text-white rounded-lg px-3 py-1.5 text-xs font-semibold disabled:opacity-50" : "btn-primary btn-sm"} title={!simulation ? "Vérifiez d'abord l'impact" : undefined}>
+                  {applying ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : null}
+                  {deleteMode ? "Supprimer et recalculer" : tarifEdit ? "Enregistrer la modification" : "Appliquer le nouveau tarif"}
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -383,11 +425,16 @@ export default function AeronefsPage() {
                   {isExpanded && (
                     <div className="pb-2 space-y-1">
                       {history.map((t) => (
-                        <div key={t.id} className="flex items-center justify-between gap-2 text-xs text-gray-500 px-1">
+                        <div key={t.id} className="flex items-center justify-between gap-2 text-xs text-gray-500 px-1 group">
                           <span className="font-medium">{t.prix_heure}€/h</span>
-                          <span className="text-gray-400 text-right">
-                            {t.date_effet <= LONG_AGO ? "Tarif initial" : `depuis le ${fmtDate(t.date_effet)}`}
-                            {t.note && t.date_effet > LONG_AGO ? ` — ${t.note}` : ""}
+                          <span className="flex items-center gap-2 text-gray-400 text-right">
+                            <span>
+                              {isInitialTarif(t) ? "Tarif initial" : `depuis le ${fmtDate(t.date_effet)}`}
+                              {t.note && !isInitialTarif(t) ? ` — ${t.note}` : ""}
+                            </span>
+                            <button onClick={() => openTarif(a, t)} className="p-1 rounded hover:bg-gray-100 text-gray-400 hover:text-brand-500" title="Modifier ce tarif" aria-label={`Modifier le tarif ${t.prix_heure}€/h`}>
+                              <Edit className="w-3 h-3" />
+                            </button>
                           </span>
                         </div>
                       ))}

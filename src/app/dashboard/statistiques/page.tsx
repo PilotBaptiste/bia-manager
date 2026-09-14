@@ -15,6 +15,7 @@ export default function StatistiquesPage() {
   const [eleves, setEleves] = useState<any[]>([]);
   const [aeronefs, setAeronefs] = useState<any[]>([]);
   const [manualOps, setManualOps] = useState<any[]>([]);
+  const [subventions, setSubventions] = useState<any[]>([]);
   const [prixInscription, setPrixInscription] = useState(80);
   const [subFede, setSubFede] = useState(50);
   // Expanded card state
@@ -40,14 +41,18 @@ export default function StatistiquesPage() {
     const startYear = parseInt(anneeLabel.split(/[-/]/)[0]);
     if (Number.isFinite(startYear)) opsQ = opsQ.gte("date", `${startYear}-09-01`).lte("date", `${startYear + 1}-08-31`);
 
-    const [vR, eR, aR, pR, mR, etR] = await Promise.all([
+    const [vR, eR, aR, pR, mR, etR, sR] = await Promise.all([
       fetchAll((from, to) => volsQ.range(from, to)),
       fetchAll((from, to) => elevesQ.range(from, to)),
       supabase.from("aeronefs").select("*"),
       supabase.from("parametres").select("*"),
       fetchAll((from, to) => opsQ.range(from, to)),
       supabase.from("etablissements").select("id,nom").eq("actif", true),
+      selectedAnneeId
+        ? supabase.from("subventions").select("*").eq("annee_id", selectedAnneeId)
+        : Promise.resolve({ data: [], error: null }),
     ]);
+    setSubventions(sR.data || []);
     const loadError = [vR, eR, aR, pR, mR, etR].find((r: any) => r.error)?.error;
     if (loadError) toast.error(`Chargement incomplet : ${loadError.message}`);
 
@@ -156,7 +161,8 @@ export default function StatistiquesPage() {
   const recettesFede = totalBia * subFede;
   const depensesManuellas = manualOps.filter(o => o.sens === "depense").reduce((a, o) => a + parseFloat(o.montant || 0), 0);
   const recettesManuelles = manualOps.filter(o => o.sens === "recette").reduce((a, o) => a + parseFloat(o.montant || 0), 0);
-  const totalRecettes = recettesInscriptions + recettesFede + recettesManuelles;
+  const recettesSubventions = subventions.reduce((a, sv) => a + (parseFloat(sv.montant_total) || 0), 0);
+  const totalRecettes = recettesInscriptions + recettesFede + recettesManuelles + recettesSubventions;
   const solde = totalRecettes - totalCostVols - depensesManuellas;
 
   const fmt = (m: number) => `${Math.floor(m / 60)}h${String(m % 60).padStart(2, "0")}`;
@@ -233,6 +239,7 @@ export default function StatistiquesPage() {
               {[
                 { l: "Inscriptions", v: recettesInscriptions, note: `${totalPaye} élèves` },
                 { l: "Subventions fédé", v: recettesFede, note: `${totalBia} × ${subFede}€` },
+                { l: "Subventions locales", v: recettesSubventions, note: `${subventions.length} subvention${subventions.length > 1 ? "s" : ""}` },
                 { l: "Recettes manuelles", v: recettesManuelles, note: `${manualOps.filter(o=>o.sens==="recette").length} opérations` },
               ].map((r,i) => (
                 <div key={i} className="flex justify-between items-center py-1 border-b border-gray-50 last:border-0">
