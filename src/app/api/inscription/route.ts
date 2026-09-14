@@ -1,4 +1,5 @@
 import { Resend } from "resend";
+import { isDemoAddress } from "@/lib/demo";
 import { NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
 import { getClubInfo, DEFAULT_CLUB_NOM } from "@/lib/club";
@@ -200,7 +201,7 @@ export async function POST(req: Request) {
       .map((e: any) => `<li>${escHtml(e.prenom)} ${escHtml(e.nom)}</li>`)
       .join("");
 
-    await resend.emails.send({
+    if (!isDemoAddress(parent.email)) await resend.emails.send({
       from: process.env.RESEND_FROM ?? "BIA Manager <noreply@bia-manager-acba.vercel.app>",
       to: parent.email.trim().toLowerCase(),
       subject: `Inscription BIA confirmée — ${etab.nom}`,

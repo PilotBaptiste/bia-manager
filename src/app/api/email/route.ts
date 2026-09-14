@@ -1,4 +1,5 @@
 import { Resend } from "resend";
+import { isDemoAddress } from "@/lib/demo";
 import { NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
 import { requireRole } from "@/lib/auth";
@@ -677,8 +678,10 @@ export async function POST(req: Request) {
 
     // Emails with attachments must be sent one by one; the others go through the batch API (100 per request),
     // so a notification to hundreds of parents stays within Resend's rate limit and Vercel's time limit.
-    const singles = emails.map((e, i) => ({ e, i })).filter(({ e }) => e.attachments);
-    const batchable = emails.map((e, i) => ({ e, i })).filter(({ e }) => !e.attachments);
+    emails.forEach((e, i) => { if (isDemoAddress(unescHtml(e.to))) outcomes[i] = { resendId: null, statut: "demo" }; });
+    const deliverable = emails.map((e, i) => ({ e, i })).filter(({ i }) => outcomes[i].statut !== "demo");
+    const singles = deliverable.filter(({ e }) => e.attachments);
+    const batchable = deliverable.filter(({ e }) => !e.attachments);
     let requests = 0;
 
     for (const { e, i } of singles) {

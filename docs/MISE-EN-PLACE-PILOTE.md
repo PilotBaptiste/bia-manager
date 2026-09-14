@@ -81,3 +81,26 @@ Vous hébergez des données de mineurs pour le compte des clubs :
 - **Isolation** : elle est garantie par la base elle-même (règles de sécurité et déclencheurs), pas seulement par l'interface.
 - **Un compte appartient à un seul club.** Un pilote ou un parent présent dans deux clubs aura besoin de deux adresses email pendant le pilote.
 - **Codes d'inscription** : ils restent uniques sur toute la plateforme, et l'inscription publique rattache automatiquement l'élève au club de l'établissement.
+
+## 5. Suivi des erreurs (Sentry)
+1. Créez un compte sur sentry.io et choisissez la région de données **EU** à la création de l'organisation.
+2. Créez un projet **Next.js**, puis copiez son **DSN** (Settings › Client Keys).
+3. Dans Vercel › Environment Variables :
+
+| Variable | Valeur | Type |
+|---|---|---|
+| `NEXT_PUBLIC_SENTRY_DSN` | le DSN (`https://…@….ingest.de.sentry.io/…`) | Config |
+| `SENTRY_ORG` | le slug de l'organisation Sentry | Config |
+| `SENTRY_PROJECT` | le slug du projet | Config |
+| `SENTRY_AUTH_TOKEN` | Settings › Auth Tokens › Create Token (facultatif : sert à rendre les erreurs lisibles) | Secret |
+
+4. Redéployez. Dans Sentry › Alerts, gardez l'alerte par email « nouvelle erreur » (activée par défaut).
+
+Aucune donnée personnelle n'est envoyée : ni cookies, ni en-têtes, ni contenu des formulaires, ni paramètres d'URL.
+
+## 6. Club de démonstration
+`aeroclub-test.biamanager.com` sert de démo et d'environnement d'essai.
+- **Remplir ou remettre à zéro** : `npm run seed:demo -- --reset`. Le script refuse tout club dont l'adresse ne contient pas « test » ou « demo », et vérifie que les autres clubs n'ont pas bougé.
+- **Comptes** : `demo.pilote1@example.com`, `demo.coordinateur@example.com`, `demo.parent01@example.com`… Le mot de passe commun est affiché à la fin du script.
+- **Emails** : aucun email n'est jamais envoyé aux adresses `@example.com`. Les envois sont enregistrés avec le statut « demo ».
+- **Isolation** : `npm run test:isolation` (ajouter `CLUB_CIBLE=aeroclub-test` pour viser le club de démo).

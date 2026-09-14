@@ -1,4 +1,5 @@
 import { Resend } from "resend";
+import { isDemoAddress } from "@/lib/demo";
 import { NextResponse } from "next/server";
 import { requireRole } from "@/lib/auth";
 import { getClubInfo, DEFAULT_CLUB_NOM } from "@/lib/club";
@@ -105,7 +106,7 @@ export async function POST(req: Request) {
     const clubNom = club.nom !== DEFAULT_CLUB_NOM ? club.nom : "";
     const clubLabel = club.sigle || clubNom;
 
-    await resend.emails.send({
+    if (!isDemoAddress(email)) await resend.emails.send({
       from: process.env.RESEND_FROM ?? "BIA Manager <noreply@bia-manager-acba.vercel.app>",
       to: email,
       subject: clubLabel ? `Votre accès BIA Manager — ${clubLabel}` : "Votre accès BIA Manager",
