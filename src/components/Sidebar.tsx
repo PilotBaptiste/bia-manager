@@ -33,7 +33,7 @@ import {
   Building2,
   FlaskConical,
 } from "lucide-react";
-import { MODULES } from "@/lib/modules";
+import { MODULES, MODULE_BY_NAV_KEY } from "@/lib/modules";
 
 const iconMap: Record<string, any> = {
   LayoutDashboard,
@@ -169,10 +169,11 @@ export default function Sidebar({ profile }: { profile: any }) {
   const pathname = usePathname();
   const router = useRouter();
   const supabase = createClient();
+  const enabledModules: string[] = profile.modules || [];
   const nav = [
-    ...getNav(profile.roles || []),
-    ...MODULES.filter((m) => (profile.modules || []).includes(m.key) && m.roles.some((r) => (profile.roles || []).includes(r)))
-      .map((m) => ({ key: m.key, label: m.label, icon: m.icon, href: m.href })),
+    ...getNav(profile.roles || []).filter((item) => !MODULE_BY_NAV_KEY[item.key] || enabledModules.includes(MODULE_BY_NAV_KEY[item.key])),
+    ...MODULES.filter((m) => m.nav && enabledModules.includes(m.key) && m.nav.roles.some((r) => (profile.roles || []).includes(r)))
+      .map((m) => ({ key: m.key, label: m.label, icon: m.nav!.icon, href: m.nav!.href })),
   ];
   const roleLabel = getRoleLabel(profile.roles || []);
   const { annees, selectedAnneeId, setSelectedAnneeId, selectedAnnee, activeAnneeId } = useYear();
