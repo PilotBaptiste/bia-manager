@@ -19,9 +19,10 @@ import {
   MapPin,
   Mail,
   Puzzle,
+  Bug,
 } from "lucide-react";
 import { ROOT_DOMAIN, clubUrl } from "@/lib/tenant";
-import { MODULES } from "@/lib/modules";
+import { MODULES, MODULE_CATEGORIES } from "@/lib/modules";
 
 type Club = {
   id: string;
@@ -89,6 +90,7 @@ export default function PlateformePage() {
   const [copied, setCopied] = useState<string | null>(null);
 
   const [modulesFor, setModulesFor] = useState<Club | null>(null);
+  const [testingSentry, setTestingSentry] = useState(false);
   const [modulesDraft, setModulesDraft] = useState<string[]>([]);
   const [renaming, setRenaming] = useState<Club | null>(null);
   const [newNom, setNewNom] = useState("");
@@ -187,6 +189,18 @@ export default function PlateformePage() {
     }
   }
 
+  async function testSentry() {
+    setTestingSentry(true);
+    try {
+      const { eventId } = await api<{ eventId: string }>("/api/plateforme/test-sentry", { method: "POST" });
+      toast.success(`Erreur de test envoyée à Sentry (réf. ${eventId.slice(0, 8)}). Elle doit apparaître dans Issues d'ici une minute.`);
+    } catch (e: any) {
+      toast.error(e.message);
+    } finally {
+      setTestingSentry(false);
+    }
+  }
+
   async function handleSaveModules() {
     if (!modulesFor) return;
     setSaving(true);
@@ -250,7 +264,12 @@ export default function PlateformePage() {
           <h1 className="text-xl font-bold text-gray-900">Aéroclubs</h1>
           <p className="text-sm text-gray-500 mt-0.5">{clubs.length} aéroclub{clubs.length > 1 ? "s" : ""} sur la plateforme</p>
         </div>
-        <button onClick={openCreate} className="btn-primary btn-sm"><Plus className="w-3.5 h-3.5" /> Nouvel aéroclub</button>
+        <div className="flex gap-2">
+          <button onClick={testSentry} disabled={testingSentry} className="btn-secondary btn-sm" title="Envoyer une erreur de test à Sentry">
+            {testingSentry ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Bug className="w-3.5 h-3.5" />} Tester Sentry
+          </button>
+          <button onClick={openCreate} className="btn-primary btn-sm"><Plus className="w-3.5 h-3.5" /> Nouvel aéroclub</button>
+        </div>
       </div>
 
       {/* Club ouvert depuis son sous-domaine */}
@@ -600,14 +619,28 @@ export default function PlateformePage() {
       {modulesFor && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4" onClick={() => !saving && setModulesFor(null)}>
           <div className="absolute inset-0 bg-black/40" />
-          <div onClick={(e) => e.stopPropagation()} className="relative bg-white rounded-2xl p-6 w-full max-w-md shadow-xl">
+          <div onClick={(e) => e.stopPropagation()} className="relative bg-white rounded-2xl p-6 w-full max-w-lg shadow-xl">
             <div className="flex items-center justify-between mb-1">
               <h3 className="text-lg font-bold text-gray-900">Modules — {modulesFor.nom}</h3>
               <button onClick={() => setModulesFor(null)} className="p-1.5 rounded-lg hover:bg-gray-100"><X className="w-4 h-4" /></button>
             </div>
-            <p className="text-sm text-gray-500 mb-4">Un module désactivé est invisible pour ce club : ni onglet dans le menu, ni accès par son adresse.</p>
-            <div className="space-y-2">
-              {MODULES.map((m) => {
+            <p className="text-sm text-gray-500 mb-4">
+              Un module désactivé est invisible pour ce club : ni onglet dans le menu, ni accès par son adresse.
+              Élèves, planning, établissements, pilotes, aéronefs, utilisateurs et paramètres restent toujours actifs.
+            </p>
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-xs text-gray-500">{modulesDraft.length} / {MODULES.length} activés</span>
+              <div className="flex gap-3 text-xs font-semibold">
+                <button type="button" onClick={() => setModulesDraft(MODULES.filter((m) => m.categorie !== "Essais").map((m) => m.key))} className="text-brand-500 hover:text-brand-700">Tout activer</button>
+                <button type="button" onClick={() => setModulesDraft([])} className="text-gray-400 hover:text-gray-600">Tout désactiver</button>
+              </div>
+            </div>
+            <div className="space-y-4 max-h-[55vh] overflow-y-auto pr-1">
+              {MODULE_CATEGORIES.map((cat) => (
+              <div key={cat}>
+              <p className="text-[11px] font-semibold uppercase tracking-wider text-gray-400 mb-1.5">{cat}</p>
+              <div className="space-y-2">
+              {MODULES.filter((m) => m.categorie === cat).map((m) => {
                 const on = modulesDraft.includes(m.key);
                 return (
                   <label key={m.key} className="flex items-start gap-3 rounded-xl border border-gray-200 p-3 cursor-pointer hover:bg-gray-50">
@@ -624,6 +657,9 @@ export default function PlateformePage() {
                   </label>
                 );
               })}
+              </div>
+              </div>
+              ))}
             </div>
             <div className="flex justify-end gap-2 mt-5 pt-4 border-t border-gray-100">
               <button onClick={() => setModulesFor(null)} className="btn-secondary btn-sm">Annuler</button>

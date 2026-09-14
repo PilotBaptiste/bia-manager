@@ -2,10 +2,12 @@ import { getCurrentProfile } from "@/lib/auth";
 import Sidebar from "@/components/Sidebar";
 import { Toaster } from "sonner";
 import { YearProvider } from "@/contexts/YearContext";
+import { ModulesProvider } from "@/contexts/ModulesContext";
 
 export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
   const profile = await getCurrentProfile();
   return (
+    <ModulesProvider modules={profile.modules || []}>
     <YearProvider>
       <div className="flex min-h-screen bg-gray-50">
         <Sidebar profile={profile} />
@@ -15,5 +17,6 @@ export default async function DashboardLayout({ children }: { children: React.Re
         <Toaster position="bottom-right" richColors closeButton />
       </div>
     </YearProvider>
+    </ModulesProvider>
   );
 }

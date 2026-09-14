@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/client";
 import { fetchAll } from "@/lib/fetchAll";
 import { toast } from "sonner";
 import { useYear } from "@/contexts/YearContext";
+import { useModule } from "@/contexts/ModulesContext";
 import type { Eleve, Etablissement } from "@/types";
 import {
   Users,
@@ -144,6 +145,7 @@ export default function ElevesPage() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const { selectedAnneeId, activeAnneeId } = useYear();
+  const hasExportFFA = useModule("export_ffa");
   // anneeId = active year, used when creating new students
   const anneeId = activeAnneeId;
   const [eleves, setEleves] = useState<any[]>([]);
@@ -2187,7 +2189,7 @@ export default function ElevesPage() {
           <button onClick={handleExport} className="btn-secondary btn-sm">
             <Download className="w-3.5 h-3.5" /> Export
           </button>
-          {!isPiloteOnly && (
+          {!isPiloteOnly && hasExportFFA && (
             <button onClick={exportFFA} className="btn-secondary btn-sm" title="Export PDF liste BIA pour la FFA">
               <Download className="w-3.5 h-3.5" /> FFA
             </button>

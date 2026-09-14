@@ -5,6 +5,7 @@ import { fetchAll } from "@/lib/fetchAll";
 import { inActiveEtab } from "@/lib/etablissements";
 import { Euro, Plane, Users, School, TrendingUp, Loader2, Edit, Save, X, Clock, History, UserCheck, Plus, Trash2, Check, Download, HandCoins } from "lucide-react";
 import { useYear } from "@/contexts/YearContext";
+import { useModule } from "@/contexts/ModulesContext";
 import { toast } from "sonner";
 
 const PAYMENT_MODES = ["Espèces", "Chèque", "Virement", "CB", "Autre"];
@@ -18,6 +19,9 @@ const emptyAddForm = { type: "Autre", sens: "recette" as "recette" | "depense", 
 export default function FinancesPage() {
   const supabase = createClient();
   const { selectedAnneeId, annees } = useYear();
+  const hasSubventions = useModule("subventions");
+  const hasReleve = useModule("releve_compte");
+  const hasRoulage = useModule("roulage");
   const anneeLabel = annees.find((a: any) => a.id === selectedAnneeId)?.label || "";
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState<"overview" | "paiements" | "subventions" | "operations" | "pilotes" | "roulage" | "logs">("overview");
@@ -467,9 +471,11 @@ export default function FinancesPage() {
           {nomClub && <p className="text-sm text-gray-500 mt-0.5">{nomClub}</p>}
         </div>
         <div className="flex gap-2">
-          <button onClick={exportReleve} className="btn-primary btn-sm" title="Relevé de compte Débit/Crédit">
-            <Download className="w-3.5 h-3.5" /> Relevé de compte
-          </button>
+          {hasReleve && (
+            <button onClick={exportReleve} className="btn-primary btn-sm" title="Relevé de compte Débit/Crédit">
+              <Download className="w-3.5 h-3.5" /> Relevé de compte
+            </button>
+          )}
           <button onClick={() => exportCSV("operations")} className="btn-secondary btn-sm" title="Exporter toutes les opérations">
             <Download className="w-3.5 h-3.5" /> Opérations
           </button>
@@ -487,10 +493,10 @@ export default function FinancesPage() {
         {[
           { key: "overview", label: "Vue d'ensemble", icon: TrendingUp },
           { key: "paiements", label: "Paiements", icon: Users },
-          { key: "subventions", label: "Subventions", icon: HandCoins },
+          ...(hasSubventions ? [{ key: "subventions", label: "Subventions", icon: HandCoins }] : []),
           { key: "operations", label: "Opérations", icon: Euro },
           { key: "pilotes", label: "Par pilote", icon: UserCheck },
-          { key: "roulage", label: "Roulage", icon: Clock },
+          ...(hasRoulage ? [{ key: "roulage", label: "Roulage", icon: Clock }] : []),
           { key: "logs", label: "Logs", icon: History },
         ].map(({ key, label, icon: Icon }) => (
           <button key={key} onClick={() => setTab(key as any)} className={`flex items-center gap-1.5 px-4 py-2 rounded-md text-xs font-semibold transition-all ${tab === key ? "bg-white text-brand-500 shadow-sm" : "text-gray-500"}`}>
@@ -505,7 +511,7 @@ export default function FinancesPage() {
           <div className="flex gap-3 flex-wrap mb-6">
             <div className="card flex-1 min-w-[160px]"><p className="text-xs text-gray-500 mb-1">Inscriptions</p><p className="text-2xl font-bold text-emerald-600">{recettesInscriptions.toFixed(2)}€</p><p className="text-[11px] text-gray-400">{totalPaye} élève{totalPaye > 1 ? "s" : ""} payé{totalPaye > 1 ? "s" : ""}</p></div>
             <div className="card flex-1 min-w-[160px]"><p className="text-xs text-gray-500 mb-1">Subventions fede</p><p className="text-2xl font-bold text-emerald-600">{recettesFede}€</p><p className="text-[11px] text-gray-400">{totalBia} x {subFede}€</p></div>
-            <button onClick={() => setTab("subventions")} className="card flex-1 min-w-[160px] text-left hover:border-brand-200"><p className="text-xs text-gray-500 mb-1">Subventions locales</p><p className="text-2xl font-bold text-emerald-600">{recettesSubventions.toFixed(2)}€</p><p className="text-[11px] text-gray-400">{subventions.length} subvention{subventions.length > 1 ? "s" : ""}</p></button>
+            {hasSubventions && <button onClick={() => setTab("subventions")} className="card flex-1 min-w-[160px] text-left hover:border-brand-200"><p className="text-xs text-gray-500 mb-1">Subventions locales</p><p className="text-2xl font-bold text-emerald-600">{recettesSubventions.toFixed(2)}€</p><p className="text-[11px] text-gray-400">{subventions.length} subvention{subventions.length > 1 ? "s" : ""}</p></button>}
             <div className="card flex-1 min-w-[160px]"><p className="text-xs text-gray-500 mb-1">Cout vols</p><p className="text-2xl font-bold text-red-600">{coutVolsTotal.toFixed(2)}€</p><p className="text-[11px] text-gray-400">{totalVol1 + totalVol2} vols</p></div>
             <div className="card flex-1 min-w-[160px]"><p className="text-xs text-gray-500 mb-1">Solde</p><p className={`text-2xl font-bold ${solde >= 0 ? "text-emerald-600" : "text-red-600"}`}>{solde >= 0 ? "+" : ""}{solde.toFixed(2)}€</p></div>
           </div>
@@ -617,7 +623,7 @@ export default function FinancesPage() {
       })()}
 
       {/* SUBVENTIONS */}
-      {tab === "subventions" && (
+      {tab === "subventions" && hasSubventions && (
         <div className="space-y-4">
           <div className="flex justify-between items-center gap-3 flex-wrap">
             <p className="text-sm text-gray-500">
@@ -771,7 +777,7 @@ export default function FinancesPage() {
       )}
 
       {/* ROULAGE */}
-      {tab === "roulage" && (() => {
+      {tab === "roulage" && hasRoulage && (() => {
         const TAXI_MIN = 8;
         const roulageVols = vols.filter((v: any) => Array.isArray(v.numeros_aerogest) && v.numeros_aerogest.length > 1);
         const totalFact = roulageVols.reduce((a: number, v: any) => a + v.numeros_aerogest.length * TAXI_MIN, 0);

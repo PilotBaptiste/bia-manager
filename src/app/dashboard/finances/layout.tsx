@@ -1,6 +1,6 @@
-import { requireRolePage } from "@/lib/auth";
+import { requireModulePage } from "@/lib/auth";
 
 export default async function Layout({ children }: { children: React.ReactNode }) {
-  await requireRolePage(["superadmin"]);
+  await requireModulePage("finances", ["superadmin"]);
   return <>{children}</>;
 }
