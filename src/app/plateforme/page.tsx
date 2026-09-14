@@ -19,7 +19,7 @@ import {
   MapPin,
   Mail,
 } from "lucide-react";
-import { ROOT_DOMAIN } from "@/lib/tenant";
+import { ROOT_DOMAIN, clubUrl } from "@/lib/tenant";
 
 type Club = {
   id: string;
@@ -28,7 +28,7 @@ type Club = {
   actif: boolean;
   created_at: string;
   annee: string | null;
-  counts: { etablissements: number; eleves: number; users: number; vols: number };
+  counts: { etablissements: number; eleves: number; users: number; parents: number; vol1: number; vol2: number; vols: number; creneauxClotures: number };
   admins: { prenom: string; nom: string; email: string }[];
 };
 
@@ -120,6 +120,10 @@ export default function PlateformePage() {
   const openedClub = openedSlug ? clubs.find((c) => c.slug === openedSlug) ?? null : null;
 
   async function enter(club: Club) {
+    if (club.id === currentOrgId) {
+      window.location.href = clubUrl(club.slug, "/dashboard", window.location.origin);
+      return;
+    }
     setEntering(club.id);
     try {
       const { url } = await api<{ url: string }>("/api/plateforme/entrer", {
@@ -216,7 +220,7 @@ export default function PlateformePage() {
     { label: "Clubs actifs", value: totals.actifs, icon: Building2 },
     { label: "Élèves", value: totals.eleves, icon: Users },
     { label: "Établissements actifs", value: totals.etablissements, icon: School },
-    { label: "Vols cette année", value: totals.vols, icon: Plane },
+    { label: "Vols élèves effectués", value: totals.vols, icon: Plane },
   ];
 
   return (
@@ -235,17 +239,17 @@ export default function PlateformePage() {
           <div className="flex items-center gap-2.5 text-sm text-brand-600">
             <MapPin className="w-4 h-4 shrink-0" />
             {openedClub ? (
-              <span>Vous avez ouvert le site de <strong>{openedClub.nom}</strong>. Entrer dans ce club ?</span>
+              <span>Vous avez ouvert le site de <strong>{openedClub.nom}</strong>. Y accéder avec votre compte ?</span>
             ) : (
               <span>Aucun aéroclub ne correspond à l&apos;adresse « {openedSlug} ».</span>
             )}
           </div>
           <div className="flex gap-2 shrink-0">
             <button onClick={() => setOpenedSlug(null)} className="btn-secondary btn-sm">Ignorer</button>
-            {openedClub && openedClub.id !== currentOrgId && (
+            {openedClub && (
               <button onClick={() => enter(openedClub)} disabled={entering !== null} className="btn-primary btn-sm">
                 {entering === openedClub.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <LogIn className="w-3.5 h-3.5" />}
-                Entrer
+                Accéder au site
               </button>
             )}
           </div>
@@ -287,10 +291,10 @@ export default function PlateformePage() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-gray-100 bg-gray-50/60 text-left">
-                  {["Aéroclub", "Administrateurs", "Établissements", "Élèves", "Vols", "Statut", ""].map((h, i) => (
+                  {["Aéroclub", "Administrateurs", "Établissements", "Élèves", "Vols élèves", "Comptes", "Statut", ""].map((h, i) => (
                     <th
                       key={i}
-                      className={`px-4 py-2.5 text-[11px] font-semibold uppercase tracking-wider text-gray-500 whitespace-nowrap ${i >= 2 && i <= 4 ? "text-right" : ""}`}
+                      className={`px-4 py-2.5 text-[11px] font-semibold uppercase tracking-wider text-gray-500 whitespace-nowrap ${i >= 2 && i <= 5 ? "text-right" : ""}`}
                     >
                       {h}
                     </th>
@@ -308,7 +312,7 @@ export default function PlateformePage() {
                           {isHere && <span className="badge bg-brand-50 text-brand-500">Vous êtes ici</span>}
                         </div>
                         <p className="text-xs text-gray-400 mt-0.5 font-mono">{siteLabel(c.slug)}</p>
-                        {c.annee && <p className="text-[11px] text-gray-400 mt-0.5">Année {c.annee} · {c.counts.users} utilisateur{c.counts.users > 1 ? "s" : ""}</p>}
+                        {c.annee && <p className="text-[11px] text-gray-400 mt-0.5">Année {c.annee}</p>}
                       </td>
                       <td className="px-4 py-3">
                         {c.admins.length === 0 ? (
@@ -326,7 +330,14 @@ export default function PlateformePage() {
                       </td>
                       <td className="px-4 py-3 text-right tabular-nums text-gray-700">{c.counts.etablissements}</td>
                       <td className="px-4 py-3 text-right tabular-nums text-gray-700">{c.counts.eleves}</td>
-                      <td className="px-4 py-3 text-right tabular-nums text-gray-700">{c.counts.vols}</td>
+                      <td className="px-4 py-3 text-right tabular-nums text-gray-700">
+                        <p>{c.counts.vols}</p>
+                        <p className="text-[11px] text-gray-400 whitespace-nowrap">Vol 1 : {c.counts.vol1} · Vol 2 : {c.counts.vol2}</p>
+                      </td>
+                      <td className="px-4 py-3 text-right tabular-nums text-gray-700">
+                        <p>{c.counts.users}</p>
+                        <p className="text-[11px] text-gray-400 whitespace-nowrap">dont {c.counts.parents} parent{c.counts.parents > 1 ? "s" : ""}</p>
+                      </td>
                       <td className="px-4 py-3">
                         <span className={`badge ${c.actif ? "bg-emerald-50 text-emerald-600" : "bg-red-50 text-red-600"}`}>
                           {c.actif ? "Actif" : "Désactivé"}
@@ -334,10 +345,10 @@ export default function PlateformePage() {
                       </td>
                       <td className="px-4 py-3">
                         <div className="flex items-center justify-end gap-1.5">
-                          {!isHere && (
-                            <button onClick={() => enter(c)} disabled={entering !== null} className="btn-secondary btn-sm">
+                          {c.actif && (
+                            <button onClick={() => enter(c)} disabled={entering !== null} className="btn-primary btn-sm whitespace-nowrap" title={`Ouvrir ${siteLabel(c.slug)} avec votre compte`}>
                               {entering === c.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <LogIn className="w-3.5 h-3.5" />}
-                              Entrer
+                              Accéder au site
                             </button>
                           )}
                           <button

@@ -1,6 +1,6 @@
 # Mise en place du pilote FFA — 4 aéroclubs
 
-Checklist pour passer BIA Manager en multi-clubs : chaque aéroclub a son site `club.biamanager.com`, ses données sont isolées des autres, et le propriétaire de la plateforme gère tous les clubs depuis `biamanager.com/plateforme`.
+Checklist pour passer BIA Manager en multi-clubs : chaque aéroclub a son site `club.biamanager.com`, ses données sont isolées des autres, et le propriétaire de la plateforme gère tous les clubs depuis `admin.biamanager.com/plateforme`.
 
 Tarifs indicatifs relevés en 2026 : à vérifier au moment de souscrire.
 
@@ -65,7 +65,7 @@ Sans `NEXT_PUBLIC_ROOT_DOMAIN`, l'application fonctionne sans sous-domaines : ch
 
 ### Étape 6 — Vérifier puis ouvrir les clubs
 1. Ouvrir `https://acba.biamanager.com` : l'ACBA doit retrouver toutes ses données.
-2. Ouvrir `https://biamanager.com/plateforme` : l'ACBA apparaît dans la liste.
+2. Ouvrir `https://admin.biamanager.com/plateforme` : l'ACBA apparaît dans la liste.
 3. **Nouvel aéroclub** pour chacun des 3 clubs du test : nom, sous-domaine, admin du club, année scolaire. L'admin reçoit un email pour activer son accès.
 4. Chaque admin de club renseigne ensuite, sur son site : Paramètres (nom, lieu des vols, tarifs), Aéronefs, Établissements, Utilisateurs (pilotes, coordinateurs).
 
