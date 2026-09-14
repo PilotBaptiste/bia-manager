@@ -78,8 +78,8 @@ async function DashboardCoordinateur({ supabase, profile }: { supabase: any; pro
       </div>
       <div className="flex gap-3 flex-wrap mb-6">
         <Stat icon={Users} label="Élèves" value={total} />
-        <Stat icon={Plane} label="Vol 1 restants" value={`${vol1Restants}/${total}`} sub={`${vol1Effectues || 0} effectué${(vol1Effectues || 0) > 1 ? "s" : ""}`} color="bg-amber-50 text-amber-600" />
-        <Stat icon={Plane} label="Vol 2 restants" value={`${vol2Restants}/${vol2Total}`} sub={`${vol2Effectues || 0} effectué${(vol2Effectues || 0) > 1 ? "s" : ""}`} color="bg-purple-50 text-purple-600" />
+        <Stat icon={Plane} label="Vol 1 effectués" value={`${vol1Effectues || 0}/${total}`} sub={`${vol1Restants} restant${vol1Restants > 1 ? "s" : ""}`} color="bg-amber-50 text-amber-600" />
+        <Stat icon={Plane} label="Vol 2 effectués" value={`${vol2Effectues || 0}/${vol2Total}`} sub={`${vol2Restants} restant${vol2Restants > 1 ? "s" : ""}`} color="bg-purple-50 text-purple-600" />
         <Stat icon={School} label="Établissements" value={(etabs || []).length} color="bg-emerald-50 text-emerald-600" />
       </div>
 
@@ -253,8 +253,8 @@ async function DashboardGerant({ supabase, profile }: { supabase: any; profile: 
         return (
           <div className="flex gap-3 flex-wrap mb-6">
             <Stat icon={Users} label="Mes élèves" value={eleves.length} />
-            <Stat icon={Plane} label="Vol 1 restants" value={`${eleves.length - vol1Eff}/${eleves.length}`} sub={`${vol1Eff} effectué${vol1Eff > 1 ? "s" : ""}`} color="bg-amber-50 text-amber-600" />
-            <Stat icon={Plane} label="Vol 2 restants" value={`${vol2Aut - vol2Eff}/${vol2Aut}`} sub={`${vol2Eff} effectué${vol2Eff > 1 ? "s" : ""}`} color="bg-purple-50 text-purple-600" />
+            <Stat icon={Plane} label="Vol 1 effectués" value={`${vol1Eff}/${eleves.length}`} sub={`${eleves.length - vol1Eff} restant${eleves.length - vol1Eff > 1 ? "s" : ""}`} color="bg-amber-50 text-amber-600" />
+            <Stat icon={Plane} label="Vol 2 effectués" value={`${vol2Eff}/${vol2Aut}`} sub={`${vol2Aut - vol2Eff} restant${vol2Aut - vol2Eff > 1 ? "s" : ""}`} color="bg-purple-50 text-purple-600" />
             <Stat icon={Euro} label="Paiements" value={`${eleves.filter((e: any) => e.paiement_effectue).length}/${eleves.length}`} color="bg-emerald-50 text-emerald-600" />
           </div>
         );

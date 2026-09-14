@@ -121,8 +121,8 @@ export default function DashboardSAStats() {
       <div className="flex gap-3 flex-wrap mb-6">
         <Stat icon={Users} label="Élèves inscrits" value={stats.total} color="bg-brand-50 text-brand-500" />
         <Stat icon={CheckCircle2} label="Attestations" value={`${stats.attestations}/${stats.total}`} color="bg-emerald-50 text-emerald-600" />
-        <Stat icon={Plane} label="Vol 1 restants" value={`${vol1Restants}/${stats.total}`} sub={`${stats.vol1Effectues} effectué${stats.vol1Effectues > 1 ? "s" : ""}`} color="bg-amber-50 text-amber-600" />
-        <Stat icon={Plane} label="Vol 2 restants" value={`${vol2Restants}/${stats.vol2Autorises}`} sub={`${stats.vol2Effectues} effectué${stats.vol2Effectues > 1 ? "s" : ""}`} color="bg-purple-50 text-purple-600" />
+        <Stat icon={Plane} label="Vol 1 effectués" value={`${stats.vol1Effectues}/${stats.total}`} sub={`${vol1Restants} restant${vol1Restants > 1 ? "s" : ""}`} color="bg-amber-50 text-amber-600" />
+        <Stat icon={Plane} label="Vol 2 effectués" value={`${stats.vol2Effectues}/${stats.vol2Autorises}`} sub={`${vol2Restants} restant${vol2Restants > 1 ? "s" : ""}`} color="bg-purple-50 text-purple-600" />
         <Stat icon={Calendar} label="Vols prévus" value={stats.volsPrevus} color="bg-brand-50 text-brand-500" />
         <Stat icon={Euro} label="Paiements reçus" value={`${stats.paiements}/${stats.total}`} color="bg-emerald-50 text-emerald-600" />
       </div>
