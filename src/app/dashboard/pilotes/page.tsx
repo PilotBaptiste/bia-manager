@@ -1,6 +1,7 @@
 "use client";
 import { useState, useEffect } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { toast } from "sonner";
 import { UserCheck, Loader2, Plane, Edit, X, Save, School, GraduationCap } from "lucide-react";
 
 export default function PilotesPage() {
@@ -65,16 +66,16 @@ export default function PilotesPage() {
     const existing = qualifs.find(
       (q) => q.pilote_id === piloteId && q.aeronef_id === aeronefId,
     );
-    if (existing)
-      await supabase
-        .from("pilote_qualifications")
-        .delete()
-        .eq("id", existing.id);
-    else
-      await supabase
-        .from("pilote_qualifications")
-        .insert({ pilote_id: piloteId, aeronef_id: aeronefId });
+    const { error: err } = existing
+      ? await supabase
+          .from("pilote_qualifications")
+          .delete()
+          .eq("id", existing.id)
+      : await supabase
+          .from("pilote_qualifications")
+          .insert({ pilote_id: piloteId, aeronef_id: aeronefId });
     setSaving(false);
+    if (err) toast.error(`Erreur mise à jour qualification : ${err.message}`);
     load();
   }
 
@@ -83,26 +84,27 @@ export default function PilotesPage() {
     const existing = piloteEtabs.find(
       (pe) => pe.pilote_id === piloteId && pe.etablissement_id === etabId,
     );
-    if (existing)
-      await supabase
-        .from("pilote_etablissements")
-        .delete()
-        .eq("id", existing.id);
-    else
-      await supabase
-        .from("pilote_etablissements")
-        .insert({ pilote_id: piloteId, etablissement_id: etabId });
+    const { error: err } = existing
+      ? await supabase
+          .from("pilote_etablissements")
+          .delete()
+          .eq("id", existing.id)
+      : await supabase
+          .from("pilote_etablissements")
+          .insert({ pilote_id: piloteId, etablissement_id: etabId });
     setSaving(false);
+    if (err) toast.error(`Erreur mise à jour établissement : ${err.message}`);
     load();
   }
 
   async function toggleFI(pilote: any) {
     setSaving(true);
-    await supabase
+    const { error: err } = await supabase
       .from("profiles")
       .update({ qualification_fi: !pilote.qualification_fi })
       .eq("id", pilote.id);
     setSaving(false);
+    if (err) toast.error(`Erreur mise à jour qualification FI : ${err.message}`);
     load();
   }
 
@@ -121,8 +123,10 @@ export default function PilotesPage() {
     setSaving(false);
     if (err) {
       setError(err.message);
+      toast.error(`Erreur lors de l'enregistrement : ${err.message}`);
       return;
     }
+    toast.success("Profil mis à jour");
     setEditing(null);
     load();
   }

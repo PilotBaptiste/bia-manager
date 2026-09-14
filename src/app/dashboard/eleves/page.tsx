@@ -1,7 +1,8 @@
 "use client";
-import { useState, useEffect, useMemo } from "react";
-import { useSearchParams } from "next/navigation";
+import { useState, useEffect, useRef } from "react";
+import { useSearchParams, useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
+import { fetchAll } from "@/lib/fetchAll";
 import { toast } from "sonner";
 import { useYear } from "@/contexts/YearContext";
 import type { Eleve, Etablissement } from "@/types";
@@ -88,6 +89,15 @@ function fmtDay(dateStr: string) {
   });
 }
 
+const PAGE_SIZE = 50;
+
+const ELEVES_LIST_SELECT =
+  "*, etablissement:etablissements!inner(*), vol1_aeronef:aeronefs!vol1_aeronef_id(type_aeronef,immatriculation,prix_heure), vol2_aeronef:aeronefs!vol2_aeronef_id(type_aeronef,immatriculation,prix_heure), reservations(id,statut,type_vol,creneau:creneaux(id,date_vol,heure_debut,heure_fin,statut,pilote:profiles!pilote_id(nom,prenom),aeronef:aeronefs(type_aeronef,immatriculation)))";
+
+const ELEVES_EXPORT_SELECT = "*, etablissement:etablissements!inner(nom,actif)";
+
+const SEARCH_FIELDS = ["nom", "prenom", "parent_nom", "parent_prenom", "parent_email", "vol1_numero_aerogest", "vol2_numero_aerogest"];
+
 const emptyForm = {
   nom: "",
   prenom: "",
@@ -123,6 +133,7 @@ const emptyForm = {
   vol2_numero_aerogest: "",
   bia_passe: false,
   bia_resultat: "",
+  bia_mention: "",
   bia_date: "",
   commentaires: "",
   attestation_url_manual: "",
@@ -131,6 +142,7 @@ const emptyForm = {
 export default function ElevesPage() {
   const supabase = createClient();
   const searchParams = useSearchParams();
+  const router = useRouter();
   const { selectedAnneeId, activeAnneeId } = useYear();
   // anneeId = active year, used when creating new students
   const anneeId = activeAnneeId;
@@ -157,12 +169,61 @@ export default function ElevesPage() {
   const [fBia, setFBia] = useState("all");
   const [showFilters, setShowFilters] = useState(() => !!(searchParams.get("paiement") || searchParams.get("attestation") || searchParams.get("etablissement")));
   const [parentProfiles, setParentProfiles] = useState<Record<string, any>>({});
+  const [pilotes, setPilotes] = useState<any[]>([]);
   const [confirmAction, setConfirmAction] = useState<{ title: string; message: string; variant?: "danger" | "primary"; onConfirm: () => void } | null>(null);
   const [confirmLoading, setConfirmLoading] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [bulkBusy, setBulkBusy] = useState(false);
+  const [debouncedQ, setDebouncedQ] = useState("");
+  const [totalCount, setTotalCount] = useState(0);
+  const [fetching, setFetching] = useState(false);
+  // undefined = not loaded yet, null = no établissement restriction
+  const [scopeEtabIds, setScopeEtabIds] = useState<string[] | null | undefined>(undefined);
+  const requestIdRef = useRef(0);
+
+  const filterKey = JSON.stringify([selectedAnneeId, debouncedQ, fEtab, fPaiement, fAttest, fVol1, fBia]);
+  const [pageState, setPageState] = useState({ key: filterKey, page: 1 });
+  const page = pageState.key === filterKey ? pageState.page : 1;
+  const setPage = (p: number) => setPageState({ key: filterKey, page: p });
+  const pageCount = Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
+
+  function applyFilters(q: any) {
+    q = q.eq("archive", false).eq("etablissement.actif", true);
+    if (selectedAnneeId) q = q.eq("annee_id", selectedAnneeId);
+    if (scopeEtabIds) q = q.in("etablissement_id", scopeEtabIds.length > 0 ? scopeEtabIds : ["00000000-0000-0000-0000-000000000000"]);
+    const words = debouncedQ.replace(/[,()%*\\"]/g, " ").split(/\s+/).filter(Boolean);
+    for (const w of words) q = q.or(SEARCH_FIELDS.map((f) => `${f}.ilike.%${w}%`).join(","));
+    if (fEtab !== "all") q = q.eq("etablissement_id", fEtab);
+    if (fPaiement !== "all") q = q.eq("paiement_effectue", fPaiement === "oui");
+    if (fAttest !== "all") q = q.eq("attestation_signee", fAttest === "oui");
+    if (fVol1 !== "all") q = q.eq("vol1_effectue", fVol1 === "oui");
+    if (fBia === "admis") q = q.not("bia_resultat", "is", null).neq("bia_resultat", "Non admis");
+    if (fBia === "non") q = q.or("bia_resultat.is.null,bia_resultat.eq.Non admis");
+    return q.order("nom").order("prenom").order("id");
+  }
 
   async function load() {
+    if (scopeEtabIds === undefined || !selectedAnneeId) return;
+    const requestId = ++requestIdRef.current;
+    setFetching(true);
+    const from = (page - 1) * PAGE_SIZE;
+    const { data, count, error } = await applyFilters(
+      supabase.from("eleves").select(ELEVES_LIST_SELECT, { count: "exact" }),
+    ).range(from, from + PAGE_SIZE - 1);
+    if (requestId !== requestIdRef.current) return;
+    setFetching(false);
+    setLoading(false);
+    if (error) {
+      // Out-of-range page (e.g. after deleting the last rows of the last page)
+      if (page > 1 && error.code === "PGRST103") { setPage(1); return; }
+      toast.error(`Erreur de chargement : ${error.message}`);
+      return;
+    }
+    setEleves(data || []);
+    setTotalCount(count ?? 0);
+  }
+
+  async function loadContext() {
     const {
       data: { user },
     } = await supabase.auth.getUser();
@@ -187,41 +248,31 @@ export default function ElevesPage() {
     const gerantEtabIds = etabIdsFromProfile(prof?.etablissement_ids, prof?.etablissement_id);
     const isPiloteRole = prof?.roles?.includes("pilote") && !isSARole && !isCoordRole && !isGerant;
 
-    let elevesQuery = supabase
-      .from("eleves")
-      .select(
-        "*, etablissement:etablissements(*), vol1_aeronef:aeronefs!vol1_aeronef_id(type_aeronef,immatriculation,prix_heure), vol2_aeronef:aeronefs!vol2_aeronef_id(type_aeronef,immatriculation,prix_heure), reservations(id,statut,type_vol,creneau:creneaux(id,date_vol,heure_debut,heure_fin,statut,pilote:profiles!pilote_id(nom,prenom),aeronef:aeronefs(type_aeronef,immatriculation)))",
-      )
-      .eq("archive", false)
-      .order("nom");
-
-    if (selectedAnneeId) elevesQuery = elevesQuery.eq("annee_id", selectedAnneeId);
-
-    if (isCoordRole && coordEtabIds.length > 0) {
-      elevesQuery = elevesQuery.in("etablissement_id", coordEtabIds);
-    } else if (isGerant && gerantEtabIds.length > 0) {
-      elevesQuery = elevesQuery.in("etablissement_id", gerantEtabIds);
+    let scope: string[] | null = null;
+    if (isCoordRole) {
+      scope = coordEtabIds;
+    } else if (isGerant) {
+      scope = gerantEtabIds;
     } else if (isPiloteRole) {
       const { data: peData } = await supabase
         .from("pilote_etablissements")
         .select("etablissement_id")
         .eq("pilote_id", user.id);
-      const piloteEtabIds = (peData || []).map((x: any) => x.etablissement_id);
-      elevesQuery = elevesQuery.in("etablissement_id", piloteEtabIds.length > 0 ? piloteEtabIds : ["__none__"]);
+      scope = (peData || []).map((x: any) => x.etablissement_id);
     }
 
-    const [eR, etR, aR, pR, profR] = await Promise.all([
-      elevesQuery,
+    const [etR, aR, pR, profR, pilotesR] = await Promise.all([
       isCoordRole && coordEtabIds.length > 0
         ? supabase.from("etablissements").select("*").in("id", coordEtabIds).order("nom")
         : supabase.from("etablissements").select("*").eq("actif", true).order("nom"),
       supabase.from("aeronefs").select("*").eq("actif", true).order("type_aeronef"),
       supabase.from("parametres").select("cle,valeur").eq("cle", "prix_inscription").single(),
-      supabase.from("profiles").select("email, nom, prenom, telephone").contains("roles", ["parent"]),
+      fetchAll((from, to) => supabase.from("profiles").select("email, nom, prenom, telephone").contains("roles", ["parent"]).order("id").range(from, to)),
+      supabase.from("profiles").select("id, nom, prenom").contains("roles", ["pilote"]).eq("actif", true).order("nom"),
     ]);
-    setEleves(eR.data || []);
-    setEtablissements(etR.data || []);
+    setEtablissements((etR.data || []).filter((e: any) => e.actif !== false));
     setAeronefs(aR.data || []);
+    setPilotes(pilotesR.data || []);
     if (pR.data?.valeur) setDefaultMontant(pR.data.valeur);
     // Build email → profile map for parent name sync
     const pmap: Record<string, any> = {};
@@ -229,12 +280,29 @@ export default function ElevesPage() {
       if (p.email) pmap[p.email.toLowerCase()] = p;
     }
     setParentProfiles(pmap);
-    setLoading(false);
+    setScopeEtabIds(scope);
   }
 
   useEffect(() => {
-    if (selectedAnneeId) load();
+    loadContext();
+  }, []);
+
+  useEffect(() => {
+    setSelected(null);
   }, [selectedAnneeId]);
+
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedQ(searchQ.trim()), 300);
+    return () => clearTimeout(t);
+  }, [searchQ]);
+
+  useEffect(() => {
+    setSelectedIds(new Set());
+  }, [filterKey, page]);
+
+  useEffect(() => {
+    load();
+  }, [scopeEtabIds, filterKey, page]);
 
   async function loadEmailLogs(eleve: any) {
     if (!eleve?.parent_email) return;
@@ -256,29 +324,8 @@ export default function ElevesPage() {
     else setEmailLogs([]);
   }, [selected?.id]);
 
-  const filtered = useMemo(
-    () =>
-      eleves.filter((s) => {
-        if (
-          searchQ &&
-          !`${s.nom} ${s.prenom} ${s.parent_nom} ${s.parent_prenom} ${s.parent_email}`
-            .toLowerCase()
-            .includes(searchQ.toLowerCase())
-        )
-          return false;
-        if (fEtab !== "all" && s.etablissement_id !== fEtab) return false;
-        if (fPaiement === "oui" && !s.paiement_effectue) return false;
-        if (fPaiement === "non" && s.paiement_effectue) return false;
-        if (fAttest === "oui" && !s.attestation_signee) return false;
-        if (fAttest === "non" && s.attestation_signee) return false;
-        if (fVol1 === "oui" && !s.vol1_effectue) return false;
-        if (fVol1 === "non" && s.vol1_effectue) return false;
-        if (fBia === "admis" && (!s.bia_resultat || s.bia_resultat === "Non admis")) return false;
-        if (fBia === "non" && s.bia_resultat && s.bia_resultat !== "Non admis") return false;
-        return true;
-      }),
-    [eleves, searchQ, fEtab, fPaiement, fAttest, fVol1, fBia],
-  );
+  // Current page rows, already filtered server-side
+  const filtered = eleves;
 
   const activeFilters = [fEtab, fPaiement, fAttest, fVol1, fBia].filter(
     (f) => f !== "all",
@@ -286,6 +333,10 @@ export default function ElevesPage() {
 
   // Pilots: read-only access to their établissements, can only edit statuts + vols
   const isPiloteOnly = !!profile && profile.roles?.includes("pilote") && !profile.roles?.includes("superadmin") && !profile.roles?.includes("coordinateur") && !profile.roles?.includes("gerant");
+  const isSuperadmin = !!profile?.roles?.includes("superadmin");
+  const canBulk = isSuperadmin || !!profile?.roles?.includes("gerant");
+  // Bulk actions only ever touch rows the user can currently see.
+  const visibleSelected = filtered.filter((e) => selectedIds.has(e.id));
 
   function calcPrix(aeronefId: string, minutes: string): string {
     if (!aeronefId || !minutes) return "";
@@ -383,6 +434,7 @@ export default function ElevesPage() {
       vol2_numero_aerogest: s.vol2_numero_aerogest || "",
       bia_passe: s.bia_passe,
       bia_resultat: s.bia_resultat || "",
+      bia_mention: (s as any).bia_mention || "",
       bia_date: s.bia_date || "",
       commentaires: s.commentaires || "",
       attestation_url_manual: s.attestation_url || "",
@@ -432,15 +484,24 @@ export default function ElevesPage() {
     }
     setSaving(true);
 
+    const original = editingId
+      ? eleves.find((e: any) => e.id === editingId) ?? (selected?.id === editingId ? selected : null)
+      : null;
+    const montantParse = parseFloat(String(form.paiement_montant).replace(",", "."));
+    const montantSaisi = Number.isFinite(montantParse) ? montantParse : (parseFloat(defaultMontant) || 80);
+    const attestationDate = form.attestation_signee
+      ? (original?.attestation_signee && original?.attestation_date ? original.attestation_date : new Date().toISOString())
+      : null;
+
     // Pilot-only payload: only statuts + vols
     if (isPiloteOnly && editingId) {
       const pilotePayload: any = {
         paiement_effectue: form.paiement_effectue,
         paiement_mode: form.paiement_mode || null,
-        paiement_montant: form.paiement_effectue ? parseFloat(form.paiement_montant) || 80 : null,
+        paiement_montant: form.paiement_effectue ? montantSaisi : null,
         attestation_signee: form.attestation_signee,
         attestation_parent_signataire: form.attestation_signee ? (form.attestation_parent_signataire || `${form.parent_prenom} ${form.parent_nom}`) : null,
-        attestation_date: form.attestation_signee ? new Date().toISOString() : null,
+        attestation_date: attestationDate,
         vol_fi_mode: form.vol_fi_mode,
         vol1_effectue: form.vol1_effectue,
         vol1_temps_minutes: form.vol1_effectue && form.vol1_temps_minutes ? parseInt(form.vol1_temps_minutes) : null,
@@ -458,6 +519,7 @@ export default function ElevesPage() {
         vol2_numero_aerogest: form.vol_fi_mode ? null : (form.vol2_numero_aerogest || null),
         bia_passe: form.bia_passe,
         bia_resultat: form.bia_resultat || null,
+        bia_mention: form.bia_resultat === "Mention" ? (form.bia_mention || null) : null,
         bia_date: form.bia_date || null,
       };
       const { error: piloteErr } = await supabase.from("eleves").update(pilotePayload).eq("id", editingId);
@@ -480,24 +542,19 @@ export default function ElevesPage() {
       adresse: [form.adresse_rue, [form.adresse_cp, form.adresse_ville].filter(Boolean).join(" ")].filter(Boolean).join(", ") || null,
       etablissement_id: form.etablissement_id || null,
       classe: form.classe || "—",
-      annee_id: anneeId,
       parent_nom: form.parent_nom,
       parent_prenom: form.parent_prenom,
       parent_email: form.parent_email,
       parent_telephone: form.parent_telephone,
       paiement_effectue: form.paiement_effectue,
       paiement_mode: form.paiement_mode || null,
-      paiement_montant: form.paiement_effectue
-        ? parseFloat(form.paiement_montant) || 80
-        : null,
+      paiement_montant: form.paiement_effectue ? montantSaisi : null,
       attestation_signee: form.attestation_signee,
       attestation_parent_signataire: form.attestation_signee
         ? form.attestation_parent_signataire ||
           `${form.parent_prenom} ${form.parent_nom}`
         : null,
-      attestation_date: form.attestation_signee
-        ? new Date().toISOString()
-        : null,
+      attestation_date: attestationDate,
       vol_fi_mode: form.vol_fi_mode,
       vol1_effectue: form.vol1_effectue,
       vol1_temps_minutes: form.vol1_effectue && form.vol1_temps_minutes ? parseInt(form.vol1_temps_minutes) : null,
@@ -515,18 +572,25 @@ export default function ElevesPage() {
       vol2_numero_aerogest: form.vol_fi_mode ? null : (form.vol2_numero_aerogest || null),
       bia_passe: form.bia_passe,
       bia_resultat: form.bia_resultat || null,
+      bia_mention: form.bia_resultat === "Mention" ? (form.bia_mention || null) : null,
       bia_date: form.bia_date || null,
       commentaires: form.commentaires || null,
     };
     // Only update attestation_url if a new file was uploaded
     if (form.attestation_url_manual)
       payload.attestation_url = form.attestation_url_manual;
-    const { data: parentProfile } = await supabase
-      .from("profiles")
-      .select("id")
-      .eq("email", form.parent_email)
-      .single();
-    if (parentProfile) payload.parent_id = parentProfile.id;
+    // An existing student keeps its school year; only new students go into the active year.
+    if (!editingId) payload.annee_id = anneeId;
+    const parentEmail = (form.parent_email || "").trim().toLowerCase();
+    payload.parent_email = parentEmail;
+    const { data: parentProfile } = parentEmail
+      ? await supabase.from("profiles").select("id").ilike("email", parentEmail).maybeSingle()
+      : { data: null };
+    if (parentProfile) {
+      payload.parent_id = parentProfile.id;
+    } else if (original && (original.parent_email || "").toLowerCase() !== parentEmail) {
+      payload.parent_id = null;
+    }
 
     let result;
     if (editingId) {
@@ -567,9 +631,15 @@ export default function ElevesPage() {
     load();
   }
 
-  function handleExport() {
+  async function handleExport() {
+    const tid = toast.loading("Préparation de l'export…");
+    const { data: allRows, error } = await fetchAll((from, to) =>
+      applyFilters(supabase.from("eleves").select(ELEVES_EXPORT_SELECT)).range(from, to),
+    );
+    toast.dismiss(tid);
+    if (error) { toast.error(`Erreur lors de l'export : ${error.message}`); return; }
     const headers = ["Nom","Prenom","Date naissance","Lieu naissance","Adresse","Etablissement","Classe","Parent nom","Parent prenom","Email parent","Tel parent","Paiement","Montant","Mode paiement","Attestation","Vol 1","Temps vol 1 (min)","Prix vol 1","BIA resultat","Vol 2 autorise","Vol 2","Temps vol 2 (min)","Prix vol 2","Commentaires"];
-    const rows = filtered.map(s => [
+    const rows = allRows.map((s: any) => [
       s.nom, s.prenom,
       s.date_naissance ? new Date(s.date_naissance).toLocaleDateString("fr-FR") : "",
       s.lieu_naissance || "",
@@ -601,6 +671,66 @@ export default function ElevesPage() {
     URL.revokeObjectURL(url);
   }
 
+  async function exportFFA() {
+    // Open the window synchronously so the popup blocker doesn't reject it after the fetch
+    const w = window.open("", "_blank");
+    if (!w) { toast.error("Fenêtre bloquée — autorise les popups"); return; }
+    const { data: biaStudents, error } = await fetchAll((from, to) =>
+      applyFilters(supabase.from("eleves").select(ELEVES_EXPORT_SELECT)).eq("bia_passe", true).range(from, to),
+    );
+    if (error) { w.close(); toast.error(`Erreur lors de l'export : ${error.message}`); return; }
+    if (biaStudents.length === 0) { w.close(); toast.info("Aucun élève avec BIA dans la sélection actuelle"); return; }
+    const date = new Date().toLocaleDateString("fr-FR", { day: "2-digit", month: "long", year: "numeric" });
+    const esc = (v: any) => String(v ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+    const rows = biaStudents.map((s: any) => {
+      const recu = s.bia_resultat && s.bia_resultat !== "Non admis";
+      const mention = s.bia_resultat === "Mention";
+      return `<tr>
+        <td>${esc(s.nom)}</td>
+        <td>${esc(s.prenom)}</td>
+        <td>${esc(s.etablissement?.nom || "—")}</td>
+        <td>${s.date_naissance ? new Date(s.date_naissance).toLocaleDateString("fr-FR") : "—"}</td>
+        <td class="${recu ? "ok" : "ko"}">${recu ? "Reçu" : "Non reçu"}</td>
+        <td class="${mention ? "ok" : ""}">${mention ? "Oui" : "Non"}</td>
+        <td>${mention && (s as any).bia_mention ? esc((s as any).bia_mention) : "—"}</td>
+      </tr>`;
+    }).join("");
+    const html = `<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8"/>
+<title>Résultats BIA — Export FFA</title>
+<style>
+  body { font-family: Arial, sans-serif; font-size: 11px; color: #111; margin: 20px; }
+  h1 { font-size: 16px; margin-bottom: 4px; }
+  p.sub { color: #555; margin-bottom: 16px; font-size: 10px; }
+  table { border-collapse: collapse; width: 100%; }
+  th { background: #1b3a5c; color: #fff; padding: 6px 10px; text-align: left; font-size: 10px; text-transform: uppercase; letter-spacing: .5px; }
+  td { padding: 5px 10px; border-bottom: 1px solid #e5e7eb; }
+  tr:nth-child(even) td { background: #f9fafb; }
+  .ok { color: #15803d; font-weight: 700; }
+  .ko { color: #b91c1c; font-weight: 700; }
+  @media print { @page { size: A4 landscape; margin: 15mm; } }
+</style>
+</head>
+<body>
+<h1>Résultats BIA — Liste pour la FFA</h1>
+<p class="sub">Exporté le ${date} · ${biaStudents.length} élève(s)</p>
+<table>
+  <thead><tr>
+    <th>Nom</th><th>Prénom</th><th>Établissement</th><th>Date de naissance</th>
+    <th>Résultat</th><th>Mention</th><th>Type de mention</th>
+  </tr></thead>
+  <tbody>${rows}</tbody>
+</table>
+</body>
+</html>`;
+    w.document.write(html);
+    w.document.close();
+    w.focus();
+    w.print();
+  }
+
   async function doDelete(id: string) {
     const { error } = await supabase.from("eleves").delete().eq("id", id);
     if (error) { toast.error("Erreur lors de la suppression"); return; }
@@ -618,6 +748,15 @@ export default function ElevesPage() {
       variant: "danger",
       onConfirm: () => doDelete(id),
     });
+  }
+
+  async function handleSkipVol1(id: string, currentValue: boolean) {
+    const newValue = !currentValue;
+    const { error } = await supabase.from("eleves").update({ vol1_skippe: newValue }).eq("id", id);
+    if (error) { toast.error("Erreur lors de la mise à jour"); return; }
+    toast.success(newValue ? "Vol 1 marqué comme décliné — Vol 2 autorisé" : "Dispense Vol 1 annulée");
+    setSelected((prev: any) => prev ? { ...prev, vol1_skippe: newValue } : prev);
+    load();
   }
 
   async function doAbandon(id: string, currentValue: boolean) {
@@ -928,7 +1067,7 @@ export default function ElevesPage() {
                           const file = e.target.files?.[0];
                           if (!file) return;
                           const ext = file.name.split(".").pop();
-                          const fileName = `attestation_manuelle_${form.nom}_${form.prenom}_${Date.now()}.${ext}`;
+                          const fileName = `${editingId || "nouveau"}/attestation_manuelle_${Date.now()}.${ext}`;
                           const { error } = await supabase.storage
                             .from("attestations")
                             .upload(fileName, file);
@@ -1039,6 +1178,21 @@ export default function ElevesPage() {
                       <option value="Mention">Mention</option>
                     </select>
                   </div>
+                  {form.bia_resultat === "Mention" && (
+                    <div className="mb-2">
+                      <label className="label">Type de mention</label>
+                      <select
+                        value={form.bia_mention}
+                        onChange={(e) => setForm({ ...form, bia_mention: e.target.value })}
+                        className="select"
+                      >
+                        <option value="">— Choisir</option>
+                        <option value="Assez Bien">Assez Bien</option>
+                        <option value="Bien">Bien</option>
+                        <option value="Très Bien">Très Bien</option>
+                      </select>
+                    </div>
+                  )}
                   <div>
                     <label className="label">Date</label>
                     <input
@@ -1140,14 +1294,19 @@ export default function ElevesPage() {
                   </div>
                   <div className="mb-2">
                     <label className="label">Pilote</label>
-                    <input
+                    <select
                       value={form.vol1_pilote_nom}
-                      onChange={(e) =>
-                        setForm({ ...form, vol1_pilote_nom: e.target.value })
-                      }
-                      className="input"
-                      placeholder="Nom du pilote"
-                    />
+                      onChange={(e) => setForm({ ...form, vol1_pilote_nom: e.target.value })}
+                      className="select"
+                    >
+                      <option value="">— Choisir le pilote —</option>
+                      {form.vol1_pilote_nom && !pilotes.some((p) => `${p.prenom} ${p.nom}` === form.vol1_pilote_nom) && (
+                        <option value={form.vol1_pilote_nom}>{form.vol1_pilote_nom} (ancien pilote)</option>
+                      )}
+                      {pilotes.map((p) => (
+                        <option key={p.id} value={`${p.prenom} ${p.nom}`}>{p.prenom} {p.nom}</option>
+                      ))}
+                    </select>
                   </div>
                   <div className="mb-2">
                     <label className="label">N° Aerogest</label>
@@ -1248,13 +1407,19 @@ export default function ElevesPage() {
                   </div>
                   <div className="mb-2">
                     <label className="label">Pilote</label>
-                    <input
+                    <select
                       value={form.vol2_pilote_nom}
-                      onChange={(e) =>
-                        setForm({ ...form, vol2_pilote_nom: e.target.value })
-                      }
-                      className="input"
-                    />
+                      onChange={(e) => setForm({ ...form, vol2_pilote_nom: e.target.value })}
+                      className="select"
+                    >
+                      <option value="">— Choisir le pilote —</option>
+                      {form.vol2_pilote_nom && !pilotes.some((p) => `${p.prenom} ${p.nom}` === form.vol2_pilote_nom) && (
+                        <option value={form.vol2_pilote_nom}>{form.vol2_pilote_nom} (ancien pilote)</option>
+                      )}
+                      {pilotes.map((p) => (
+                        <option key={p.id} value={`${p.prenom} ${p.nom}`}>{p.prenom} {p.nom}</option>
+                      ))}
+                    </select>
                   </div>
                   <div className="mb-2">
                     <label className="label">N° Aerogest</label>
@@ -1558,18 +1723,15 @@ export default function ElevesPage() {
                   {s.attestation_url && (
                     <div className="mt-2">
                       <button
-                        onClick={async () => {
-                          const { data } = await supabase.storage
-                            .from("attestations")
-                            .download(s.attestation_url);
-                          if (data) {
-                            const url = URL.createObjectURL(data);
-                            const a = document.createElement("a");
-                            a.href = url;
-                            a.download = `attestation_${s.nom}.pdf`;
-                            a.click();
-                            URL.revokeObjectURL(url);
-                          }
+                        onClick={() => {
+                          const params = new URLSearchParams({
+                            path: s.attestation_url!,
+                            name: `attestation_${s.nom}_${s.prenom}.pdf`,
+                          });
+                          const a = document.createElement("a");
+                          a.href = `/api/attestation/download?${params}`;
+                          a.download = `attestation_${s.nom}_${s.prenom}.pdf`;
+                          a.click();
                         }}
                         className="btn-secondary btn-sm"
                       >
@@ -1690,16 +1852,29 @@ export default function ElevesPage() {
                     );
                   }
                   return (
-                    <InfoRow
-                      label="Statut"
-                      value={
-                        s.paiement_effectue && s.attestation_signee
-                          ? "Peut réserver"
-                          : "Conditions non remplies"
-                      }
-                    />
+                    <>
+                      <InfoRow
+                        label="Statut"
+                        value={
+                          (s as any).vol1_skippe
+                            ? "Décliné par l'élève"
+                            : s.paiement_effectue && s.attestation_signee
+                              ? "Peut réserver"
+                              : "Conditions non remplies"
+                        }
+                        accent={(s as any).vol1_skippe ? "text-amber-600" : undefined}
+                      />
+                    </>
                   );
                 })()
+              )}
+              {!s.vol1_effectue && !isPiloteOnly && (
+                <button
+                  onClick={() => handleSkipVol1(s.id, !!(s as any).vol1_skippe)}
+                  className={`mt-2 text-xs px-2.5 py-1 rounded-lg border transition-colors ${(s as any).vol1_skippe ? "border-amber-300 text-amber-700 bg-amber-50 hover:bg-amber-100" : "border-gray-200 text-gray-500 hover:bg-gray-50"}`}
+                >
+                  {(s as any).vol1_skippe ? "↩ Annuler la dispense Vol 1" : "✕ L'élève ne souhaite pas faire le Vol 1"}
+                </button>
               )}
             </Section>
             <Section title="BIA">
@@ -1708,8 +1883,15 @@ export default function ElevesPage() {
                   <InfoRow
                     label="Resultat"
                     value={s.bia_resultat}
-                    accent="text-emerald-600"
+                    accent={s.bia_resultat === "Non admis" ? "text-red-500" : "text-emerald-600"}
                   />
+                  {s.bia_resultat === "Mention" && (s as any).bia_mention && (
+                    <InfoRow
+                      label="Mention"
+                      value={(s as any).bia_mention}
+                      accent="text-emerald-600"
+                    />
+                  )}
                   {s.bia_date && (
                     <InfoRow
                       label="Date"
@@ -1909,9 +2091,12 @@ export default function ElevesPage() {
         onConfirm={async () => {
           if (!confirmAction) return;
           setConfirmLoading(true);
-          await confirmAction.onConfirm();
-          setConfirmLoading(false);
-          setConfirmAction(null);
+          try {
+            await confirmAction.onConfirm();
+          } finally {
+            setConfirmLoading(false);
+            setConfirmAction(null);
+          }
         }}
       />
       </>
@@ -1919,22 +2104,57 @@ export default function ElevesPage() {
   }
 
   async function handleBulkPaid() {
-    if (selectedIds.size === 0) return;
+    const targets = visibleSelected.filter((e) => !e.paiement_effectue);
+    if (targets.length === 0) { toast.info("Tous les élèves sélectionnés ont déjà payé"); return; }
     setBulkBusy(true);
-    const ids = Array.from(selectedIds);
-    await supabase.from("eleves").update({ paiement_effectue: true }).in("id", ids);
-    toast.success(`${ids.length} paiement${ids.length > 1 ? "s" : ""} validé${ids.length > 1 ? "s" : ""}`);
-    setSelectedIds(new Set());
+    const montant = parseFloat(defaultMontant) || 80;
+    const { data, error } = await supabase
+      .from("eleves")
+      .update({ paiement_effectue: true, paiement_montant: montant })
+      .in("id", targets.map((e) => e.id))
+      .select("id");
     setBulkBusy(false);
+    if (error) { toast.error(`Erreur : ${error.message}`); return; }
+    const n = data?.length ?? 0;
+    if (n < targets.length) toast.warning(`${n} paiement${n > 1 ? "s" : ""} validé${n > 1 ? "s" : ""} sur ${targets.length} (droits insuffisants pour les autres)`);
+    else toast.success(`${n} paiement${n > 1 ? "s" : ""} validé${n > 1 ? "s" : ""} (${montant} €)`);
+    setSelectedIds(new Set());
     load();
   }
 
+  async function handleBulkDelete() {
+    const targets = visibleSelected;
+    if (targets.length === 0) return;
+    const withFlights = targets.filter((e) => e.vol1_effectue || e.vol2_effectue || (e.reservations || []).some((r: any) => r.statut !== "annule"));
+    if (withFlights.length > 0) {
+      toast.error(`Suppression impossible : ${withFlights.map((e) => `${e.prenom} ${e.nom}`).join(", ")} ${withFlights.length > 1 ? "ont" : "a"} une réservation ou un vol. Annulez les réservations d'abord, ou marquez l'élève « abandonné » pour garder l'historique financier.`);
+      return;
+    }
+    const ids = targets.map((e) => e.id);
+    const names = targets.map(e => `${e.prenom} ${e.nom}`).join(", ");
+    setConfirmAction({
+      title: `Supprimer ${ids.length} élève${ids.length > 1 ? "s" : ""}`,
+      message: `Supprimer définitivement : ${names} ?\n\nCette action est irréversible.`,
+      variant: "danger",
+      onConfirm: async () => {
+        setBulkBusy(true);
+        const { data, error } = await supabase.from("eleves").delete().in("id", ids).select("id");
+        setBulkBusy(false);
+        if (error) { toast.error(`Erreur : ${error.message}`); return; }
+        const n = data?.length ?? 0;
+        if (n < ids.length) toast.warning(`${n} élève${n > 1 ? "s" : ""} supprimé${n > 1 ? "s" : ""} sur ${ids.length}`);
+        else toast.success(`${n} élève${n > 1 ? "s" : ""} supprimé${n > 1 ? "s" : ""}`);
+        setSelectedIds(new Set());
+        load();
+      },
+    });
+  }
+
   async function handleBulkInvite() {
-    if (selectedIds.size === 0) return;
-    const targets = filtered.filter((e) => selectedIds.has(e.id) && e.parent_email);
+    const targets = visibleSelected.filter((e) => e.parent_email);
     if (targets.length === 0) { toast.error("Aucun élève sélectionné n'a d'email parent"); return; }
     // Deduplicate by parent_email — a parent with multiple children only gets one invite
-    const unique = Array.from(new Map(targets.map(e => [e.parent_email, e])).values());
+    const unique = Array.from(new Map(targets.map(e => [e.parent_email.toLowerCase(), e])).values());
     setBulkBusy(true);
     const tid = toast.loading(`Envoi de ${unique.length} invitation${unique.length > 1 ? "s" : ""}…`);
     let ok = 0;
@@ -1943,7 +2163,8 @@ export default function ElevesPage() {
       if (res.ok) ok++;
     }
     toast.dismiss(tid);
-    toast.success(`${ok} invitation${ok > 1 ? "s" : ""} envoyée${ok > 1 ? "s" : ""}`);
+    if (ok < unique.length) toast.warning(`${ok} invitation${ok > 1 ? "s" : ""} envoyée${ok > 1 ? "s" : ""}, ${unique.length - ok} en échec`);
+    else toast.success(`${ok} invitation${ok > 1 ? "s" : ""} envoyée${ok > 1 ? "s" : ""}`);
     setSelectedIds(new Set());
     setBulkBusy(false);
   }
@@ -1959,13 +2180,18 @@ export default function ElevesPage() {
         <div>
           <h1 className="text-xl font-bold text-gray-900">Eleves BIA</h1>
           <p className="text-sm text-gray-500 mt-0.5">
-            {filtered.length} eleve{filtered.length > 1 ? "s" : ""}
+            {totalCount} eleve{totalCount > 1 ? "s" : ""}
           </p>
         </div>
         <div className="flex gap-2">
           <button onClick={handleExport} className="btn-secondary btn-sm">
             <Download className="w-3.5 h-3.5" /> Export
           </button>
+          {!isPiloteOnly && (
+            <button onClick={exportFFA} className="btn-secondary btn-sm" title="Export PDF liste BIA pour la FFA">
+              <Download className="w-3.5 h-3.5" /> FFA
+            </button>
+          )}
           {!isPiloteOnly && (
             <button onClick={openCreate} className="btn-primary btn-sm">
               <Plus className="w-3.5 h-3.5" /> Inscrire
@@ -2082,16 +2308,31 @@ export default function ElevesPage() {
         </div>
       )}
 
-      {selectedIds.size > 0 && (
+      {canBulk && visibleSelected.length > 0 && (
         <div className="mb-3 flex items-center gap-3 p-3 rounded-lg bg-brand-50 border border-brand-200 flex-wrap">
-          <span className="text-sm font-semibold text-brand-700">{selectedIds.size} sélectionné{selectedIds.size > 1 ? "s" : ""}</span>
+          <span className="text-sm font-semibold text-brand-700">{visibleSelected.length} sélectionné{visibleSelected.length > 1 ? "s" : ""}</span>
           <button onClick={handleBulkPaid} disabled={bulkBusy} className="btn-primary btn-sm">
             {bulkBusy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />} Marquer payé
           </button>
           <button onClick={handleBulkInvite} disabled={bulkBusy} className="btn-secondary btn-sm">
             {bulkBusy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Mail className="w-3.5 h-3.5" />} Envoyer invitation
           </button>
-          <button onClick={() => setSelectedIds(new Set())} className="text-xs text-gray-500 hover:text-gray-700 ml-auto">Désélectionner tout</button>
+          <button
+            onClick={() => {
+              const ids = visibleSelected.map((e) => e.id).join(",");
+              router.push(`/dashboard/messagerie?eleves=${ids}`);
+            }}
+            disabled={bulkBusy}
+            className="btn-secondary btn-sm"
+          >
+            <Mail className="w-3.5 h-3.5" /> Envoyer un mail
+          </button>
+          {isSuperadmin && (
+            <button onClick={handleBulkDelete} disabled={bulkBusy} className="btn-sm border border-red-200 text-red-600 bg-red-50 hover:bg-red-100 rounded-lg px-2 py-1 text-xs font-semibold flex items-center gap-1 ml-auto">
+              <Trash2 className="w-3.5 h-3.5" /> Supprimer
+            </button>
+          )}
+          <button onClick={() => setSelectedIds(new Set())} className="text-xs text-gray-500 hover:text-gray-700">Désélectionner tout</button>
         </div>
       )}
 
@@ -2100,7 +2341,8 @@ export default function ElevesPage() {
           <Loader2 className="w-6 h-6 animate-spin text-brand-400" />
         </div>
       ) : (
-        <div className="card p-0 overflow-auto">
+        <>
+        <div className={`card p-0 overflow-auto transition-opacity ${fetching ? "opacity-60" : ""}`}>
           <table className="w-full text-sm min-w-[780px]">
             <thead>
               <tr className="bg-gray-50">
@@ -2138,7 +2380,7 @@ export default function ElevesPage() {
                     colSpan={11}
                     className="px-3 py-12 text-center text-gray-400"
                   >
-                    {eleves.length === 0 ? (
+                    {activeFilters === 0 && !debouncedQ ? (
                       <div className="flex flex-col items-center gap-2">
                         <Users className="w-8 h-8 text-gray-300" />
                         <p>Aucun eleve</p>
@@ -2152,7 +2394,7 @@ export default function ElevesPage() {
                         )}
                       </div>
                     ) : (
-                      "Aucun resultat"
+                      "Aucun élève ne correspond à ces filtres."
                     )}
                   </td>
                 </tr>
@@ -2197,6 +2439,7 @@ export default function ElevesPage() {
                     <td className="px-3 py-2.5">
                       {(() => {
                         if (s.vol1_effectue) return <Dot ok />;
+                        if ((s as any).vol1_skippe) return <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-700">Décliné</span>;
                         const r = getActiveResa((s as any).reservations, 1);
                         if (r?.creneau?.date_vol)
                           return (
@@ -2210,8 +2453,9 @@ export default function ElevesPage() {
                     </td>
                     <td className="px-3 py-2.5">
                       {s.bia_resultat ? (
-                        <span className="badge bg-emerald-50 text-emerald-600">
+                        <span className={`badge ${s.bia_resultat === "Non admis" ? "bg-red-50 text-red-500" : "bg-emerald-50 text-emerald-600"}`}>
                           {s.bia_resultat}
+                          {s.bia_resultat === "Mention" && (s as any).bia_mention && ` · ${(s as any).bia_mention}`}
                         </span>
                       ) : (
                         "—"
@@ -2245,6 +2489,31 @@ export default function ElevesPage() {
             </tbody>
           </table>
         </div>
+        <div className="flex items-center justify-between gap-3 mt-3 flex-wrap">
+          <span className="text-sm text-gray-500">
+            {totalCount} élève{totalCount > 1 ? "s" : ""}
+          </span>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setPage(page - 1)}
+              disabled={page <= 1 || fetching}
+              className="btn-secondary btn-sm"
+            >
+              <ChevronLeft className="w-3.5 h-3.5" /> Précédent
+            </button>
+            <span className="text-sm text-gray-500">
+              page {page} / {pageCount}
+            </span>
+            <button
+              onClick={() => setPage(page + 1)}
+              disabled={page >= pageCount || fetching}
+              className="btn-secondary btn-sm"
+            >
+              Suivant <ChevronRight className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        </div>
+        </>
       )}
 
       <ConfirmModal
@@ -2257,9 +2526,12 @@ export default function ElevesPage() {
         onConfirm={async () => {
           if (!confirmAction) return;
           setConfirmLoading(true);
-          await confirmAction.onConfirm();
-          setConfirmLoading(false);
-          setConfirmAction(null);
+          try {
+            await confirmAction.onConfirm();
+          } finally {
+            setConfirmLoading(false);
+            setConfirmAction(null);
+          }
         }}
       />
     </div>

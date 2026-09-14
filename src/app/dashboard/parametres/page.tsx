@@ -3,14 +3,18 @@ import { useState, useEffect } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { Settings2, Save, Loader2, FileSignature, Download, Eye, Info, CalendarDays, Plus, CheckCircle2, AlertTriangle, Edit, X, LockKeyhole, LockKeyholeOpen } from "lucide-react";
 import { toast } from "sonner";
+import { useYear } from "@/contexts/YearContext";
 
-const DEFAULT_TEMPLATE = `Je soussigné(e) {PARENT_NOM}, parent/responsable légal de {ELEVE_PRENOM} {ELEVE_NOM}, né(e) le {ELEVE_DATE_NAISSANCE} à {ELEVE_LIEU_NAISSANCE}, autorise mon enfant à effectuer un vol découverte au sein de l'Aéro-Club du Bassin d'Arcachon dans le cadre du Brevet d'Initiation Aéronautique (BIA).
+const NUMERIC_KEYS = ["prix_inscription", "subvention_federation", "duree_cible_vols"];
+
+const DEFAULT_TEMPLATE = `Je soussigné(e) {PARENT_NOM}, parent/responsable légal de {ELEVE_PRENOM} {ELEVE_NOM}, né(e) le {ELEVE_DATE_NAISSANCE} à {ELEVE_LIEU_NAISSANCE}, autorise mon enfant à effectuer un vol découverte au sein de {NOM_AEROCLUB} dans le cadre du Brevet d'Initiation Aéronautique (BIA).
 
 Je déclare avoir pris connaissance des conditions de vol et des mesures de sécurité en vigueur.
 
 Fait à {LIEU_SIGNATURE}, le {DATE_SIGNATURE}`;
 
 export default function ParametresPage() {
+  const { refreshAnnees, activeExamDate } = useYear();
   const supabase = createClient();
   const [params, setParams] = useState<any[]>([]);
   const [templateText, setTemplateText] = useState(DEFAULT_TEMPLATE);
@@ -20,13 +24,13 @@ export default function ParametresPage() {
   const [saved, setSaved] = useState(false);
   const [tab, setTab] = useState<"general" | "template" | "attestations" | "annees">("general");
   const [annees, setAnnees] = useState<any[]>([]);
-  const [newAnnee, setNewAnnee] = useState({ label: "", date_debut: "", date_fin: "" });
+  const [newAnnee, setNewAnnee] = useState({ label: "", date_debut: "", date_fin: "", date_examen_bia: "" });
   const [creatingAnnee, setCreatingAnnee] = useState(false);
   const [showNewAnneeForm, setShowNewAnneeForm] = useState(false);
   const [confirmActivate, setConfirmActivate] = useState<any | null>(null);
   const [confirmClose, setConfirmClose] = useState<any | null>(null);
   const [editingAnnee, setEditingAnnee] = useState<any | null>(null);
-  const [editForm, setEditForm] = useState({ label: "", date_debut: "", date_fin: "" });
+  const [editForm, setEditForm] = useState({ label: "", date_debut: "", date_fin: "", date_examen_bia: "" });
   const [savingEdit, setSavingEdit] = useState(false);
 
   useEffect(() => {
@@ -55,11 +59,13 @@ export default function ParametresPage() {
       label: newAnnee.label.trim(),
       date_debut: newAnnee.date_debut,
       date_fin: newAnnee.date_fin,
+      date_examen_bia: newAnnee.date_examen_bia || null,
       active: false,
     });
     if (error) { toast.error(error.message); setCreatingAnnee(false); return; }
     toast.success(`Année ${newAnnee.label} créée`);
-    setNewAnnee({ label: "", date_debut: "", date_fin: "" });
+    setNewAnnee({ label: "", date_debut: "", date_fin: "", date_examen_bia: "" });
+    refreshAnnees();
     setShowNewAnneeForm(false);
     setCreatingAnnee(false);
     const { data } = await supabase.from("annees").select("*").order("date_debut", { ascending: false });
@@ -67,8 +73,10 @@ export default function ParametresPage() {
   }
 
   async function handleActivateAnnee(annee: any) {
-    await supabase.from("annees").update({ active: false }).neq("id", annee.id);
-    await supabase.from("annees").update({ active: true }).eq("id", annee.id);
+    const { error: offErr } = await supabase.from("annees").update({ active: false }).neq("id", annee.id);
+    const { error: onErr } = offErr ? { error: offErr } : await supabase.from("annees").update({ active: true }).eq("id", annee.id);
+    if (onErr) { toast.error(onErr.message); return; }
+    refreshAnnees();
     toast.success(`Année ${annee.label} activée — les nouvelles données seront rattachées à cette année`);
     setConfirmActivate(null);
     const { data } = await supabase.from("annees").select("*").order("date_debut", { ascending: false });
@@ -76,7 +84,9 @@ export default function ParametresPage() {
   }
 
   async function handleCloseAnnee(annee: any) {
-    await supabase.from("annees").update({ active: false }).eq("id", annee.id);
+    const { error: closeErr } = await supabase.from("annees").update({ active: false }).eq("id", annee.id);
+    if (closeErr) { toast.error(closeErr.message); return; }
+    refreshAnnees();
     toast.success(`Année ${annee.label} clôturée — aucune année n'est active`);
     setConfirmClose(null);
     const { data } = await supabase.from("annees").select("*").order("date_debut", { ascending: false });
@@ -93,11 +103,13 @@ export default function ParametresPage() {
       label: editForm.label.trim(),
       date_debut: editForm.date_debut,
       date_fin: editForm.date_fin,
+      date_examen_bia: editForm.date_examen_bia || null,
     }).eq("id", editingAnnee.id);
     setSavingEdit(false);
     if (error) { toast.error(error.message); return; }
     toast.success("Année mise à jour");
     setEditingAnnee(null);
+    refreshAnnees();
     const { data } = await supabase.from("annees").select("*").order("date_debut", { ascending: false });
     setAnnees(data || []);
   }
@@ -108,9 +120,12 @@ export default function ParametresPage() {
   }
 
   async function handleSave() {
+    const invalid = params.find(p => NUMERIC_KEYS.includes(p.cle) && !Number.isFinite(parseFloat(p.valeur)));
+    if (invalid) { toast.error(`« ${labels[invalid.cle] || invalid.cle} » doit être un nombre`); return; }
     setSaving(true);
     for (const p of params) {
-      await supabase.from("parametres").update({ valeur: p.valeur }).eq("cle", p.cle);
+      const { error } = await supabase.from("parametres").update({ valeur: p.valeur }).eq("cle", p.cle);
+      if (error) { setSaving(false); toast.error(`${labels[p.cle] || p.cle} : ${error.message}`); return; }
     }
     setSaving(false);
     setSaved(true);
@@ -133,10 +148,7 @@ export default function ParametresPage() {
 
   async function downloadAttestation(attestation: any) {
     if (!attestation.attestation_url) return;
-    const fileName = attestation.attestation_url.includes("/")
-      ? attestation.attestation_url.split("/").pop()
-      : attestation.attestation_url;
-    const { data, error } = await supabase.storage.from("attestations").download(fileName);
+    const { data, error } = await supabase.storage.from("attestations").download(attestation.attestation_url.replace(/^.*\/attestations\//, ""));
     if (data) {
       const url = URL.createObjectURL(data);
       const a = document.createElement("a");
@@ -154,10 +166,16 @@ export default function ParametresPage() {
     nom_aeroclub: "Nom de l'aéroclub",
     email_aeroclub: "Email de contact",
     telephone_aeroclub: "Téléphone",
+    sigle_aeroclub: "Sigle (menu, objet des emails)",
+    lieu_vol: "Lieu des vols (une information par ligne)",
+    whatsapp_support: "WhatsApp du support (format international, ex. 33612345678)",
+    telephone_support: "Téléphone du support affiché",
   };
+  const CLUB_KEYS = ["nom_aeroclub", "sigle_aeroclub", "email_aeroclub", "telephone_aeroclub", "lieu_vol", "whatsapp_support", "telephone_support"];
 
   const variables = [
     { var: "{PARENT_NOM}", desc: "Prénom + Nom du parent" },
+    { var: "{NOM_AEROCLUB}", desc: "Nom de l'aéroclub (réglage Informations aéroclub)" },
     { var: "{PARENT_PRENOM}", desc: "Prénom du parent" },
     { var: "{PARENT_NOM_FAMILLE}", desc: "Nom de famille du parent" },
     { var: "{ELEVE_PRENOM}", desc: "Prénom de l'élève" },
@@ -176,7 +194,7 @@ export default function ParametresPage() {
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-xl font-bold text-gray-900">Paramètres</h1>
-          <p className="text-sm text-gray-500 mt-0.5">Configuration générale — SuperAdmin</p>
+          <p className="text-sm text-gray-500 mt-0.5">Configuration générale — Admin du club</p>
         </div>
       </div>
 
@@ -219,12 +237,32 @@ export default function ParametresPage() {
             <h2 className="text-sm font-semibold text-gray-900 mb-4 flex items-center gap-2">
               <Settings2 className="w-4 h-4 text-brand-400" /> Informations aéroclub
             </h2>
-            {params.filter(p => ["nom_aeroclub", "email_aeroclub", "telephone_aeroclub"].includes(p.cle)).map(p => (
+            {CLUB_KEYS.map(cle => params.find(p => p.cle === cle)).filter(Boolean).map((p: any) => (
               <div key={p.cle} className="mb-3">
                 <label className="label">{labels[p.cle] || p.cle}</label>
-                <input value={p.valeur} onChange={e => updateParam(p.cle, e.target.value)} className="input" />
+                {p.cle === "lieu_vol" ? (
+                  <textarea value={p.valeur} onChange={e => updateParam(p.cle, e.target.value)} className="input min-h-[64px]" rows={2} />
+                ) : (
+                  <input value={p.valeur} onChange={e => updateParam(p.cle, e.target.value)} className="input" />
+                )}
               </div>
             ))}
+            <p className="text-[11px] text-gray-400">Ces informations apparaissent dans les emails, les attestations et les écrans de connexion.</p>
+          </div>
+          <div className="card">
+            <h2 className="text-sm font-semibold text-gray-900 mb-4 flex items-center gap-2">
+              <CalendarDays className="w-4 h-4 text-brand-400" /> Dates importantes
+            </h2>
+            <div className="mb-3">
+              <p className="label">Date de l&apos;examen BIA — année active</p>
+              <p className="text-sm font-semibold text-gray-900">
+                {activeExamDate ? new Date(`${activeExamDate}T12:00:00`).toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long", year: "numeric" }) : "Non renseignée"}
+              </p>
+              <p className="text-[11px] text-gray-400 mt-1">
+                Chaque année scolaire a sa propre date : renseignez-la en créant ou modifiant l&apos;année dans l&apos;onglet Années. Après cette date, les élèves sans Vol 1 ne peuvent plus réserver et disparaissent des listes des pilotes.
+              </p>
+              <button type="button" onClick={() => setTab("annees")} className="btn-secondary btn-sm mt-2">Gérer les années</button>
+            </div>
           </div>
           <div className="md:col-span-2 flex justify-end">
             <button onClick={handleSave} disabled={saving} className="btn-primary">
@@ -313,7 +351,7 @@ export default function ParametresPage() {
             {showNewAnneeForm && (
               <div className="mb-4 p-4 bg-brand-50 border border-brand-200 rounded-xl space-y-3">
                 <p className="text-sm font-semibold text-brand-700">Créer une nouvelle année scolaire</p>
-                <div className="grid grid-cols-3 gap-3">
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                   <div>
                     <label className="label">Libellé *</label>
                     <input className="input" placeholder="2027" value={newAnnee.label} onChange={e => setNewAnnee({ ...newAnnee, label: e.target.value })} />
@@ -325,6 +363,10 @@ export default function ParametresPage() {
                   <div>
                     <label className="label">Fin *</label>
                     <input type="date" className="input" value={newAnnee.date_fin} onChange={e => setNewAnnee({ ...newAnnee, date_fin: e.target.value })} />
+                  </div>
+                  <div>
+                    <label className="label">Examen BIA</label>
+                    <input type="date" className="input" value={newAnnee.date_examen_bia} onChange={e => setNewAnnee({ ...newAnnee, date_examen_bia: e.target.value })} />
                   </div>
                 </div>
                 <div className="flex gap-2">
@@ -352,6 +394,7 @@ export default function ParametresPage() {
                         </div>
                         <p className="text-xs text-gray-500">
                           {new Date(a.date_debut).toLocaleDateString("fr-FR")} → {new Date(a.date_fin).toLocaleDateString("fr-FR")}
+                          {" · "}Examen BIA : {a.date_examen_bia ? new Date(`${a.date_examen_bia}T12:00:00`).toLocaleDateString("fr-FR") : <span className="text-amber-600 font-medium">à renseigner</span>}
                         </p>
                       </div>
                     </div>
@@ -361,7 +404,7 @@ export default function ParametresPage() {
                         onClick={() => {
                           if (editingAnnee?.id === a.id) { setEditingAnnee(null); return; }
                           setEditingAnnee(a);
-                          setEditForm({ label: a.label, date_debut: a.date_debut, date_fin: a.date_fin });
+                          setEditForm({ label: a.label, date_debut: a.date_debut, date_fin: a.date_fin, date_examen_bia: a.date_examen_bia || "" });
                           setShowNewAnneeForm(false);
                         }}
                         className="btn-secondary btn-sm"
@@ -386,7 +429,7 @@ export default function ParametresPage() {
                   {/* Formulaire d'édition inline */}
                   {editingAnnee?.id === a.id && (
                     <div className="p-4 bg-brand-50 border border-brand-200 border-t-0 rounded-b-xl space-y-3">
-                      <div className="grid grid-cols-3 gap-3">
+                      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                         <div>
                           <label className="label">Libellé</label>
                           <input className="input" value={editForm.label} onChange={e => setEditForm({ ...editForm, label: e.target.value })} />
@@ -398,6 +441,10 @@ export default function ParametresPage() {
                         <div>
                           <label className="label">Date de fin</label>
                           <input type="date" className="input" value={editForm.date_fin} onChange={e => setEditForm({ ...editForm, date_fin: e.target.value })} />
+                        </div>
+                        <div>
+                          <label className="label">Examen BIA</label>
+                          <input type="date" className="input" value={editForm.date_examen_bia} onChange={e => setEditForm({ ...editForm, date_examen_bia: e.target.value })} />
                         </div>
                       </div>
                       <div className="flex justify-end">
@@ -415,7 +462,7 @@ export default function ParametresPage() {
 
             <div className="mt-4 p-3 bg-blue-50 border border-blue-200 rounded-lg text-xs text-blue-700">
               <p className="font-semibold mb-1">💡 Fonctionnement multi-année</p>
-              <p>Créez l'année 2027 avant la rentrée, puis réouvrez-la. Les vues Élèves, Vols, Dashboard et Finances n'afficheront que les données de l'année active. Les années passées restent consultables via <strong>Archives</strong>.</p>
+              <p>Avant chaque rentrée, créez la nouvelle année avec sa date d'examen BIA, puis activez-la. Les vues Élèves, Vols, Dashboard et Finances n'afficheront que les données de l'année active. Les années passées restent consultables via <strong>Archives</strong>.</p>
             </div>
           </div>
         </div>

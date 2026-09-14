@@ -2,6 +2,8 @@
 import { useState, useEffect } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { useYear } from "@/contexts/YearContext";
+import { useClub } from "@/contexts/ClubContext";
+import { inActiveEtab } from "@/lib/etablissements";
 import { Users, CheckCircle2, Plane, Euro, Calendar, AlertCircle } from "lucide-react";
 import Link from "next/link";
 
@@ -23,6 +25,7 @@ function Stat({ icon: Icon, label, value, sub, color = "bg-brand-50 text-brand-5
 export default function DashboardSAStats() {
   const supabase = createClient();
   const { selectedAnneeId, selectedAnnee } = useYear();
+  const club = useClub();
 
   const [stats, setStats] = useState({
     total: 0, attestations: 0, paiements: 0,
@@ -37,12 +40,12 @@ export default function DashboardSAStats() {
     async function load() {
       setLoading(true);
       function q() {
-        const base = supabase.from("eleves").select("*", { count: "exact" }).eq("archive", false);
-        return base.eq("annee_id", selectedAnneeId);
-      }
-      function cq() {
-        const base = supabase.from("creneaux").select("*", { count: "exact" }).in("statut", ["ouvert", "confirme"]);
-        return base.eq("annee_id", selectedAnneeId);
+        return supabase
+          .from("eleves")
+          .select("id, etablissement:etablissements!inner(actif)", { count: "exact", head: true })
+          .eq("archive", false)
+          .eq("etablissement.actif", true)
+          .eq("annee_id", selectedAnneeId);
       }
 
       const [
@@ -54,8 +57,8 @@ export default function DashboardSAStats() {
         { count: vol1Effectues },
         { count: vol2Effectues },
         { count: vol2Autorises },
-        { count: volsPrevus },
-        { data: prochains },
+        { data: etabsActifs },
+        { data: creneauxOuverts },
       ] = await Promise.all([
         q(),
         q().eq("attestation_signee", true),
@@ -65,14 +68,17 @@ export default function DashboardSAStats() {
         q().eq("vol1_effectue", true),
         q().eq("vol2_effectue", true),
         q().eq("vol2_autorise", true),
-        cq(),
+        supabase.from("etablissements").select("id").eq("actif", true),
         supabase.from("creneaux")
           .select("*, pilote:profiles!pilote_id(nom, prenom), aeronef:aeronefs(type_aeronef, immatriculation), reservations(id, statut, eleve:eleves(nom, prenom))")
           .in("statut", ["ouvert", "confirme"])
           .eq("annee_id", selectedAnneeId)
           .order("date_vol")
-          .limit(5),
+          .order("heure_debut"),
       ]);
+      const activeIds = new Set<string>((etabsActifs || []).map((e: any) => e.id));
+      const prochains = (creneauxOuverts || []).filter((c: any) => inActiveEtab(c, activeIds));
+      const volsPrevus = prochains.length;
 
       setStats({
         total: total || 0, attestations: attestations || 0,
@@ -81,7 +87,7 @@ export default function DashboardSAStats() {
         vol2Effectues: vol2Effectues || 0, vol2Autorises: vol2Autorises || 0,
         volsPrevus: volsPrevus || 0,
       });
-      setProchainsCrenaux(prochains || []);
+      setProchainsCrenaux(prochains.slice(0, 5));
       setLoading(false);
     }
     load();
@@ -95,7 +101,7 @@ export default function DashboardSAStats() {
       <div>
         <div className="mb-6">
           <h1 className="text-xl font-bold text-gray-900">Tableau de bord — {selectedAnnee?.label ?? "…"}</h1>
-          <p className="text-sm text-gray-500 mt-1">Aéro-Club du Bassin d'Arcachon · SuperAdmin</p>
+          <p className="text-sm text-gray-500 mt-1">{club.nom} · Admin du club</p>
         </div>
         <div className="flex gap-3 flex-wrap mb-6">
           {[1, 2, 3, 4, 5, 6].map((i) => (
@@ -110,13 +116,13 @@ export default function DashboardSAStats() {
     <div>
       <div className="mb-6">
         <h1 className="text-xl font-bold text-gray-900">Tableau de bord — {selectedAnnee?.label ?? "—"}</h1>
-        <p className="text-sm text-gray-500 mt-1">Aéro-Club du Bassin d'Arcachon · SuperAdmin</p>
+        <p className="text-sm text-gray-500 mt-1">{club.nom} · Admin du club</p>
       </div>
       <div className="flex gap-3 flex-wrap mb-6">
         <Stat icon={Users} label="Élèves inscrits" value={stats.total} color="bg-brand-50 text-brand-500" />
         <Stat icon={CheckCircle2} label="Attestations" value={`${stats.attestations}/${stats.total}`} color="bg-emerald-50 text-emerald-600" />
-        <Stat icon={Plane} label="Vol 1 restants" value={`${vol1Restants}/${stats.total}`} sub={`${stats.vol1Effectues} effectué${stats.vol1Effectues > 1 ? "s" : ""}`} color="bg-amber-50 text-amber-600" />
-        <Stat icon={Plane} label="Vol 2 restants" value={`${vol2Restants}/${stats.vol2Autorises}`} sub={`${stats.vol2Effectues} effectué${stats.vol2Effectues > 1 ? "s" : ""}`} color="bg-purple-50 text-purple-600" />
+        <Stat icon={Plane} label="Vol 1 effectués" value={`${stats.vol1Effectues}/${stats.total}`} sub={`${vol1Restants} restant${vol1Restants > 1 ? "s" : ""}`} color="bg-amber-50 text-amber-600" />
+        <Stat icon={Plane} label="Vol 2 effectués" value={`${stats.vol2Effectues}/${stats.vol2Autorises}`} sub={`${vol2Restants} restant${vol2Restants > 1 ? "s" : ""}`} color="bg-purple-50 text-purple-600" />
         <Stat icon={Calendar} label="Vols prévus" value={stats.volsPrevus} color="bg-brand-50 text-brand-500" />
         <Stat icon={Euro} label="Paiements reçus" value={`${stats.paiements}/${stats.total}`} color="bg-emerald-50 text-emerald-600" />
       </div>

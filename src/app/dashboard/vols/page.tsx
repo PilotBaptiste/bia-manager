@@ -1,6 +1,8 @@
 "use client";
 import { useState, useEffect, useMemo } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { fetchAll } from "@/lib/fetchAll";
+import { inActiveEtab } from "@/lib/etablissements";
 import { useYear } from "@/contexts/YearContext";
 import { matchDesiderata } from "@/components/DesiderataGrid";
 import { toast } from "sonner";
@@ -23,14 +25,21 @@ import {
   Filter,
   Download,
   Trash2,
+  BarChart2,
+  School,
 } from "lucide-react";
 import ConfirmModal from "@/components/ConfirmModal";
 
 export default function VolsPage() {
   const supabase = createClient();
-  const { selectedAnneeId, activeAnneeId } = useYear();
+  const { selectedAnneeId, activeAnneeId, annees, activeExamDate } = useYear();
+  const biaExamDate = activeExamDate || "";
   // anneeId = active year used when creating new slots
   const anneeId = activeAnneeId;
+  const activeAnneeLabel = annees.find((a: any) => a.id === activeAnneeId)?.label;
+  // 2027+ = label starts with "2027" or later → individual numbers mandatory
+  const is2027Plus = !!(activeAnneeLabel && parseInt(activeAnneeLabel.split(/[-/]/)[0]) >= 2027);
+  const todayParis = () => new Date().toLocaleDateString("en-CA", { timeZone: "Europe/Paris" });
   const [creneaux, setCreneaux] = useState<any[]>([]);
   const [volsHisto, setVolsHisto] = useState<any[]>([]);
   const [aeronefs, setAeronefs] = useState<any[]>([]);
@@ -41,11 +50,15 @@ export default function VolsPage() {
   const [piloteEtabs, setPiloteEtabs] = useState<any[]>([]);
   const [profile, setProfile] = useState<any>(null);
   const [loading, setLoading] = useState(true);
-  const [mode, setMode] = useState<"list" | "calendar" | "historique">("list");
-  const [calMonth, setCalMonth] = useState(new Date().getMonth());
+  const [mode, setMode] = useState<"list" | "calendar" | "historique" | "statistiques">("list");
+  const [calYM, setCalYM] = useState(() => {
+    const d = new Date();
+    return { year: d.getFullYear(), month: d.getMonth() };
+  });
   const [showCreate, setShowCreate] = useState(false);
   const [showDetail, setShowDetail] = useState<any>(null);
   const [showClose, setShowClose] = useState<any>(null);
+  const [closeTarif, setCloseTarif] = useState<number | null>(null);
   const [showEditSlot, setShowEditSlot] = useState<any>(null);
   const [editHisto, setEditHisto] = useState<any>(null);
   const [editHistoElevesLocal, setEditHistoElevesLocal] = useState<any[]>([]);
@@ -56,6 +69,15 @@ export default function VolsPage() {
   const [error, setError] = useState<string | null>(null);
   const [confirmAction, setConfirmAction] = useState<{ title: string; message: string; variant?: "danger" | "primary"; reasonLabel?: string; onConfirm: (reason?: string) => void } | null>(null);
   const [confirmLoading, setConfirmLoading] = useState(false);
+  const [calView, setCalView] = useState<"week" | "month">("week");
+  const [calWeekStart, setCalWeekStart] = useState<Date>(() => {
+    const d = new Date();
+    const day = d.getDay();
+    const diff = day === 0 ? -6 : 1 - day;
+    d.setDate(d.getDate() + diff);
+    d.setHours(0, 0, 0, 0);
+    return d;
+  });
   const [filterPilote, setFilterPilote] = useState("");
   const [filterAeronef, setFilterAeronef] = useState("");
   const [filterEtab, setFilterEtab] = useState("");
@@ -65,6 +87,9 @@ export default function VolsPage() {
   const [showAddEleve, setShowAddEleve] = useState(false);
   const [addEleveSearch, setAddEleveSearch] = useState("");
   const [addEleveTypeVol, setAddEleveTypeVol] = useState<1 | 2>(1);
+  const [sendNotif, setSendNotif] = useState(true);
+  const [slotEmailLogs, setSlotEmailLogs] = useState<any[]>([]);
+  const [notifying, setNotifying] = useState(false);
   const [form, setForm] = useState({
     date_vol: "",
     heure_debut: "09:00",
@@ -77,6 +102,8 @@ export default function VolsPage() {
   });
   const [closeForm, setCloseForm] = useState({
     numero_aerogest: "",
+    numeros_aerogest: [] as string[],
+    useIndividualAerogest: false,
     temps_vol_minutes: "",
     nb_eleves: "",
     prix_total: "",
@@ -95,29 +122,36 @@ export default function VolsPage() {
       .select(
         "*, pilote:profiles!pilote_id(nom,prenom,id,email,telephone), aeronef:aeronefs(*), etablissement:etablissements(nom), reservations(*, eleve:eleves(id,nom,prenom,date_naissance,lieu_naissance,classe,commentaires,vol1_temps_minutes,parent_nom,parent_prenom,parent_email,parent_telephone,etablissement:etablissements(nom)))",
       )
-      .order("date_vol", { ascending: false })
-      .order("heure_debut", { ascending: true });
+      .order("date_vol", { ascending: true })
+      .order("heure_debut", { ascending: true })
+      .order("id");
     if (selectedAnneeId) creneauxQuery = creneauxQuery.eq("annee_id", selectedAnneeId);
 
     let elevesQuery = supabase
       .from("eleves")
-      .select("id, nom, prenom, etablissement_id, desiderata, abandonne, vol1_effectue, vol1_numero_aerogest, vol1_prix, vol1_temps_minutes, vol1_pilote_nom, vol1_aeronef_id, vol2_effectue, vol2_numero_aerogest, vol2_prix, vol2_temps_minutes, vol2_pilote_nom, vol2_aeronef_id")
+      .select("id, nom, prenom, etablissement_id, etablissement:etablissements!inner(actif), desiderata, abandonne, bia_resultat, vol2_autorise, vol1_effectue, vol1_skippe, vol1_numero_aerogest, vol1_prix, vol1_temps_minutes, vol1_pilote_nom, vol1_aeronef_id, vol2_effectue, vol2_numero_aerogest, vol2_prix, vol2_temps_minutes, vol2_pilote_nom, vol2_aeronef_id")
       .eq("archive", false)
-      .order("nom");
+      .eq("etablissement.actif", true)
+      .order("nom")
+      .order("id");
     if (selectedAnneeId) elevesQuery = elevesQuery.eq("annee_id", selectedAnneeId);
+
+    let volsQuery = supabase
+      .from("vols_effectues")
+      .select(
+        "*, creneau:creneaux!inner(date_vol,heure_debut,heure_fin,pilote_id,aeronef_id,etablissement_id,etablissement_ids,annee_id,pilote:profiles!pilote_id(nom,prenom),aeronef:aeronefs(type_aeronef,immatriculation,nb_places_eleves),etablissement:etablissements(nom),reservations(id,type_vol,statut,eleve:eleves(id,nom,prenom)))",
+      )
+      .order("created_at", { ascending: false })
+      .order("id");
+    if (selectedAnneeId) volsQuery = volsQuery.eq("creneau.annee_id", selectedAnneeId);
 
     const [profRes, crRes, aRes, eRes, vhRes, pRes, qRes, peRes, elRes] =
       await Promise.all([
         supabase.from("profiles").select("*").eq("id", user.id).single(),
-        creneauxQuery,
+        fetchAll((from, to) => creneauxQuery.range(from, to)),
         supabase.from("aeronefs").select("*").eq("actif", true),
         supabase.from("etablissements").select("*").eq("actif", true),
-        supabase
-          .from("vols_effectues")
-          .select(
-            "*, creneau:creneaux(date_vol,heure_debut,heure_fin,pilote_id,aeronef_id,etablissement_id,pilote:profiles!pilote_id(nom,prenom),aeronef:aeronefs(type_aeronef,immatriculation),etablissement:etablissements(nom),reservations(id,type_vol,statut,eleve:eleves(id,nom,prenom)))",
-          )
-          .order("created_at", { ascending: false }),
+        fetchAll((from, to) => volsQuery.range(from, to)),
         supabase
           .from("profiles")
           .select("id, nom, prenom, email, telephone")
@@ -128,13 +162,14 @@ export default function VolsPage() {
         supabase
           .from("pilote_etablissements")
           .select("pilote_id, etablissement_id"),
-        elevesQuery,
+        fetchAll((from, to) => elevesQuery.range(from, to)),
       ]);
     setProfile(profRes.data);
-    setCreneaux(crRes.data || []);
+    const activeEtabIds = new Set<string>((eRes.data || []).map((e: any) => e.id));
+    setCreneaux((crRes.data || []).filter((c: any) => inActiveEtab(c, activeEtabIds)));
     setAeronefs(aRes.data || []);
     setEtabs(eRes.data || []);
-    setVolsHisto((vhRes.data || []).sort((a: any, b: any) => {
+    setVolsHisto((vhRes.data || []).filter((v: any) => inActiveEtab(v.creneau, activeEtabIds)).sort((a: any, b: any) => {
       const da = `${a.creneau?.date_vol ?? ""}${a.creneau?.heure_debut ?? ""}`;
       const db = `${b.creneau?.date_vol ?? ""}${b.creneau?.heure_debut ?? ""}`;
       return db.localeCompare(da); // desc: plus récent en premier
@@ -144,11 +179,20 @@ export default function VolsPage() {
     setPiloteEtabs(peRes.data || []);
     setEleves(elRes.data || []);
     setLoading(false);
+
   }
 
   useEffect(() => {
     if (selectedAnneeId) load();
   }, [selectedAnneeId]);
+
+  useEffect(() => {
+    if (!showDetail?.id) { setSlotEmailLogs([]); return; }
+    fetch(`/api/email/logs?creneau_id=${showDetail.id}`)
+      .then((r) => r.json())
+      .then((d) => setSlotEmailLogs(d.logs ?? []))
+      .catch(() => setSlotEmailLogs([]));
+  }, [showDetail?.id]);
 
   const isPilote = profile?.roles?.includes("pilote");
   const isSA = profile?.roles?.includes("superadmin");
@@ -159,20 +203,25 @@ export default function VolsPage() {
   const coordEtabIds = etabIdsFromProfile(profile?.etablissement_ids, profile?.etablissement_id);
   const gerantEtabIds = etabIdsFromProfile(profile?.etablissement_ids, profile?.etablissement_id);
   const canCreate = isPilote || isSA;
-  // SA → all | coordinateur → leurs étabs | gérant → leur étab | pilote → tous (lecture seule sur ceux des autres)
+  // SA + pilotes → all | coordinateur → leurs étabs | gérant → leur étab
+  // Pilote prend la priorité sur coordinateur/gérant : un pilote voit TOUT le planning
   const displayed =
-    isSA
+    isSA || isPilote
       ? creneaux
       : isCoord && coordEtabIds.length > 0
         ? creneaux.filter((c) => coordEtabIds.includes(c.etablissement_id))
         : isGerant && gerantEtabIds.length > 0
           ? creneaux.filter((c) => gerantEtabIds.includes(c.etablissement_id))
-          : creneaux; // pilotes see all slots, edit rights checked per-slot below
+          : creneaux;
 
   const filteredDisplayed = displayed.filter((c) => {
     if (filterPilote && c.pilote_id !== filterPilote) return false;
     if (filterAeronef && c.aeronef_id !== filterAeronef) return false;
-    if (filterEtab && c.etablissement_id !== filterEtab) return false;
+    if (filterEtab) {
+      // Pour les pilotes : leurs créneaux sans établissement (null) restent toujours visibles
+      const isOwnNullEtab = isPilote && c.pilote_id === profile?.id && c.etablissement_id === null;
+      if (!isOwnNullEtab && c.etablissement_id !== filterEtab) return false;
+    }
     if (filterStatut && c.statut !== filterStatut) return false;
     if (filterDateFrom && c.date_vol < filterDateFrom) return false;
     if (filterDateTo && c.date_vol > filterDateTo) return false;
@@ -232,7 +281,7 @@ export default function VolsPage() {
       setError("Date et aéronef obligatoires.");
       return;
     }
-    if (form.date_vol < new Date().toISOString().slice(0, 10)) {
+    if (form.date_vol < todayParis()) {
       setError("La date du vol ne peut pas être dans le passé.");
       return;
     }
@@ -241,7 +290,7 @@ export default function VolsPage() {
       return;
     }
     if (!isSA && availableEtabs.length === 0) {
-      setError("Aucun etablissement assigne. Contactez le SuperAdmin.");
+      setError("Aucun etablissement assigne. Contactez l'admin du club.");
       return;
     }
     if (!isSA && form.etablissements.length === 0) {
@@ -304,22 +353,25 @@ export default function VolsPage() {
     setSaving(false);
     if (err) { setError(err.message); return; }
     // Notify eligible parents (anti-spam: only if no open slots already existed for this scope)
-    fetch("/api/email/notify-slot", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        creneau_id: created?.id,
-        etablissement_id: singleEtabId,
-        etablissement_ids: etabIds,
-        eleves_autorises: eleveAut,
-        date_vol: form.date_vol,
-        heure_debut: form.heure_debut,
-        heure_fin: form.heure_fin,
-        pilote_nom: piloteNom,
-        aeronef: aeronefLabel,
-      }),
-    }).catch(() => {});
+    if (sendNotif) {
+      fetch("/api/email/notify-slot", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          creneau_id: created?.id,
+          etablissement_id: singleEtabId,
+          etablissement_ids: etabIds,
+          eleves_autorises: eleveAut,
+          date_vol: form.date_vol,
+          heure_debut: form.heure_debut,
+          heure_fin: form.heure_fin,
+          pilote_nom: piloteNom,
+          aeronef: aeronefLabel,
+        }),
+      }).catch(() => {});
+    }
     setShowCreate(false);
+    setSendNotif(true);
     setForm({
       date_vol: "",
       heure_debut: "09:00",
@@ -335,8 +387,13 @@ export default function VolsPage() {
 
   function handleCloseFlight() {
     setError(null);
+    const nbActive = (showClose?.reservations || []).filter((r: any) => r.statut !== "annule").length;
+    const indiv = closeForm.useIndividualAerogest || (is2027Plus && nbActive >= 2);
+    const needsAerogest = indiv
+      ? Array.from({ length: nbActive }, (_, i) => closeForm.numeros_aerogest[i] || "").some(n => !n.trim())
+      : !closeForm.numero_aerogest.trim();
     if (
-      !closeForm.numero_aerogest ||
+      needsAerogest ||
       !closeForm.temps_vol_minutes ||
       !closeForm.prix_total
     ) {
@@ -354,69 +411,40 @@ export default function VolsPage() {
 
   async function doCloseFlight() {
     setSaving(true);
-    await supabase
-      .from("vols_effectues")
-      .insert({
-        creneau_id: showClose.id,
-        numero_aerogest: closeForm.numero_aerogest,
-        temps_vol_minutes: parseInt(closeForm.temps_vol_minutes),
-        nb_eleves:
-          parseInt(closeForm.nb_eleves) || showClose.reservations?.length || 0,
-        prix_total: parseFloat(closeForm.prix_total),
-        notes: closeForm.notes || null,
-        valide_par: profile.id,
-      });
-    await supabase
-      .from("creneaux")
-      .update({ statut: "termine" })
-      .eq("id", showClose.id);
     const activeRes = (showClose.reservations || []).filter(
       (r: any) => r.statut !== "annule",
     );
-    for (const r of activeRes) {
-      await supabase
-        .from("reservations")
-        .update({ statut: "effectue" })
-        .eq("id", r.id);
-      if (r.eleve?.id) {
-        const prixParEleve =
-          parseFloat(closeForm.prix_total) / Math.max(activeRes.length, 1);
-        const piloteNom = closeForm.pilote_override
-          ? (() => { const p = pilotes.find((x) => x.id === closeForm.pilote_override); return p ? `${p.prenom} ${p.nom}` : ""; })()
-          : showClose.pilote
-          ? `${showClose.pilote.prenom} ${showClose.pilote.nom}`
-          : "";
-        if (r.type_vol === 2) {
-          await supabase
-            .from("eleves")
-            .update({
-              vol2_effectue: true,
-              vol2_temps_minutes: parseInt(closeForm.temps_vol_minutes),
-              vol2_aeronef_id: showClose.aeronef_id,
-              vol2_prix: prixParEleve,
-              vol2_pilote_nom: piloteNom,
-              vol2_numero_aerogest: closeForm.numero_aerogest || null,
-            })
-            .eq("id", r.eleve.id);
-        } else {
-          await supabase
-            .from("eleves")
-            .update({
-              vol1_effectue: true,
-              vol1_temps_minutes: parseInt(closeForm.temps_vol_minutes),
-              vol1_aeronef_id: showClose.aeronef_id,
-              vol1_prix: prixParEleve,
-              vol1_pilote_nom: piloteNom,
-              vol1_numero_aerogest: closeForm.numero_aerogest || null,
-            })
-            .eq("id", r.eleve.id);
-        }
-      }
+    const useMulti = closeForm.useIndividualAerogest || (is2027Plus && activeRes.length >= 2);
+    const numerosArray = useMulti
+      ? Array.from({ length: activeRes.length }, (_, i) => (closeForm.numeros_aerogest[i] || "").trim())
+      : null;
+    const piloteNom = closeForm.pilote_override
+      ? (() => { const p = pilotes.find((x) => x.id === closeForm.pilote_override); return p ? `${p.prenom} ${p.nom}` : ""; })()
+      : "";
+    // Single database transaction: the flight, the slot, the reservations and the students are saved together or not at all.
+    const { error: closeErr } = await supabase.rpc("cloturer_vol", {
+      p_creneau_id: showClose.id,
+      p_temps_vol_minutes: parseInt(closeForm.temps_vol_minutes),
+      p_prix_total: parseFloat(closeForm.prix_total),
+      p_numero_aerogest: useMulti ? null : closeForm.numero_aerogest.trim(),
+      p_numeros_par_reservation: useMulti
+        ? Object.fromEntries(activeRes.map((r: any, i: number) => [r.id, numerosArray?.[i] || ""]))
+        : null,
+      p_nb_eleves: parseInt(closeForm.nb_eleves) || activeRes.length,
+      p_notes: closeForm.notes || null,
+      p_pilote_nom: piloteNom || null,
+    });
+    if (closeErr) {
+      setSaving(false);
+      toast.error(closeErr.message);
+      return;
     }
     setSaving(false);
     setShowClose(null);
     setCloseForm({
       numero_aerogest: "",
+      numeros_aerogest: [],
+      useIndividualAerogest: false,
       temps_vol_minutes: "",
       nb_eleves: "",
       prix_total: "",
@@ -442,9 +470,11 @@ export default function VolsPage() {
     const parents = getAffectedParents(slot);
     const pilotNom = slot?.pilote ? `${slot.pilote.prenom} ${slot.pilote.nom}` : "";
     if (motif) {
-      await supabase.from("creneaux").update({ motif_annulation: motif }).eq("id", id);
+      const { error: motifErr } = await supabase.from("creneaux").update({ motif_annulation: motif }).eq("id", id);
+      if (motifErr) { toast.error(motifErr.message); return; }
     }
-    await supabase.from("creneaux").delete().eq("id", id);
+    const { error: delErr } = await supabase.from("creneaux").delete().eq("id", id);
+    if (delErr) { toast.error(delErr.message); return; }
     toast.success("Créneau supprimé");
     setShowDetail(null);
     if (parents.length > 0) {
@@ -457,6 +487,8 @@ export default function VolsPage() {
           date_vol: slot?.date_vol,
           heure_debut: slot?.heure_debut,
           pilote_nom: pilotNom,
+          pilote_email: slot?.pilote?.email || "",
+          pilote_telephone: slot?.pilote?.telephone || "",
           motif: motif || undefined,
         }),
       }).catch(() => {});
@@ -479,8 +511,10 @@ export default function VolsPage() {
   async function doCancelSlot(id: string, slot: any, motif?: string) {
     const parents = getAffectedParents(slot);
     const pilotNom = slot?.pilote ? `${slot.pilote.prenom} ${slot.pilote.nom}` : "";
-    await supabase.from("creneaux").update({ statut: "annule", ...(motif ? { motif_annulation: motif } : {}) }).eq("id", id);
-    await supabase.from("reservations").update({ statut: "annule" }).eq("creneau_id", id).neq("statut", "annule");
+    const { error: crErr } = await supabase.from("creneaux").update({ statut: "annule", ...(motif ? { motif_annulation: motif } : {}) }).eq("id", id);
+    if (crErr) { toast.error(crErr.message); return; }
+    const { error: resErr } = await supabase.from("reservations").update({ statut: "annule" }).eq("creneau_id", id).neq("statut", "annule");
+    if (resErr) { toast.error(resErr.message); load(); return; }
     toast.success("Créneau annulé");
     setShowDetail(null);
     if (parents.length > 0) {
@@ -493,6 +527,8 @@ export default function VolsPage() {
           date_vol: slot?.date_vol,
           heure_debut: slot?.heure_debut,
           pilote_nom: pilotNom,
+          pilote_email: slot?.pilote?.email || "",
+          pilote_telephone: slot?.pilote?.telephone || "",
           motif: motif || undefined,
         }),
       }).catch(() => {});
@@ -517,6 +553,22 @@ export default function VolsPage() {
       toast.error("L'heure de fin doit être après l'heure de début");
       return;
     }
+    if (!updated.pilote_id || !updated.aeronef_id) {
+      toast.error("Pilote et aéronef obligatoires");
+      return;
+    }
+    // Only enforce on change: a qualification removed later must not block editing notes/hours
+    const crewChanged = updated.pilote_id !== showEditSlot.pilote_id || updated.aeronef_id !== showEditSlot.aeronef_id;
+    if (crewChanged && !getQualifiedAeronefs(updated.pilote_id).some((a) => a.id === updated.aeronef_id)) {
+      toast.error("Ce pilote n'est pas qualifié sur cet aéronef");
+      return;
+    }
+    const newAeronef = aeronefs.find((a: any) => a.id === updated.aeronef_id);
+    const nbActiveRes = (showEditSlot.reservations || []).filter((r: any) => r.statut !== "annule").length;
+    if (newAeronef?.nb_places_eleves != null && newAeronef.nb_places_eleves < nbActiveRes) {
+      toast.error(`Capacité insuffisante : ${nbActiveRes} élève(s) inscrit(s) pour ${newAeronef.nb_places_eleves} place(s)`);
+      return;
+    }
     // Check overlap (excluding this slot itself)
     const editOverlap = creneaux.find((c) => {
       if (c.id === updated.id) return false;
@@ -538,16 +590,13 @@ export default function VolsPage() {
     }
     // Collect affected parents from original slot BEFORE updating
     const parents = getAffectedParents(showEditSlot);
-    // Build merged eleves_autorises from elevesByEtab (if user changed per-etab selection)
+    // Build merged eleves_autorises from elevesByEtab (pre-filled from the slot's existing restriction)
     const allEleveAut: string[] = [];
     for (const etabId of (updated.etablissements || [])) {
       const ea = (updated.elevesByEtab || {})[etabId];
       if (ea?.length > 0) allEleveAut.push(...ea);
     }
-    // If user didn't touch per-etab eleves keep existing flat list
-    const eleveAut = allEleveAut.length > 0
-      ? allEleveAut
-      : (updated.eleves_autorises?.length > 0 ? updated.eleves_autorises : null);
+    const eleveAut = allEleveAut.length > 0 ? allEleveAut : null;
     const etabIds = updated.etablissements?.length > 0 ? updated.etablissements : null;
     const singleEtabId = updated.etablissements?.length === 1 ? updated.etablissements[0] : null;
     setSaving(true);
@@ -561,6 +610,7 @@ export default function VolsPage() {
       pilote_id: updated.pilote_id,
       notes_pilote: updated.notes_pilote || null,
       eleves_autorises: eleveAut,
+      ...(newAeronef ? { places_disponibles: newAeronef.nb_places_eleves || 2 } : {}),
     }).eq("id", updated.id);
     setSaving(false);
     if (err) { toast.error(err.message); return; }
@@ -703,9 +753,53 @@ export default function VolsPage() {
     toast.info("Aucun élève sur ce créneau à notifier");
   }
 
+  async function handleRenotifyAvailable(slot: any) {
+    const aeronefObj = aeronefs.find((a: any) => a.id === slot.aeronef_id);
+    const aeronefLabel = aeronefObj ? `${aeronefObj.type_aeronef} (${aeronefObj.immatriculation})` : "";
+    const piloteNom = slot.pilote ? `${slot.pilote.prenom} ${slot.pilote.nom}` : "";
+    setNotifying(true);
+    try {
+      const res = await fetch("/api/email/notify-slot", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          creneau_id: slot.id,
+          etablissement_id: slot.etablissement_id ?? null,
+          etablissement_ids: slot.etablissement_ids ?? null,
+          eleves_autorises: slot.eleves_autorises ?? null,
+          date_vol: slot.date_vol,
+          heure_debut: slot.heure_debut,
+          heure_fin: slot.heure_fin,
+          pilote_nom: piloteNom,
+          aeronef: aeronefLabel,
+          force: true,
+          reminder: true,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        toast.error(data.error || "Erreur lors de l'envoi");
+      } else if (data.sent > 0) {
+        toast.success(`${data.sent} parent(s) notifié(s)`);
+        // Refresh email logs for this slot
+        fetch(`/api/email/logs?creneau_id=${slot.id}`)
+          .then((r) => r.json())
+          .then((d) => setSlotEmailLogs(d.logs ?? []))
+          .catch(() => {});
+      } else {
+        toast.info("Aucun parent éligible à notifier");
+      }
+    } catch {
+      toast.error("Erreur lors de l'envoi");
+    } finally {
+      setNotifying(false);
+    }
+  }
+
   async function doRemoveEleve(rid: string, name: string, motif?: string) {
     const removedRes = (showDetail?.reservations || []).find((r: any) => r.id === rid);
-    await supabase.from("reservations").update({ statut: "annule", ...(motif ? { motif_annulation: motif } : {}) }).eq("id", rid);
+    const { error: remErr } = await supabase.from("reservations").update({ statut: "annule", ...(motif ? { motif_annulation: motif } : {}) }).eq("id", rid);
+    if (remErr) { toast.error(remErr.message); return; }
     toast.success(`${name} retiré du créneau`);
     if (removedRes?.eleve?.parent_email) {
       fetch("/api/email", {
@@ -749,6 +843,17 @@ export default function VolsPage() {
   }
   async function handleAddEleve(eleveId: string, typeVol: 1 | 2) {
     if (!showDetail) return;
+    const { count: activeCount, error: countErr } = await supabase
+      .from("reservations")
+      .select("id", { count: "exact", head: true })
+      .eq("creneau_id", showDetail.id)
+      .neq("statut", "annule");
+    if (countErr) { toast.error(countErr.message); return; }
+    const capacity = showDetail.aeronef?.nb_places_eleves
+      ?? aeronefs.find((a: any) => a.id === showDetail.aeronef_id)?.nb_places_eleves
+      ?? showDetail.places_disponibles
+      ?? 1;
+    if ((activeCount ?? 0) >= capacity) { toast.error("Créneau complet"); return; }
     // Check if a cancelled reservation already exists (reactivate it)
     const { data: existing } = await supabase
       .from("reservations")
@@ -793,18 +898,20 @@ export default function VolsPage() {
 
   async function doDeleteHisto(v: any) {
     // Reset vol flags on linked eleves
-    const reservations = (v.creneau?.reservations || []).filter((r: any) => r.eleve?.id);
+    const reservations = (v.creneau?.reservations || []).filter((r: any) => r.eleve?.id && r.statut !== "annule");
     for (const r of reservations) {
-      if (r.type_vol === 2) {
-        await supabase.from("eleves").update({ vol2_effectue: false, vol2_numero_aerogest: null, vol2_temps_minutes: null, vol2_aeronef_id: null, vol2_prix: null, vol2_pilote_nom: null }).eq("id", r.eleve.id);
-      } else {
-        await supabase.from("eleves").update({ vol1_effectue: false, vol1_numero_aerogest: null, vol1_temps_minutes: null, vol1_aeronef_id: null, vol1_prix: null, vol1_pilote_nom: null }).eq("id", r.eleve.id);
-      }
-      await supabase.from("reservations").update({ statut: "reserve" }).eq("id", r.id);
+      const { error: elErr } = r.type_vol === 2
+        ? await supabase.from("eleves").update({ vol2_effectue: false, vol2_numero_aerogest: null, vol2_temps_minutes: null, vol2_aeronef_id: null, vol2_prix: null, vol2_pilote_nom: null }).eq("id", r.eleve.id)
+        : await supabase.from("eleves").update({ vol1_effectue: false, vol1_numero_aerogest: null, vol1_temps_minutes: null, vol1_aeronef_id: null, vol1_prix: null, vol1_pilote_nom: null }).eq("id", r.eleve.id);
+      if (elErr) { toast.error(elErr.message); load(); return; }
+      const { error: resErr } = await supabase.from("reservations").update({ statut: "reserve" }).eq("id", r.id);
+      if (resErr) { toast.error(resErr.message); load(); return; }
     }
     // Reopen the creneau
-    await supabase.from("creneaux").update({ statut: "ouvert" }).eq("id", v.creneau_id);
-    await supabase.from("vols_effectues").delete().eq("id", v.id);
+    const { error: crErr } = await supabase.from("creneaux").update({ statut: "ouvert" }).eq("id", v.creneau_id);
+    if (crErr) { toast.error(crErr.message); load(); return; }
+    const { error: delErr } = await supabase.from("vols_effectues").delete().eq("id", v.id);
+    if (delErr) { toast.error(delErr.message); load(); return; }
     toast.success("Entrée supprimée");
     load();
   }
@@ -813,10 +920,12 @@ export default function VolsPage() {
     const vol1Ids = group.ids.filter((id) => id.endsWith("_vol1")).map((id) => id.replace("_vol1", ""));
     const vol2Ids = group.ids.filter((id) => id.endsWith("_vol2")).map((id) => id.replace("_vol2", ""));
     if (vol1Ids.length) {
-      await supabase.from("eleves").update({ vol1_effectue: false, vol1_numero_aerogest: null, vol1_temps_minutes: null, vol1_aeronef_id: null, vol1_prix: null, vol1_pilote_nom: null }).in("id", vol1Ids);
+      const { error: e1 } = await supabase.from("eleves").update({ vol1_effectue: false, vol1_numero_aerogest: null, vol1_temps_minutes: null, vol1_aeronef_id: null, vol1_prix: null, vol1_pilote_nom: null }).in("id", vol1Ids);
+      if (e1) { toast.error(e1.message); return; }
     }
     if (vol2Ids.length) {
-      await supabase.from("eleves").update({ vol2_effectue: false, vol2_numero_aerogest: null, vol2_temps_minutes: null, vol2_aeronef_id: null, vol2_prix: null, vol2_pilote_nom: null }).in("id", vol2Ids);
+      const { error: e2 } = await supabase.from("eleves").update({ vol2_effectue: false, vol2_numero_aerogest: null, vol2_temps_minutes: null, vol2_aeronef_id: null, vol2_prix: null, vol2_pilote_nom: null }).in("id", vol2Ids);
+      if (e2) { toast.error(e2.message); load(); return; }
     }
     toast.success("Entrée supprimée");
     load();
@@ -860,21 +969,54 @@ export default function VolsPage() {
       }
     }
 
+    // Update eleves whose type_vol changed (same ID, different type)
+    for (const e of editHistoElevesLocal) {
+      if (!origIds.has(e.id)) continue; // handled below in "Add new"
+      const orig = editHistoElevesOrig.find((x: any) => x.id === e.id);
+      const newTypeVol = e.type_vol || 1;
+      const oldTypeVol = orig?.type_vol || 1;
+      if (newTypeVol === oldTypeVol) continue; // unchanged
+      // Update la réservation
+      if (orig?.reservation_id) {
+        await supabase.from("reservations").update({ type_vol: newTypeVol }).eq("id", orig.reservation_id);
+      }
+      // Récupérer l'état actuel de l'élève pour comparer les numéros Aérogest
+      const eleveState = eleves.find((el: any) => el.id === e.id);
+      // Effacer les anciens champs UNIQUEMENT si c'est ce vol qui les a écrits
+      // (identifié par le numéro Aérogest correspondant à ce vol)
+      if (oldTypeVol === 2) {
+        const wasThisFlight = numAerogest && eleveState?.vol2_numero_aerogest === numAerogest;
+        if (wasThisFlight) {
+          await supabase.from("eleves").update({ vol2_effectue: false, vol2_numero_aerogest: null, vol2_temps_minutes: null, vol2_aeronef_id: null, vol2_prix: null, vol2_pilote_nom: null }).eq("id", e.id);
+        }
+      } else {
+        const wasThisFlight = numAerogest && eleveState?.vol1_numero_aerogest === numAerogest;
+        if (wasThisFlight) {
+          await supabase.from("eleves").update({ vol1_effectue: false, vol1_numero_aerogest: null, vol1_temps_minutes: null, vol1_aeronef_id: null, vol1_prix: null, vol1_pilote_nom: null }).eq("id", e.id);
+        }
+      }
+      // Écrire les nouveaux champs vol
+      if (newTypeVol === 2) {
+        await supabase.from("eleves").update({ vol2_effectue: true, vol2_temps_minutes: tempsMin, vol2_aeronef_id: aeronefId, vol2_prix: prixParEleve, vol2_pilote_nom: piloteNom, vol2_numero_aerogest: numAerogest }).eq("id", e.id);
+      } else {
+        await supabase.from("eleves").update({ vol1_effectue: true, vol1_temps_minutes: tempsMin, vol1_aeronef_id: aeronefId, vol1_prix: prixParEleve, vol1_pilote_nom: piloteNom, vol1_numero_aerogest: numAerogest }).eq("id", e.id);
+      }
+    }
+
     // Add new eleves
     for (const e of editHistoElevesLocal) {
-      if (!origIds.has(e.id)) {
-        const typeVol = e.type_vol || 1;
-        const { data: existing } = await supabase.from("reservations").select("id").eq("creneau_id", creneauId).eq("eleve_id", e.id).maybeSingle();
-        if (existing) {
-          await supabase.from("reservations").update({ statut: "effectue", type_vol: typeVol }).eq("id", existing.id);
-        } else {
-          await supabase.from("reservations").insert({ creneau_id: creneauId, eleve_id: e.id, type_vol: typeVol, statut: "effectue" });
-        }
-        if (typeVol === 2) {
-          await supabase.from("eleves").update({ vol2_effectue: true, vol2_temps_minutes: tempsMin, vol2_aeronef_id: aeronefId, vol2_prix: prixParEleve, vol2_pilote_nom: piloteNom, vol2_numero_aerogest: numAerogest }).eq("id", e.id);
-        } else {
-          await supabase.from("eleves").update({ vol1_effectue: true, vol1_temps_minutes: tempsMin, vol1_aeronef_id: aeronefId, vol1_prix: prixParEleve, vol1_pilote_nom: piloteNom, vol1_numero_aerogest: numAerogest }).eq("id", e.id);
-        }
+      if (origIds.has(e.id)) continue; // already handled above
+      const typeVol = e.type_vol || 1;
+      const { data: existing } = await supabase.from("reservations").select("id").eq("creneau_id", creneauId).eq("eleve_id", e.id).maybeSingle();
+      if (existing) {
+        await supabase.from("reservations").update({ statut: "effectue", type_vol: typeVol }).eq("id", existing.id);
+      } else {
+        await supabase.from("reservations").insert({ creneau_id: creneauId, eleve_id: e.id, type_vol: typeVol, statut: "effectue" });
+      }
+      if (typeVol === 2) {
+        await supabase.from("eleves").update({ vol2_effectue: true, vol2_temps_minutes: tempsMin, vol2_aeronef_id: aeronefId, vol2_prix: prixParEleve, vol2_pilote_nom: piloteNom, vol2_numero_aerogest: numAerogest }).eq("id", e.id);
+      } else {
+        await supabase.from("eleves").update({ vol1_effectue: true, vol1_temps_minutes: tempsMin, vol1_aeronef_id: aeronefId, vol1_prix: prixParEleve, vol1_pilote_nom: piloteNom, vol1_numero_aerogest: numAerogest }).eq("id", e.id);
       }
     }
 
@@ -913,7 +1055,8 @@ export default function VolsPage() {
     "Novembre",
     "Decembre",
   ];
-  const cY = new Date().getFullYear(),
+  const cY = calYM.year,
+    calMonth = calYM.month,
     dIM = new Date(cY, calMonth + 1, 0).getDate(),
     fD = (new Date(cY, calMonth, 1).getDay() + 6) % 7;
   const cD: (number | null)[] = [];
@@ -921,9 +1064,8 @@ export default function VolsPage() {
   for (let d = 1; d <= dIM; d++) cD.push(d);
   const fBD: Record<number, any[]> = {};
   filteredDisplayed.forEach((c) => {
-    const d = new Date(c.date_vol);
-    if (d.getMonth() === calMonth && d.getFullYear() === cY) {
-      const day = d.getDate();
+    const [y, m, day] = (c.date_vol || "").split("-").map(Number);
+    if (m - 1 === calMonth && y === cY) {
       if (!fBD[day]) fBD[day] = [];
       fBD[day].push(c);
     }
@@ -1049,7 +1191,7 @@ export default function VolsPage() {
               <div>
                 <label className="label">Établissements {!isSA ? "*" : ""}</label>
                 {!isSA && availableEtabs.length === 0 && (
-                  <p className="text-xs text-red-500 mt-1">Aucun etablissement assigne. Contactez le SuperAdmin.</p>
+                  <p className="text-xs text-red-500 mt-1">Aucun etablissement assigne. Contactez l&apos;admin du club.</p>
                 )}
                 <div className="border border-gray-200 rounded-lg overflow-hidden">
                   {isSA && (
@@ -1091,9 +1233,22 @@ export default function VolsPage() {
                             <div className="px-3 pb-2 bg-brand-50/50">
                               <p className="text-[10px] text-gray-400 mb-1.5">Restreindre à des élèves spécifiques (optionnel) :</p>
                               <div className="flex flex-wrap gap-1">
-                                {etabEleves.filter(el => !el.abandonne && !busyEleveIds.has(el.id)).map((el) => {
+                                {etabEleves.filter(el => {
+                                  if (el.abandonne) return false;
+                                  if (busyEleveIds.has(el.id)) return false;
+                                  if (el.vol2_effectue) return false;
+                                  if ((el.vol1_effectue || el.vol1_skippe) && !el.vol2_autorise) return false;
+                                  // Masquer les Non admis (BIA échoué)
+                                  if (el.bia_resultat === "Non admis") return false;
+                                  // Pour les non-SA : masquer les élèves dont la date BIA est passée sans avoir fait Vol 1
+                                  if (!isSA) {
+                                    const today = todayParis();
+                                    if (!el.vol1_effectue && !el.vol1_skippe && biaExamDate && biaExamDate < today) return false;
+                                  }
+                                  return true;
+                                }).map((el) => {
                                   const sel = etabElvsSelected.includes(el.id);
-                                  const volLabel = el.vol1_effectue ? "V2" : "V1";
+                                  const volLabel = ((el.vol1_effectue || el.vol1_skippe) && el.vol2_autorise) ? "BIA ✓ · V2" : "V1";
                                   return (
                                     <button
                                       key={el.id}
@@ -1146,7 +1301,16 @@ export default function VolsPage() {
                 />
               </div>
             </div>
-            <div className="flex justify-end gap-2 mt-5 pt-4 border-t border-gray-100">
+            <label className="flex items-center gap-2 mt-4 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={sendNotif}
+                onChange={(e) => setSendNotif(e.target.checked)}
+                className="w-4 h-4 accent-brand-500"
+              />
+              <span className="text-sm text-gray-700">Notifier les parents éligibles par mail</span>
+            </label>
+            <div className="flex justify-end gap-2 mt-4 pt-4 border-t border-gray-100">
               <button
                 onClick={() => setShowCreate(false)}
                 className="btn-secondary"
@@ -1361,42 +1525,46 @@ export default function VolsPage() {
                 const q = addEleveSearch.toLowerCase();
                 const available = eleves.filter((e: any) => {
                   if (alreadyIn.has(e.id)) return false;
+                  if (e.abandonne) return false;
+                  if (e.vol2_effectue) return false;
+                  if ((e.vol1_effectue || e.vol1_skippe) && !e.vol2_autorise) return false;
+                  if (e.bia_resultat === "Non admis") return false;
+                  if (!isSA) {
+                    const today = todayParis();
+                    if (!e.vol1_effectue && !e.vol1_skippe && biaExamDate && biaExamDate < today) return false;
+                  }
                   if (showDetail.etablissement_id && e.etablissement_id !== showDetail.etablissement_id) return false;
                   if (q && !`${e.prenom} ${e.nom}`.toLowerCase().includes(q)) return false;
                   return true;
                 });
                 return (
                   <div className="mt-2 p-3 bg-brand-50/40 border border-brand-100 rounded-lg space-y-2">
-                    <div className="flex gap-2">
-                      <input
-                        autoFocus
-                        value={addEleveSearch}
-                        onChange={e => setAddEleveSearch(e.target.value)}
-                        placeholder="Rechercher un élève..."
-                        className="flex-1 px-2.5 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-300 bg-white"
-                      />
-                      <select
-                        value={addEleveTypeVol}
-                        onChange={e => setAddEleveTypeVol(Number(e.target.value) as 1 | 2)}
-                        className="px-2 py-1.5 text-sm border border-gray-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-brand-300"
-                      >
-                        <option value={1}>Vol 1</option>
-                        <option value={2}>Vol 2</option>
-                      </select>
-                    </div>
+                    <input
+                      autoFocus
+                      value={addEleveSearch}
+                      onChange={e => setAddEleveSearch(e.target.value)}
+                      placeholder="Rechercher un élève..."
+                      className="w-full px-2.5 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-300 bg-white"
+                    />
+                    <p className="text-[10px] text-gray-400">Le type de vol (Vol 1 ou Vol 2) est détecté automatiquement selon l'état de l'élève.</p>
                     <div className="max-h-36 overflow-y-auto space-y-1">
                       {available.length === 0 ? (
                         <p className="text-xs text-gray-400 py-1">Aucun élève disponible</p>
                       ) : available.map((e: any) => {
+                        // Auto-détecter le type de vol selon l'état de l'élève
+                        const detectedTypeVol: 1 | 2 = ((e.vol1_effectue || e.vol1_skippe) && e.vol2_autorise && !e.vol2_effectue) ? 2 : 1;
                         const match = matchDesiderata(e.desiderata, showDetail.date_vol, showDetail.heure_debut);
                         return (
                           <button
                             key={e.id}
-                            onClick={() => handleAddEleve(e.id, addEleveTypeVol)}
+                            onClick={() => handleAddEleve(e.id, detectedTypeVol)}
                             className="w-full flex items-center justify-between px-2.5 py-1.5 text-sm rounded-lg bg-white border border-gray-100 hover:border-brand-200 hover:bg-brand-50 transition-all text-left"
                           >
                             <span className="font-medium text-gray-900 flex items-center gap-1.5">
                               {e.prenom} {e.nom}
+                              <span className={`text-[8px] font-bold px-1.5 py-0.5 rounded-full ${detectedTypeVol === 2 ? "bg-emerald-100 text-emerald-700" : "bg-brand-100 text-brand-700"}`}>
+                                Vol {detectedTypeVol}
+                              </span>
                               {match === "match" && <span className="bg-emerald-500 text-white text-[9px] font-bold px-1.5 py-0.5 rounded-full leading-none">DISPO</span>}
                               {match === "no-match" && <span className="bg-orange-400 text-white text-[9px] font-bold px-1.5 py-0.5 rounded-full leading-none">INDISPO</span>}
                             </span>
@@ -1409,17 +1577,67 @@ export default function VolsPage() {
                 );
               })()}
             </div>
+            {/* ── Email log status ── */}
+            {(isPilote || isSA) && (() => {
+              // Only show the most recent batch: logs within 5 min of the latest log
+              const latestLog = slotEmailLogs[0];
+              const batchLogs = latestLog
+                ? slotEmailLogs.filter((l) =>
+                    new Date(latestLog.created_at).getTime() - new Date(l.created_at).getTime() < 5 * 60 * 1000
+                  )
+                : [];
+              const sentAt = latestLog ? new Date(latestLog.created_at).toLocaleString("fr-FR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : null;
+              const errCount = batchLogs.filter((l) => l.statut === "erreur").length;
+              return (
+                <div className="mt-4 pt-3 border-t border-gray-100">
+                  <p className="text-xs font-semibold text-gray-500 uppercase mb-2">Dernier envoi de notifications</p>
+                  {batchLogs.length === 0 ? (
+                    <p className="text-xs text-gray-400">Aucun email enregistré pour ce créneau</p>
+                  ) : (
+                    <div className="space-y-1">
+                      <p className="text-xs text-gray-500 mb-1">
+                        {sentAt && <span className="mr-2">{sentAt}</span>}
+                        <span className="text-emerald-600 font-medium">{batchLogs.filter((l) => l.statut === "envoye").length} envoyé(s)</span>
+                        {errCount > 0 && (
+                          <span className="ml-2 text-red-500 font-semibold">· {errCount} erreur(s)</span>
+                        )}
+                      </p>
+                      <div className="max-h-28 overflow-y-auto space-y-1">
+                        {batchLogs.map((l) => (
+                          <div key={l.id} className="flex items-center gap-2 text-xs">
+                            <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${l.statut === "envoye" ? "bg-emerald-400" : "bg-red-400"}`} />
+                            <span className="text-gray-600 truncate flex-1">{l.to_email}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
+
             {showDetail.statut !== "termine" && showDetail.statut !== "annule" && (() => {
                 const canEditSlot = isSA || isCoord || showDetail.pilote_id === profile?.id;
                 return (
                   <div className="flex gap-2 pt-3 border-t border-gray-100 flex-wrap">
-                    {canEditSlot && (
+                    {(isSA || showDetail.pilote_id === profile?.id) && (
                       <button
                         onClick={() => {
                           setShowDetail(null);
                           setShowClose(showDetail);
+                          setCloseTarif(showDetail.aeronef?.prix_heure ?? null);
+                          // Price the flight with the hourly rate in force on the flight date, not today's.
+                          supabase
+                            .rpc("tarif_aeronef", { p_aeronef_id: showDetail.aeronef_id, p_date: showDetail.date_vol })
+                            .then(({ data }) => { if (data != null) setCloseTarif(Number(data)); });
                           setCloseForm({
-                            ...closeForm,
+                            numero_aerogest: "",
+                            numeros_aerogest: [],
+                            useIndividualAerogest: false,
+                            temps_vol_minutes: "",
+                            prix_total: "",
+                            notes: "",
+                            pilote_override: "",
                             nb_eleves: String(
                               showDetail.reservations?.filter(
                                 (r: any) => r.statut !== "annule",
@@ -1436,22 +1654,20 @@ export default function VolsPage() {
                       <button
                         onClick={() => {
                           setShowDetail(null);
-                          // Pre-populate elevesByEtab from existing active reservations
-                          const elevesByEtabFromResas: Record<string, string[]> = {};
-                          for (const res of showDetail.reservations || []) {
-                            if (res.statut === "annule" || !res.eleve?.id) continue;
-                            const eleveData = eleves.find((el: any) => el.id === res.eleve.id);
-                            const etabId = eleveData?.etablissement_id;
+                          // Pre-populate elevesByEtab from the slot's existing restriction (not from bookings)
+                          const elevesByEtabFromAut: Record<string, string[]> = {};
+                          for (const eleveId of (showDetail.eleves_autorises || []) as string[]) {
+                            const etabId = eleves.find((el: any) => el.id === eleveId)?.etablissement_id;
                             if (!etabId) continue;
-                            if (!elevesByEtabFromResas[etabId]) elevesByEtabFromResas[etabId] = [];
-                            elevesByEtabFromResas[etabId].push(res.eleve.id);
+                            if (!elevesByEtabFromAut[etabId]) elevesByEtabFromAut[etabId] = [];
+                            elevesByEtabFromAut[etabId].push(eleveId);
                           }
                           setShowEditSlot({
                             ...showDetail,
                             etablissements: showDetail.etablissement_ids?.length > 0
                               ? showDetail.etablissement_ids
                               : (showDetail.etablissement_id ? [showDetail.etablissement_id] : []),
-                            elevesByEtab: elevesByEtabFromResas,
+                            elevesByEtab: elevesByEtabFromAut,
                             eleves_autorises: showDetail.eleves_autorises || [],
                           });
                         }}
@@ -1464,11 +1680,27 @@ export default function VolsPage() {
                       <button
                         onClick={() => handleNotifySlot(showDetail)}
                         className="btn-secondary"
-                        title="Notifier les parents"
+                        title="Notifier les parents déjà inscrits"
                       >
                         <Mail className="w-4 h-4" /> Notifier
                       </button>
                     )}
+                    {isPilote && showDetail.statut === "ouvert" && (() => {
+                      const activeCount = (showDetail.reservations || []).filter((r: any) => r.statut !== "annule").length;
+                      const hasPlaces = activeCount < (showDetail.places_disponibles ?? 0);
+                      if (!hasPlaces) return null;
+                      return (
+                        <button
+                          onClick={() => handleRenotifyAvailable(showDetail)}
+                          disabled={notifying}
+                          className="btn-secondary"
+                          title="Relancer une notification aux parents éligibles — créneau toujours disponible"
+                        >
+                          {notifying ? <Loader2 className="w-4 h-4 animate-spin" /> : <Mail className="w-4 h-4" />}
+                          Relancer
+                        </button>
+                      );
+                    })()}
                     {canEditSlot && (
                       <button
                         onClick={() => handleCancelSlot(showDetail.id)}
@@ -1523,6 +1755,22 @@ export default function VolsPage() {
                 {showClose.aeronef?.type_aeronef} (
                 {showClose.aeronef?.immatriculation})
               </p>
+              {/* Récap élèves + type de vol — vérification avant clôture */}
+              {(showClose.reservations || []).filter((r: any) => r.statut !== "annule").length > 0 && (
+                <div className="mt-2 pt-2 border-t border-gray-200 space-y-1">
+                  {(showClose.reservations || [])
+                    .filter((r: any) => r.statut !== "annule")
+                    .map((r: any) => (
+                      <div key={r.id} className="flex items-center justify-between text-xs">
+                        <span className="text-gray-700">{r.eleve?.prenom} {r.eleve?.nom}</span>
+                        <span className={`font-bold px-2 py-0.5 rounded-full ${r.type_vol === 2 ? "bg-emerald-100 text-emerald-700" : "bg-brand-100 text-brand-700"}`}>
+                          Vol {r.type_vol || 1}
+                        </span>
+                      </div>
+                    ))}
+                  <p className="text-[10px] text-gray-400 pt-1">Le type de vol détermine dans quel champ les données seront enregistrées.</p>
+                </div>
+              )}
             </div>
             {error && (
               <div className="mb-4 p-3 rounded-lg bg-red-50 text-sm text-red-700" role="alert" aria-live="assertive">
@@ -1539,19 +1787,71 @@ export default function VolsPage() {
                   </select>
                 </div>
               )}
-              <div>
-                <label className="label">N Aerogest *</label>
-                <input
-                  value={closeForm.numero_aerogest}
-                  onChange={(e) =>
-                    setCloseForm({
-                      ...closeForm,
-                      numero_aerogest: e.target.value,
-                    })
-                  }
-                  className="input"
-                />
-              </div>
+              {/* Aérogest — simple ou individuel */}
+              {(() => {
+                const activeRes = (showClose?.reservations || []).filter((r: any) => r.statut !== "annule");
+                const canMulti = activeRes.length >= 2;
+                return (
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <label className="label !mb-0">N° Aérogest *</label>
+                      {canMulti && !is2027Plus && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const next = !closeForm.useIndividualAerogest;
+                            setCloseForm({
+                              ...closeForm,
+                              useIndividualAerogest: next,
+                              numeros_aerogest: next ? Array(activeRes.length).fill("") : [],
+                              numero_aerogest: next ? "" : closeForm.numero_aerogest,
+                            });
+                          }}
+                          className={`text-xs px-2 py-0.5 rounded border font-medium transition-colors ${closeForm.useIndividualAerogest ? "bg-brand-50 border-brand-300 text-brand-600" : "border-gray-200 text-gray-500 hover:border-brand-300"}`}
+                        >
+                          {closeForm.useIndividualAerogest ? "✓ Numéros individuels" : "Numéros individuels"}
+                        </button>
+                      )}
+                      {canMulti && is2027Plus && (
+                        <span className="text-xs px-2 py-0.5 rounded bg-brand-50 border border-brand-300 text-brand-600 font-medium">
+                          1 numéro/élève · obligatoire dès 2027
+                        </span>
+                      )}
+                    </div>
+                    {(closeForm.useIndividualAerogest || (is2027Plus && canMulti)) ? (
+                      <div className="space-y-1.5">
+                        {activeRes.map((r: any, idx: number) => (
+                          <div key={r.id} className="flex items-center gap-2">
+                            <span className="text-xs text-gray-500 w-28 shrink-0 truncate">{r.eleve?.prenom} {r.eleve?.nom}</span>
+                            <input
+                              value={closeForm.numeros_aerogest[idx] || ""}
+                              onChange={e => {
+                                const arr = [...closeForm.numeros_aerogest];
+                                arr[idx] = e.target.value;
+                                setCloseForm({ ...closeForm, numeros_aerogest: arr });
+                              }}
+                              placeholder={`N° Aérogest pax ${idx + 1}`}
+                              className="input flex-1 text-sm"
+                            />
+                          </div>
+                        ))}
+                        {activeRes.length === 3 && (
+                          <p className="text-xs text-amber-600 bg-amber-50 rounded px-2 py-1">
+                            3 pax → roulage comptabilisé : 2×8 min (économie 8 min)
+                          </p>
+                        )}
+                      </div>
+                    ) : (
+                      <input
+                        value={closeForm.numero_aerogest}
+                        onChange={(e) => setCloseForm({ ...closeForm, numero_aerogest: e.target.value })}
+                        className="input"
+                        placeholder="Ex : 20241205A"
+                      />
+                    )}
+                  </div>
+                );
+              })()}
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="label">Temps vol (min) *</label>
@@ -1560,7 +1860,7 @@ export default function VolsPage() {
                     value={closeForm.temps_vol_minutes}
                     onChange={(e) => {
                       const mins = e.target.value;
-                      const prixHeure = showClose?.aeronef?.prix_heure;
+                      const prixHeure = closeTarif;
                       const auto = prixHeure && mins
                         ? String(Math.round((parseInt(mins) / 60) * prixHeure * 100) / 100)
                         : closeForm.prix_total;
@@ -1584,9 +1884,9 @@ export default function VolsPage() {
               <div>
                 <div className="flex items-center justify-between mb-1">
                   <label className="label !mb-0">Prix total (€) *</label>
-                  {showClose?.aeronef?.prix_heure && (
+                  {closeTarif != null && (
                     <span className="text-[11px] text-gray-400">
-                      Tarif : {showClose.aeronef.prix_heure}€/h
+                      Tarif au {showClose?.date_vol ? new Date(`${showClose.date_vol}T12:00:00`).toLocaleDateString("fr-FR") : ""} : {closeTarif}€/h
                       {closeForm.temps_vol_minutes && ` · calculé automatiquement`}
                     </span>
                   )}
@@ -1649,7 +1949,15 @@ export default function VolsPage() {
               {isSA && (
                 <div>
                   <label className="label">Pilote</label>
-                  <select value={showEditSlot.pilote_id} onChange={(e) => setShowEditSlot({ ...showEditSlot, pilote_id: e.target.value })} className="select">
+                  <select
+                    value={showEditSlot.pilote_id}
+                    onChange={(e) => {
+                      const pid = e.target.value;
+                      const stillQualified = getQualifiedAeronefs(pid).some((a) => a.id === showEditSlot.aeronef_id);
+                      setShowEditSlot({ ...showEditSlot, pilote_id: pid, aeronef_id: stillQualified ? showEditSlot.aeronef_id : "" });
+                    }}
+                    className="select"
+                  >
                     <option value="">— Choisir —</option>
                     {pilotes.map((p) => <option key={p.id} value={p.id}>{p.prenom} {p.nom}</option>)}
                   </select>
@@ -1667,7 +1975,7 @@ export default function VolsPage() {
                 <label className="label">Aéronef</label>
                 <select value={showEditSlot.aeronef_id} onChange={(e) => setShowEditSlot({ ...showEditSlot, aeronef_id: e.target.value })} className="select">
                   <option value="">— Choisir —</option>
-                  {aeronefs.map((a) => <option key={a.id} value={a.id}>{a.type_aeronef} ({a.immatriculation}) — {a.prix_heure}E/h</option>)}
+                  {(showEditSlot.pilote_id ? getQualifiedAeronefs(showEditSlot.pilote_id) : aeronefs).map((a: any) => <option key={a.id} value={a.id}>{a.type_aeronef} ({a.immatriculation}) — {a.prix_heure}E/h</option>)}
                 </select>
               </div>
               {/* Établissements — multi-select, même UI que la création */}
@@ -1714,14 +2022,20 @@ export default function VolsPage() {
                               <p className="text-[10px] text-gray-400 mb-1.5">Restreindre à des élèves spécifiques (optionnel) :</p>
                               <div className="flex flex-wrap gap-1">
                                 {etabEleves.filter(el => {
-                                  // Always hide students with abandon status
                                   if (el.abandonne) return false;
+                                  if (el.vol2_effectue) return false;
+                                  if ((el.vol1_effectue || el.vol1_skippe) && !el.vol2_autorise) return false;
+                                  if (el.bia_resultat === "Non admis") return false;
+                                  if (!isSA) {
+                                    const today = todayParis();
+                                    if (!el.vol1_effectue && !el.vol1_skippe && biaExamDate && biaExamDate < today) return false;
+                                  }
                                   // Keep: not busy, OR already on this specific slot
                                   if (!busyEleveIds.has(el.id)) return true;
                                   return (showEditSlot.reservations || []).some((r: any) => r.statut !== "annule" && r.eleve?.id === el.id);
                                 }).map((el) => {
                                   const sel = etabElvsSelected.includes(el.id);
-                                  const volLabel = el.vol1_effectue ? "V2" : "V1";
+                                  const volLabel = ((el.vol1_effectue || el.vol1_skippe) && el.vol2_autorise) ? "BIA ✓ · V2" : "V1";
                                   return (
                                     <button
                                       key={el.id}
@@ -1865,38 +2179,64 @@ export default function VolsPage() {
                   {editHistoElevesLocal.length === 0 && (
                     <p className="text-xs text-gray-400 italic">Aucun élève lié</p>
                   )}
-                  {editHistoElevesLocal.map((e: any) => (
-                    <div key={e.id} className="flex items-center justify-between bg-gray-50 rounded-lg px-3 py-1.5 text-sm">
-                      <span className="font-medium">{e.prenom} {e.nom} <span className="text-[10px] font-normal text-gray-400 ml-1">Vol {e.type_vol || 1}</span></span>
-                      <button
-                        type="button"
-                        onClick={() => setEditHistoElevesLocal((prev) => prev.filter((x) => x.id !== e.id))}
-                        className="text-red-400 hover:text-red-600 p-0.5 rounded"
-                        title="Retirer de ce vol"
-                      >
-                        <X className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-                  ))}
+                  {editHistoElevesLocal.map((e: any) => {
+                    const tv = e.type_vol || 1;
+                    return (
+                      <div key={e.id} className="flex items-center justify-between bg-gray-50 rounded-lg px-3 py-1.5 text-sm">
+                        <span className="font-medium">{e.prenom} {e.nom}</span>
+                        <div className="flex items-center gap-2">
+                          {/* Toggle Vol 1 / Vol 2 */}
+                          <button
+                            type="button"
+                            onClick={() => setEditHistoElevesLocal((prev) =>
+                              prev.map((x) => x.id === e.id ? { ...x, type_vol: tv === 1 ? 2 : 1 } : x)
+                            )}
+                            className={`text-[11px] font-bold px-2.5 py-0.5 rounded-full border-2 transition-all ${tv === 2 ? "border-emerald-400 bg-emerald-50 text-emerald-700" : "border-brand-300 bg-brand-50 text-brand-700"}`}
+                            title="Cliquer pour changer le type de vol"
+                          >
+                            Vol {tv}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setEditHistoElevesLocal((prev) => prev.filter((x) => x.id !== e.id))}
+                            className="text-red-400 hover:text-red-600 p-0.5 rounded"
+                            title="Retirer de ce vol"
+                          >
+                            <X className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
                 <div className="flex gap-2">
                   <select
                     value={addHistoEleveId}
-                    onChange={(e) => setAddHistoEleveId(e.target.value)}
+                    onChange={(e) => {
+                      setAddHistoEleveId(e.target.value);
+                      // Auto-détecter le type de vol selon l'état de l'élève
+                      const found = eleves.find((el: any) => el.id === e.target.value);
+                      if (found) {
+                        const detected: 1 | 2 = ((found.vol1_effectue || found.vol1_skippe) && found.vol2_autorise && !found.vol2_effectue) ? 2 : 1;
+                        setAddHistoEleveTypeVol(detected);
+                      }
+                    }}
                     className="input flex-1 text-sm"
                   >
                     <option value="">— Ajouter un élève</option>
                     {eleves
                       .filter((e: any) => !editHistoElevesLocal.some((x: any) => x.id === e.id))
                       .sort((a: any, b: any) => `${a.prenom} ${a.nom}`.localeCompare(`${b.prenom} ${b.nom}`))
-                      .map((e: any) => (
-                        <option key={e.id} value={e.id}>{e.prenom} {e.nom}</option>
-                      ))}
+                      .map((e: any) => {
+                        const tv = ((e.vol1_effectue || e.vol1_skippe) && e.vol2_autorise && !e.vol2_effectue) ? "Vol 2" : "Vol 1";
+                        return <option key={e.id} value={e.id}>{e.prenom} {e.nom} — {tv}</option>;
+                      })}
                   </select>
                   <select
                     value={addHistoEleveTypeVol}
                     onChange={(e) => setAddHistoEleveTypeVol(parseInt(e.target.value) as 1 | 2)}
                     className="input w-20 text-sm"
+                    title="Type de vol (auto-détecté, modifiable)"
                   >
                     <option value={1}>Vol 1</option>
                     <option value={2}>Vol 2</option>
@@ -1968,6 +2308,9 @@ export default function VolsPage() {
               { k: "calendar", l: "Calendrier", i: Calendar },
               ...((isSA || isPilote)
                 ? [{ k: "historique", l: "Historique", i: History }]
+                : []),
+              ...(isSA
+                ? [{ k: "statistiques", l: "Statistiques", i: BarChart2 }]
                 : []),
             ].map(({ k, l, i: I }: any) => (
               <button
@@ -2049,8 +2392,9 @@ export default function VolsPage() {
                 className="select text-sm py-1.5"
               >
                 <option value="">Tous</option>
-                <option value="planifie">Planifié</option>
+                <option value="ouvert">Ouvert</option>
                 <option value="confirme">Confirmé</option>
+                <option value="complet">Complet</option>
                 <option value="termine">Terminé</option>
                 <option value="annule">Annulé</option>
               </select>
@@ -2165,21 +2509,19 @@ export default function VolsPage() {
         };
 
         // For pilots: split my slots vs others
-        if (isPilote && !isSA && !isCoord) {
+        if (isPilote && !isSA) {
           const mySlots = filteredDisplayed.filter((c) => c.pilote_id === profile?.id);
           const othersSlots = filteredDisplayed.filter((c) => c.pilote_id !== profile?.id);
           return (
             <div className="flex flex-col gap-6">
               <SectionList slots={mySlots} label="Mes créneaux" />
               {othersSlots.length > 0 && (
-                <details>
-                  <summary className="text-xs font-semibold text-gray-500 uppercase tracking-wider cursor-pointer select-none py-2 px-1 hover:text-gray-700 flex items-center gap-2">
-                    <span>Créneaux des autres pilotes ({othersSlots.filter(c => !["termine","annule"].includes(c.statut)).length} actifs)</span>
-                  </summary>
-                  <div className="mt-3">
-                    <SectionList slots={othersSlots} />
-                  </div>
-                </details>
+                <div>
+                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider py-2 px-1">
+                    Planning général — autres pilotes ({othersSlots.filter(c => !["termine","annule"].includes(c.statut)).length} actifs)
+                  </p>
+                  <SectionList slots={othersSlots} />
+                </div>
               )}
             </div>
           );
@@ -2189,68 +2531,218 @@ export default function VolsPage() {
       })()}
 
       {/* CALENDAR */}
-      {mode === "calendar" && (
-        <div className="card p-0 overflow-hidden">
-          <div className="flex items-center justify-between px-5 py-3 border-b border-gray-100">
-            <button
-              onClick={() => setCalMonth((m) => Math.max(0, m - 1))}
-              className="p-1.5 rounded-md bg-brand-50 text-brand-500 text-sm font-semibold"
-            >
-              ‹
-            </button>
-            <span className="text-sm font-bold text-gray-900">
-              {mN[calMonth]} {cY}
-            </span>
-            <button
-              onClick={() => setCalMonth((m) => Math.min(11, m + 1))}
-              className="p-1.5 rounded-md bg-brand-50 text-brand-500 text-sm font-semibold"
-            >
-              ›
-            </button>
+      {mode === "calendar" && (() => {
+        // Helper timezone-safe : utilise l'heure locale (pas UTC)
+        const localDateStr = (d: Date) =>
+          `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+
+        const todayLocal = new Date();
+        todayLocal.setHours(0, 0, 0, 0);
+        const todayStr = localDateStr(todayLocal);
+
+        const statBg: Record<string, string> = {
+          ouvert: "bg-amber-50 border-amber-200",
+          confirme: "bg-brand-50 border-brand-200",
+          termine: "bg-emerald-50 border-emerald-200",
+          annule: "bg-red-50 border-red-200 opacity-60",
+          complet: "bg-blue-50 border-blue-200",
+        };
+        const statText: Record<string, string> = {
+          ouvert: "text-amber-700",
+          confirme: "text-brand-700",
+          termine: "text-emerald-700",
+          annule: "text-red-600",
+          complet: "text-blue-700",
+        };
+
+        const ViewToggle = ({ current }: { current: "week" | "month" }) => (
+          <div className="flex rounded-lg overflow-hidden border border-gray-200 text-xs font-semibold shrink-0">
+            <button onClick={() => setCalView("week")} className={`px-2.5 py-1 ${current === "week" ? "bg-brand-500 text-white" : "bg-white text-gray-500 hover:bg-gray-50"}`}>Sem.</button>
+            <button onClick={() => setCalView("month")} className={`px-2.5 py-1 ${current === "month" ? "bg-brand-500 text-white" : "bg-white text-gray-500 hover:bg-gray-50"}`}>Mois</button>
           </div>
-          <div className="grid grid-cols-7">
-            {["Lun", "Mar", "Mer", "Jeu", "Ven", "Sam", "Dim"].map((d) => (
-              <div
-                key={d}
-                className="px-1 py-2 text-center text-[10px] font-bold uppercase text-gray-400 bg-gray-50"
+        );
+
+        // ── VUE SEMAINE ──────────────────────────────────
+        if (calView === "week") {
+          const weekDays = Array.from({ length: 7 }, (_, i) => {
+            const d = new Date(calWeekStart);
+            d.setDate(calWeekStart.getDate() + i);
+            return d;
+          });
+          const fmtWeek = (d: Date) => d.toLocaleDateString("fr-FR", { day: "numeric", month: "short" });
+          const joursLong = ["Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi", "Dimanche"];
+          const joursShort = ["Lun", "Mar", "Mer", "Jeu", "Ven", "Sam", "Dim"];
+
+          const slotsByDay: Record<string, any[]> = {};
+          filteredDisplayed.forEach((c) => {
+            const ds = c.date_vol; // already "YYYY-MM-DD" from DB
+            if (!slotsByDay[ds]) slotsByDay[ds] = [];
+            slotsByDay[ds].push(c);
+          });
+
+          const goToday = () => {
+            const d = new Date();
+            const day = d.getDay();
+            const diff = day === 0 ? -6 : 1 - day;
+            d.setDate(d.getDate() + diff);
+            d.setHours(0, 0, 0, 0);
+            setCalWeekStart(new Date(d));
+          };
+
+          const SlotCard = ({ f }: { f: any }) => {
+            const nbEleves = (f.reservations || []).filter((r: any) => r.statut !== "annule").length;
+            const capacity = f.aeronef?.nb_places_eleves ?? 1;
+            const isFull = nbEleves >= capacity;
+            return (
+              <button
+                onClick={() => setShowDetail(f)}
+                className={`w-full text-left rounded-xl border p-2.5 hover:shadow-md active:scale-95 transition-all ${statBg[f.statut] || "bg-gray-50 border-gray-200"}`}
               >
-                {d}
-              </div>
-            ))}
-            {cD.map((d, i) => {
-              const fls = d ? (fBD[d] || []).slice().sort((a: any, b: any) => (a.heure_debut || "").localeCompare(b.heure_debut || "")) : [];
-              return (
-                <div
-                  key={i}
-                  className={`min-h-[78px] p-1 border-t border-gray-100 ${(i + 1) % 7 !== 0 ? "border-r" : ""} ${d ? "bg-white" : "bg-gray-50 opacity-30"}`}
-                >
-                  {d && (
-                    <>
-                      <div className="text-xs text-right pr-1 mb-1 text-gray-500">
-                        {d}
-                      </div>
-                      {fls.map((f: any, fi: number) => (
-                        <div
-                          key={fi}
-                          onClick={() => setShowDetail(f)}
-                          className={`px-1.5 py-0.5 rounded text-[10px] font-semibold mb-0.5 truncate cursor-pointer ${sS[f.statut] || "bg-gray-100"}`}
-                        >
-                          {f.heure_debut?.slice(0, 5)} · {f.pilote?.nom}
-                        </div>
-                      ))}
-                    </>
-                  )}
+                <p className={`text-xs font-bold ${statText[f.statut] || "text-gray-700"}`}>
+                  {f.heure_debut?.slice(0, 5)} – {f.heure_fin?.slice(0, 5)}
+                </p>
+                {f.pilote && <p className="text-[11px] text-gray-600 mt-0.5 font-medium truncate">👤 {f.pilote.prenom} {f.pilote.nom}</p>}
+                {f.aeronef && <p className="text-[11px] text-gray-500 truncate">✈ {f.aeronef.type_aeronef}</p>}
+                <p className={`text-[10px] mt-1 font-semibold ${isFull ? "text-blue-600" : "text-gray-400"}`}>
+                  {nbEleves}/{capacity} élève{capacity > 1 ? "s" : ""}
+                </p>
+              </button>
+            );
+          };
+
+          return (
+            <div className="card p-0 overflow-hidden">
+              {/* Header */}
+              <div className="flex items-center justify-between px-3 py-3 border-b border-gray-100 bg-white gap-2">
+                <button onClick={() => { const d = new Date(calWeekStart); d.setDate(d.getDate() - 7); setCalWeekStart(new Date(d)); }}
+                  className="p-2 rounded-lg bg-brand-50 text-brand-600 hover:bg-brand-100 font-bold text-base shrink-0">‹</button>
+                <div className="flex flex-col items-center gap-1 min-w-0">
+                  <span className="text-sm font-bold text-gray-900 text-center">
+                    {fmtWeek(weekDays[0])} – {fmtWeek(weekDays[6])} {weekDays[6].getFullYear()}
+                  </span>
+                  <div className="flex items-center gap-2">
+                    <button onClick={goToday} className="text-xs px-2 py-0.5 rounded-md bg-gray-100 text-gray-600 hover:bg-gray-200 font-medium">Aujourd'hui</button>
+                    <ViewToggle current="week" />
+                  </div>
                 </div>
-              );
-            })}
+                <button onClick={() => { const d = new Date(calWeekStart); d.setDate(d.getDate() + 7); setCalWeekStart(new Date(d)); }}
+                  className="p-2 rounded-lg bg-brand-50 text-brand-600 hover:bg-brand-100 font-bold text-base shrink-0">›</button>
+              </div>
+
+              {/* DESKTOP : grille 7 colonnes */}
+              <div className="hidden sm:block">
+                <div className="grid grid-cols-7 border-b border-gray-100">
+                  {weekDays.map((day, i) => {
+                    const ds = localDateStr(day);
+                    const isToday = ds === todayStr;
+                    return (
+                      <div key={i} className={`text-center py-2 border-r last:border-r-0 border-gray-100 ${isToday ? "bg-brand-50" : "bg-gray-50"}`}>
+                        <p className={`text-[11px] font-bold uppercase ${isToday ? "text-brand-600" : "text-gray-400"}`}>{joursShort[i]}</p>
+                        <p className={`text-lg font-bold mt-0.5 ${isToday ? "text-brand-600" : "text-gray-700"}`}>{day.getDate()}</p>
+                      </div>
+                    );
+                  })}
+                </div>
+                <div className="grid grid-cols-7 divide-x divide-gray-100 min-h-[280px]">
+                  {weekDays.map((day, i) => {
+                    const ds = localDateStr(day);
+                    const isToday = ds === todayStr;
+                    const slots = (slotsByDay[ds] || []).slice().sort((a: any, b: any) => (a.heure_debut || "").localeCompare(b.heure_debut || ""));
+                    return (
+                      <div key={i} className={`p-1.5 space-y-1.5 ${isToday ? "bg-brand-50/30" : "bg-white"}`}>
+                        {slots.length === 0 && <div className="h-full flex items-center justify-center"><span className="text-[10px] text-gray-200">—</span></div>}
+                        {slots.map((f: any, fi: number) => <SlotCard key={fi} f={f} />)}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* MOBILE : liste verticale par jour */}
+              <div className="sm:hidden divide-y divide-gray-100">
+                {weekDays.map((day, i) => {
+                  const ds = localDateStr(day);
+                  const isToday = ds === todayStr;
+                  const slots = (slotsByDay[ds] || []).slice().sort((a: any, b: any) => (a.heure_debut || "").localeCompare(b.heure_debut || ""));
+                  return (
+                    <div key={i} className={isToday ? "bg-brand-50/20" : ""}>
+                      <div className={`flex items-center gap-2 px-4 py-2.5 ${isToday ? "bg-brand-50" : "bg-gray-50/60"}`}>
+                        <span className={`w-7 h-7 rounded-full flex items-center justify-center text-sm font-bold ${isToday ? "bg-brand-500 text-white" : "bg-gray-200 text-gray-600"}`}>
+                          {day.getDate()}
+                        </span>
+                        <span className={`text-sm font-semibold ${isToday ? "text-brand-700" : "text-gray-600"}`}>
+                          {joursLong[i]}
+                        </span>
+                        {isToday && <span className="text-[10px] font-bold text-brand-500 bg-brand-100 px-1.5 py-0.5 rounded-full ml-auto">Aujourd'hui</span>}
+                      </div>
+                      {slots.length === 0 ? (
+                        <p className="text-xs text-gray-300 px-4 py-3">Aucun créneau</p>
+                      ) : (
+                        <div className="p-3 space-y-2">
+                          {slots.map((f: any, fi: number) => <SlotCard key={fi} f={f} />)}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          );
+        }
+
+        // ── VUE MOIS ──────────────────────────────────
+        return (
+          <div className="card p-0 overflow-hidden">
+            <div className="flex items-center justify-between px-3 py-3 border-b border-gray-100">
+              <button onClick={() => setCalYM(({ year, month }) => (month === 0 ? { year: year - 1, month: 11 } : { year, month: month - 1 }))}
+                className="p-2 rounded-lg bg-brand-50 text-brand-600 hover:bg-brand-100 font-bold text-base shrink-0">‹</button>
+              <div className="flex flex-col items-center gap-1">
+                <span className="text-sm font-bold text-gray-900">{mN[calMonth]} {cY}</span>
+                <ViewToggle current="month" />
+              </div>
+              <button onClick={() => setCalYM(({ year, month }) => (month === 11 ? { year: year + 1, month: 0 } : { year, month: month + 1 }))}
+                className="p-2 rounded-lg bg-brand-50 text-brand-600 hover:bg-brand-100 font-bold text-base shrink-0">›</button>
+            </div>
+            <div className="grid grid-cols-7">
+              {["L", "M", "M", "J", "V", "S", "D"].map((d, i) => (
+                <div key={i} className="py-2 text-center text-[10px] font-bold uppercase text-gray-400 bg-gray-50 border-b border-gray-100">{d}</div>
+              ))}
+              {cD.map((d, i) => {
+                const dateStr = d ? `${cY}-${String(calMonth + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}` : "";
+                const isToday = dateStr === todayStr;
+                const fls = d ? (fBD[d] || []).slice().sort((a: any, b: any) => (a.heure_debut || "").localeCompare(b.heure_debut || "")) : [];
+                return (
+                  <div key={i} className={`min-h-[70px] sm:min-h-[100px] p-1 border-t border-gray-100 ${(i + 1) % 7 !== 0 ? "border-r" : ""} ${d ? (isToday ? "bg-brand-50/40" : "bg-white") : "bg-gray-50/40"}`}>
+                    {d && (
+                      <>
+                        <div className={`text-[11px] font-bold mb-1 w-5 h-5 flex items-center justify-center rounded-full ml-auto ${isToday ? "bg-brand-500 text-white" : "text-gray-400"}`}>
+                          {d}
+                        </div>
+                        {fls.map((f: any, fi: number) => {
+                          const nbEleves = (f.reservations || []).filter((r: any) => r.statut !== "annule").length;
+                          return (
+                            <div key={fi} onClick={() => setShowDetail(f)}
+                              className={`px-1 sm:px-2 py-0.5 sm:py-1 rounded text-[9px] sm:text-[11px] font-semibold mb-0.5 cursor-pointer hover:opacity-80 transition-opacity truncate ${sS[f.statut] || "bg-gray-100 text-gray-600"}`}>
+                              <span className="font-bold">{f.heure_debut?.slice(0, 5)}</span>
+                              <span className="hidden sm:inline ml-1 opacity-70 font-normal">{f.pilote?.nom}</span>
+                              {nbEleves > 0 && <span className="hidden sm:inline float-right opacity-60">·{nbEleves}</span>}
+                            </div>
+                          );
+                        })}
+                      </>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* HISTORIQUE */}
       {mode === "historique" && (isSA || isPilote) && (() => {
         // Aerogest numbers already covered by vols_effectues
-        const aerogestInVols = new Set<string>(volsHisto.map((v: any) => v.numero_aerogest).filter(Boolean));
+        const aerogestInVols = new Set<string>(volsHisto.flatMap((v: any) => [v.numero_aerogest, ...(v.numeros_aerogest || [])]).filter(Boolean));
 
         // Build manual groups from eleve vol1/vol2 fields (grouped by numero_aerogest, excluding those already in vols_effectues)
         const manualByAerogest: Record<string, { ids: string[]; noms: string[]; numero_aerogest: string; prix_total: number; temps: number | null; pilote: string; aeronef_label: string; etab_ids: string[] }> = {};
@@ -2459,6 +2951,192 @@ export default function VolsPage() {
         </div>
         );
       })()}
+      {/* STATISTIQUES */}
+      {mode === "statistiques" && isSA && (() => {
+        const aerogestInHisto = new Set<string>(volsHisto.flatMap((v: any) => [v.numero_aerogest, ...(v.numeros_aerogest || [])]).filter(Boolean));
+
+        // Stats from vols_effectues (closed vols)
+        let totalVolsEffectues = 0;
+        let totalElevesTrans = 0;
+        let totalMinutes = 0;
+        const aeronefStats: Record<string, { label: string; nbVols: number; nbEleves: number; totalMin: number; places: number }> = {};
+        const piloteStatsTab: Record<string, { nom: string; nbVols: number; totalMin: number }> = {};
+        const etabStatsTab: Record<string, { nom: string; nbVols: number; nbEleves: number }> = {};
+        const placeStats: Record<number, { nbVols: number; nbEleves: number; totalMin: number }> = {};
+
+        for (const v of volsHisto) {
+          const nbPax = (v.numeros_aerogest?.length || 0) > 1 ? v.numeros_aerogest.length : (v.nb_eleves || 1);
+          const tpsTotal = v.temps_vol_minutes || 0;
+          totalVolsEffectues++;
+          totalElevesTrans += nbPax;
+          totalMinutes += tpsTotal;
+
+          const places = v.creneau?.aeronef?.nb_places_eleves
+            || aeronefs.find((a: any) => a.id === v.creneau?.aeronef_id)?.nb_places_eleves
+            || 1;
+          const aeronefLabel = v.creneau?.aeronef ? `${v.creneau.aeronef.type_aeronef} (${v.creneau.aeronef.immatriculation})` : "Inconnu";
+          if (!aeronefStats[aeronefLabel]) aeronefStats[aeronefLabel] = { label: aeronefLabel, nbVols: 0, nbEleves: 0, totalMin: 0, places };
+          aeronefStats[aeronefLabel].nbVols++;
+          aeronefStats[aeronefLabel].nbEleves += nbPax;
+          aeronefStats[aeronefLabel].totalMin += tpsTotal;
+
+          if (!placeStats[places]) placeStats[places] = { nbVols: 0, nbEleves: 0, totalMin: 0 };
+          placeStats[places].nbVols++;
+          placeStats[places].nbEleves += nbPax;
+          placeStats[places].totalMin += tpsTotal;
+
+          const pNom = v.creneau?.pilote ? `${v.creneau.pilote.prenom} ${v.creneau.pilote.nom}` : "Inconnu";
+          if (!piloteStatsTab[pNom]) piloteStatsTab[pNom] = { nom: pNom, nbVols: 0, totalMin: 0 };
+          piloteStatsTab[pNom].nbVols++;
+          piloteStatsTab[pNom].totalMin += tpsTotal;
+
+          const etabNom = v.creneau?.etablissement?.nom || "Indéterminé";
+          if (!etabStatsTab[etabNom]) etabStatsTab[etabNom] = { nom: etabNom, nbVols: 0, nbEleves: 0 };
+          etabStatsTab[etabNom].nbVols++;
+          etabStatsTab[etabNom].nbEleves += nbPax;
+        }
+
+        // Manual eleve records (old system not in vols_effectues)
+        const manualAerogestCount: Record<string, number> = {};
+        for (const e of eleves) {
+          if (e.vol1_effectue && e.vol1_numero_aerogest && !aerogestInHisto.has(e.vol1_numero_aerogest))
+            manualAerogestCount[e.vol1_numero_aerogest] = (manualAerogestCount[e.vol1_numero_aerogest] || 0) + 1;
+          if (e.vol2_effectue && e.vol2_numero_aerogest && !aerogestInHisto.has(e.vol2_numero_aerogest))
+            manualAerogestCount[e.vol2_numero_aerogest] = (manualAerogestCount[e.vol2_numero_aerogest] || 0) + 1;
+        }
+        const manualVolCount = Object.keys(manualAerogestCount).length;
+        const manualEleveCount = Object.values(manualAerogestCount).reduce((a, n) => a + n, 0);
+        let manualMin = 0;
+        const seenManual = new Set<string>();
+        for (const e of eleves) {
+          if (e.vol1_effectue && e.vol1_numero_aerogest && !aerogestInHisto.has(e.vol1_numero_aerogest) && !seenManual.has(e.vol1_numero_aerogest)) {
+            seenManual.add(e.vol1_numero_aerogest);
+            if (e.vol1_temps_minutes) manualMin += e.vol1_temps_minutes;
+          }
+          if (e.vol2_effectue && e.vol2_numero_aerogest && !aerogestInHisto.has(e.vol2_numero_aerogest) && !seenManual.has(e.vol2_numero_aerogest)) {
+            seenManual.add(e.vol2_numero_aerogest);
+            if (e.vol2_temps_minutes) manualMin += e.vol2_temps_minutes;
+          }
+        }
+
+        const grandVols = totalVolsEffectues + manualVolCount;
+        const grandEleves = totalElevesTrans + manualEleveCount;
+        const grandMin = Math.round(totalMinutes + manualMin);
+        const avgMin = grandEleves > 0 ? Math.round(grandMin / grandEleves) : 0;
+        const fmt = (m: number) => `${Math.floor(m / 60)}h${String(m % 60).padStart(2, "0")}`;
+
+        return (
+          <div className="space-y-5">
+            {/* Summary */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              {[
+                { l: "Vols clôturés", v: grandVols, s: `${totalVolsEffectues} system · ${manualVolCount} manuels` },
+                { l: "Élèves transportés", v: grandEleves, s: "vols individuels comptés" },
+                { l: "Temps total", v: fmt(grandMin), s: "temps de vol réel" },
+                { l: "Moy. par élève", v: `${avgMin} min`, s: "temps total / élèves" },
+              ].map((c, i) => (
+                <div key={i} className="card">
+                  <p className="text-xs text-gray-500 mb-1">{c.l}</p>
+                  <p className="text-2xl font-bold text-gray-900">{c.v}</p>
+                  <p className="text-[11px] text-gray-400">{c.s}</p>
+                </div>
+              ))}
+            </div>
+
+            {/* Par type d'aéronef (nb places) */}
+            <div className="card">
+              <h2 className="text-sm font-semibold text-gray-900 mb-3 flex items-center gap-2">
+                <Plane className="w-4 h-4 text-brand-400" /> Par capacité aéronef
+              </h2>
+              <div className="flex gap-3 flex-wrap mb-4">
+                {Object.entries(placeStats).sort((a, b) => parseInt(a[0]) - parseInt(b[0])).map(([places, s]) => {
+                  const n = parseInt(places);
+                  const label = n === 1 ? "Biplace" : n === 3 ? "Quadriplace" : `${n + 1} places`;
+                  return (
+                    <div key={places} className="flex-1 min-w-[120px] p-3 bg-gray-50 rounded-xl border border-gray-200">
+                      <p className="text-xs font-semibold text-gray-500">{label}</p>
+                      <p className="text-2xl font-bold text-gray-900">{s.nbVols}</p>
+                      <p className="text-[11px] text-gray-400">{s.nbEleves} élèves · {fmt(s.totalMin)}</p>
+                    </div>
+                  );
+                })}
+              </div>
+              <div className="overflow-auto">
+                <table className="w-full text-sm min-w-[500px]">
+                  <thead><tr className="bg-gray-50">
+                    {["Aéronef", "Vols", "Élèves", "Tps total", "Moy./élève"].map(h => (
+                      <th key={h} className="px-3 py-2 text-left text-[10px] font-semibold uppercase text-gray-400">{h}</th>
+                    ))}
+                  </tr></thead>
+                  <tbody>
+                    {Object.values(aeronefStats).sort((a, b) => b.nbVols - a.nbVols).map((s, i) => (
+                      <tr key={i} className="border-t border-gray-100">
+                        <td className="px-3 py-2.5 font-semibold">{s.label}</td>
+                        <td className="px-3 py-2.5">{s.nbVols}</td>
+                        <td className="px-3 py-2.5">{s.nbEleves}</td>
+                        <td className="px-3 py-2.5">{fmt(s.totalMin)}</td>
+                        <td className="px-3 py-2.5">{s.nbEleves > 0 ? `${Math.round(s.totalMin / s.nbEleves)} min` : "—"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            {/* Par pilote */}
+            <div className="card">
+              <h2 className="text-sm font-semibold text-gray-900 mb-3 flex items-center gap-2">
+                <User className="w-4 h-4 text-brand-400" /> Par pilote
+              </h2>
+              <div className="overflow-auto">
+                <table className="w-full text-sm min-w-[400px]">
+                  <thead><tr className="bg-gray-50">
+                    {["Pilote", "Vols", "Tps total", "Moy./vol"].map(h => (
+                      <th key={h} className="px-3 py-2 text-left text-[10px] font-semibold uppercase text-gray-400">{h}</th>
+                    ))}
+                  </tr></thead>
+                  <tbody>
+                    {Object.values(piloteStatsTab).sort((a, b) => b.nbVols - a.nbVols).map((p, i) => (
+                      <tr key={i} className="border-t border-gray-100">
+                        <td className="px-3 py-2.5 font-semibold">{p.nom}</td>
+                        <td className="px-3 py-2.5">{p.nbVols}</td>
+                        <td className="px-3 py-2.5">{fmt(p.totalMin)}</td>
+                        <td className="px-3 py-2.5">{p.nbVols > 0 ? `${Math.round(p.totalMin / p.nbVols)} min` : "—"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            {/* Par établissement */}
+            <div className="card">
+              <h2 className="text-sm font-semibold text-gray-900 mb-3 flex items-center gap-2">
+                <School className="w-4 h-4 text-brand-400" /> Par établissement
+              </h2>
+              <div className="overflow-auto">
+                <table className="w-full text-sm min-w-[400px]">
+                  <thead><tr className="bg-gray-50">
+                    {["Établissement", "Vols", "Élèves"].map(h => (
+                      <th key={h} className="px-3 py-2 text-left text-[10px] font-semibold uppercase text-gray-400">{h}</th>
+                    ))}
+                  </tr></thead>
+                  <tbody>
+                    {Object.values(etabStatsTab).sort((a, b) => b.nbVols - a.nbVols).map((e, i) => (
+                      <tr key={i} className="border-t border-gray-100">
+                        <td className="px-3 py-2.5 font-semibold">{e.nom}</td>
+                        <td className="px-3 py-2.5">{e.nbVols}</td>
+                        <td className="px-3 py-2.5">{e.nbEleves}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
       <ConfirmModal
         open={!!confirmAction}
         title={confirmAction?.title ?? ""}

@@ -1,25 +1,40 @@
 "use client";
 import { useState, useEffect } from "react";
 import { createClient } from "@/lib/supabase/client";
-import { Euro, Plane, Users, School, TrendingUp, Loader2, Edit, Save, X, Clock, History, UserCheck, Plus, Trash2, Check, Download } from "lucide-react";
+import { fetchAll } from "@/lib/fetchAll";
+import { inActiveEtab } from "@/lib/etablissements";
+import { Euro, Plane, Users, School, TrendingUp, Loader2, Edit, Save, X, Clock, History, UserCheck, Plus, Trash2, Check, Download, HandCoins } from "lucide-react";
 import { useYear } from "@/contexts/YearContext";
 import { toast } from "sonner";
 
 const PAYMENT_MODES = ["Espèces", "Chèque", "Virement", "CB", "Autre"];
 const OP_TYPES = ["Inscription", "Subvention BIA", "Vol", "Remboursement", "Dépense", "Autre"];
 
+const todayParis = () => new Date().toLocaleDateString("en-CA", { timeZone: "Europe/Paris" });
+const emptySubForm = { libelle: "", financeur: "", montant_total: "", date: "", etablissement_ids: [] as string[], note: "" };
+
 const emptyAddForm = { type: "Autre", sens: "recette" as "recette" | "depense", date: "", montant: "", description: "", etablissement: "", mode: "" };
 
 export default function FinancesPage() {
   const supabase = createClient();
-  const { selectedAnneeId } = useYear();
+  const { selectedAnneeId, annees } = useYear();
+  const anneeLabel = annees.find((a: any) => a.id === selectedAnneeId)?.label || "";
   const [loading, setLoading] = useState(true);
-  const [tab, setTab] = useState<"overview" | "operations" | "pilotes" | "logs">("overview");
+  const [tab, setTab] = useState<"overview" | "paiements" | "subventions" | "operations" | "pilotes" | "roulage" | "logs">("overview");
+  const [expandedPilote, setExpandedPilote] = useState<string | null>(null);
+  const [paiementFilter, setPaiementFilter] = useState<"tous" | "payes" | "non_payes">("tous");
+  const [filterPaiementEtab, setFilterPaiementEtab] = useState("");
   const [eleves, setEleves] = useState<any[]>([]);
   const [vols, setVols] = useState<any[]>([]);
   const [etabs, setEtabs] = useState<any[]>([]);
   const [logs, setLogs] = useState<any[]>([]);
   const [manualOps, setManualOps] = useState<any[]>([]);
+  const [subventions, setSubventions] = useState<any[]>([]);
+  const [subForm, setSubForm] = useState(emptySubForm);
+  const [subEditing, setSubEditing] = useState<any | null>(null);
+  const [showSubForm, setShowSubForm] = useState(false);
+  const [savingSub, setSavingSub] = useState(false);
+  const [confirmDeleteSub, setConfirmDeleteSub] = useState<any | null>(null);
   const [prixInscription, setPrixInscription] = useState(80);
   const [subFede, setSubFede] = useState(50);
   const [nomClub, setNomClub] = useState("");
@@ -42,37 +57,62 @@ export default function FinancesPage() {
     let elevesQuery = supabase
       .from("eleves")
       .select("*, etablissement:etablissements(nom), vol1_aeronef:aeronefs!vol1_aeronef_id(type_aeronef,immatriculation), vol2_aeronef:aeronefs!vol2_aeronef_id(type_aeronef,immatriculation)")
-      .eq("archive", false);
+      .eq("archive", false)
+      .order("id");
     if (selectedAnneeId) elevesQuery = elevesQuery.eq("annee_id", selectedAnneeId);
 
-    const [eR, vR, etR, pR, lR, mR] = await Promise.all([
-      elevesQuery,
-      supabase.from("vols_effectues").select("*, creneau:creneaux(date_vol,heure_debut,pilote:profiles!pilote_id(nom,prenom),aeronef:aeronefs(type_aeronef,immatriculation,prix_heure),etablissement:etablissements(nom),reservations(eleve:eleves(nom,prenom)))").order("created_at", { ascending: false }),
+    let volsQuery = supabase
+      .from("vols_effectues")
+      .select("*, creneau:creneaux!inner(annee_id,etablissement_id,etablissement_ids,date_vol,heure_debut,pilote:profiles!pilote_id(nom,prenom),aeronef:aeronefs(type_aeronef,immatriculation,prix_heure),etablissement:etablissements(nom),reservations(eleve:eleves(nom,prenom)))")
+      .order("created_at", { ascending: false })
+      .order("id");
+    if (selectedAnneeId) volsQuery = volsQuery.eq("creneau.annee_id", selectedAnneeId);
+
+    // operations_manuelles has no annee_id: scope it to the school year (1 Sept → 31 Aug) from the year label.
+    let opsQuery = supabase.from("operations_manuelles").select("*").order("date", { ascending: false }).order("id");
+    const startYear = parseInt(anneeLabel.split(/[-/]/)[0]);
+    if (Number.isFinite(startYear)) {
+      opsQuery = opsQuery.gte("date", `${startYear}-09-01`).lte("date", `${startYear + 1}-08-31`);
+    }
+
+    const [eR, vR, etR, pR, lR, mR, sR] = await Promise.all([
+      fetchAll((from, to) => elevesQuery.range(from, to)),
+      fetchAll((from, to) => volsQuery.range(from, to)),
       supabase.from("etablissements").select("*").eq("actif", true),
       supabase.from("parametres").select("*"),
       supabase.from("activity_logs").select("*, user:profiles!user_id(nom,prenom)").order("created_at", { ascending: false }).limit(100),
-      supabase.from("operations_manuelles").select("*").order("date", { ascending: false }),
+      fetchAll((from, to) => opsQuery.range(from, to)),
+      selectedAnneeId
+        ? supabase.from("subventions").select("*").eq("annee_id", selectedAnneeId).order("date", { ascending: false })
+        : Promise.resolve({ data: [], error: null }),
     ]);
-    setEleves(eR.data || []);
-    setVols(vR.data || []);
+    if (sR.error) toast.error(`Subventions : ${sR.error.message}`);
+    setSubventions(sR.data || []);
+    const loadError = [eR, vR, etR, pR, mR].find((r: any) => r.error)?.error;
+    if (loadError) toast.error(`Chargement incomplet : ${loadError.message}`);
+    const activeEtabIds = new Set((etR.data || []).map((e: any) => e.id));
+    setEleves((eR.data || []).filter((e: any) => activeEtabIds.has(e.etablissement_id)));
+    setVols((vR.data || []).filter((v: any) => inActiveEtab(v.creneau, activeEtabIds)));
     setEtabs(etR.data || []);
     setLogs(lR.data || []);
     setManualOps(mR.data || []);
     const params = pR.data || [];
     const pi = params.find((p: any) => p.cle === "prix_inscription");
     const sf = params.find((p: any) => p.cle === "subvention_federation");
-    if (pi) setPrixInscription(parseFloat(pi.valeur));
-    if (sf) setSubFede(parseFloat(sf.valeur));
+    if (pi && Number.isFinite(parseFloat(pi.valeur))) setPrixInscription(parseFloat(pi.valeur));
+    if (sf && Number.isFinite(parseFloat(sf.valeur))) setSubFede(parseFloat(sf.valeur));
     const nc = params.find((p: any) => p.cle === "nom_club");
     if (nc) setNomClub(nc.valeur);
     setLoading(false);
   }
 
-  useEffect(() => { if (selectedAnneeId) load(); }, [selectedAnneeId]);
+  useEffect(() => { if (selectedAnneeId) load(); }, [selectedAnneeId, anneeLabel]);
 
   // ---------- Calculations ----------
   // Aerogest dedup needed first for cost calculations
-  const aerogestInVols = new Set<string>(vols.map((v: any) => v.numero_aerogest).filter(Boolean));
+  // Flights closed with one number per student store them in numeros_aerogest (numero_aerogest is then null).
+  const aerogestInVols = new Set<string>(vols.flatMap((v: any) => [v.numero_aerogest, ...(v.numeros_aerogest || [])]).filter(Boolean));
+  const isManualFlight = (num: string | null | undefined) => !num || !aerogestInVols.has(num);
   const aerogestCountAll: Record<string, number> = {};
   vols.forEach(v => { if (v.numero_aerogest) aerogestCountAll[v.numero_aerogest] = (aerogestCountAll[v.numero_aerogest] || 0) + 1; });
   eleves.forEach(e => {
@@ -89,44 +129,66 @@ export default function FinancesPage() {
   const recettesFede = totalBia * subFede;
   const recettesManuelles = manualOps.filter(o => o.sens === "recette").reduce((a, o) => a + parseFloat(o.montant || 0), 0);
   const depensesManuelles = manualOps.filter(o => o.sens === "depense").reduce((a, o) => a + parseFloat(o.montant || 0), 0);
-  const totalRecettes = recettesInscriptions + recettesFede + recettesManuelles;
+  // Each grant is split equally between the (non-archived) students of its établissements for the year.
+  const subventionsDetail = subventions.map((sv: any) => {
+    const ids: string[] = sv.etablissement_ids || [];
+    const concernes = eleves.filter(e => ids.includes(e.etablissement_id));
+    const montant = parseFloat(sv.montant_total) || 0;
+    const parEleve = concernes.length > 0 ? montant / concernes.length : 0;
+    const parEtab: Record<string, number> = {};
+    for (const id of ids) {
+      const n = concernes.filter(e => e.etablissement_id === id).length;
+      parEtab[id] = concernes.length > 0 ? parEleve * n : montant / Math.max(ids.length, 1);
+    }
+    const etabNoms = ids.map(id => etabs.find(et => et.id === id)?.nom || "Établissement inactif");
+    return { ...sv, montant, nbEleves: concernes.length, parEleve, parEtab, etabNoms };
+  });
+  const recettesSubventions = subventionsDetail.reduce((a, sv) => a + sv.montant, 0);
+  const totalRecettes = recettesInscriptions + recettesFede + recettesManuelles + recettesSubventions;
   const coutVolsClotures = vols.reduce((acc, v) => acc + (parseFloat(v.prix_total) || 0), 0);
   // Cost of manually-entered eleve vols (price divided by ×N shared-flight)
   const coutVolsManuels = eleves.reduce((acc, e) => {
     let c = 0;
-    if (e.vol1_effectue && e.vol1_numero_aerogest && !aerogestInVols.has(e.vol1_numero_aerogest))
-      c += e.vol1_prix ? parseFloat(e.vol1_prix) / (aerogestCountAll[e.vol1_numero_aerogest] || 1) : 0;
-    if (e.vol2_effectue && e.vol2_numero_aerogest && !aerogestInVols.has(e.vol2_numero_aerogest))
-      c += e.vol2_prix ? parseFloat(e.vol2_prix) / (aerogestCountAll[e.vol2_numero_aerogest] || 1) : 0;
+    if (e.vol1_effectue && isManualFlight(e.vol1_numero_aerogest))
+      c += e.vol1_prix ? parseFloat(e.vol1_prix) / ((e.vol1_numero_aerogest && aerogestCountAll[e.vol1_numero_aerogest]) || 1) : 0;
+    if (e.vol2_effectue && isManualFlight(e.vol2_numero_aerogest))
+      c += e.vol2_prix ? parseFloat(e.vol2_prix) / ((e.vol2_numero_aerogest && aerogestCountAll[e.vol2_numero_aerogest]) || 1) : 0;
     return acc + c;
   }, 0);
   const coutVolsTotal = coutVolsClotures + coutVolsManuels;
   const margeNonUtil = (totalBia - totalVol2) * subFede;
   const solde = totalRecettes - coutVolsTotal - depensesManuelles;
 
-  const piloteStats: Record<string, { nom: string; nbVols: number; heures: number; cout: number }> = {};
+  type PiloteVolDetail = { date: string; numero: string; temps: number | null; cout: number; nbPax: number; tempsParEleve: number | null };
+  const piloteStats: Record<string, { nom: string; nbVols: number; heures: number; cout: number; flights: PiloteVolDetail[] }> = {};
   vols.forEach(v => {
     const pName = v.creneau?.pilote ? `${v.creneau.pilote.prenom} ${v.creneau.pilote.nom}` : "Inconnu";
-    if (!piloteStats[pName]) piloteStats[pName] = { nom: pName, nbVols: 0, heures: 0, cout: 0 };
+    if (!piloteStats[pName]) piloteStats[pName] = { nom: pName, nbVols: 0, heures: 0, cout: 0, flights: [] };
+    const nbPax = (v.numeros_aerogest?.length || 0) > 1 ? v.numeros_aerogest.length : (v.nb_eleves || 1);
     piloteStats[pName].nbVols++;
     piloteStats[pName].heures += (v.temps_vol_minutes || 0) / 60;
     piloteStats[pName].cout += parseFloat(v.prix_total) || 0;
+    piloteStats[pName].flights.push({ date: v.creneau?.date_vol || "", numero: v.numero_aerogest || (v.numeros_aerogest?.join(", ") || ""), temps: v.temps_vol_minutes, cout: parseFloat(v.prix_total) || 0, nbPax, tempsParEleve: v.temps_vol_minutes != null ? Math.round(v.temps_vol_minutes / nbPax) : null });
   });
   // Add manual eleve vols to pilote stats
   eleves.forEach(e => {
     if (e.vol1_effectue && e.vol1_pilote_nom && e.vol1_numero_aerogest && !aerogestInVols.has(e.vol1_numero_aerogest)) {
-      if (!piloteStats[e.vol1_pilote_nom]) piloteStats[e.vol1_pilote_nom] = { nom: e.vol1_pilote_nom, nbVols: 0, heures: 0, cout: 0 };
+      if (!piloteStats[e.vol1_pilote_nom]) piloteStats[e.vol1_pilote_nom] = { nom: e.vol1_pilote_nom, nbVols: 0, heures: 0, cout: 0, flights: [] };
       const n1 = aerogestCountAll[e.vol1_numero_aerogest] || 1;
       piloteStats[e.vol1_pilote_nom].nbVols++;
       piloteStats[e.vol1_pilote_nom].heures += (e.vol1_temps_minutes || 0) / 60 / n1;
       piloteStats[e.vol1_pilote_nom].cout += e.vol1_prix ? parseFloat(e.vol1_prix) / n1 : 0;
+      const t1 = e.vol1_temps_minutes ? Math.round(e.vol1_temps_minutes / n1) : null;
+      piloteStats[e.vol1_pilote_nom].flights.push({ date: "", numero: e.vol1_numero_aerogest, temps: t1, cout: e.vol1_prix ? parseFloat(e.vol1_prix) / n1 : 0, nbPax: n1, tempsParEleve: t1 });
     }
     if (e.vol2_effectue && e.vol2_pilote_nom && e.vol2_numero_aerogest && !aerogestInVols.has(e.vol2_numero_aerogest)) {
-      if (!piloteStats[e.vol2_pilote_nom]) piloteStats[e.vol2_pilote_nom] = { nom: e.vol2_pilote_nom, nbVols: 0, heures: 0, cout: 0 };
+      if (!piloteStats[e.vol2_pilote_nom]) piloteStats[e.vol2_pilote_nom] = { nom: e.vol2_pilote_nom, nbVols: 0, heures: 0, cout: 0, flights: [] };
       const n2 = aerogestCountAll[e.vol2_numero_aerogest] || 1;
       piloteStats[e.vol2_pilote_nom].nbVols++;
       piloteStats[e.vol2_pilote_nom].heures += (e.vol2_temps_minutes || 0) / 60 / n2;
       piloteStats[e.vol2_pilote_nom].cout += e.vol2_prix ? parseFloat(e.vol2_prix) / n2 : 0;
+      const t2 = e.vol2_temps_minutes ? Math.round(e.vol2_temps_minutes / n2) : null;
+      piloteStats[e.vol2_pilote_nom].flights.push({ date: "", numero: e.vol2_numero_aerogest, temps: t2, cout: e.vol2_prix ? parseFloat(e.vol2_prix) / n2 : 0, nbPax: n2, tempsParEleve: t2 });
     }
   });
 
@@ -146,7 +208,8 @@ export default function FinancesPage() {
     }, 0);
     const ins = etEleves.filter(e => e.paiement_effectue).reduce((a, e) => a + (e.paiement_montant != null ? parseFloat(e.paiement_montant) : prixInscription), 0);
     const fed = etBia * subFede;
-    return { nom: et.nom, eleves: etEleves.length, payes: etPaye, ins, bia: etBia, vol1: etVol1, vol2: etVol2, fed, couts: etCout, solde: ins + fed - etCout };
+    const subLoc = subventionsDetail.reduce((a, sv) => a + (sv.parEtab[et.id] || 0), 0);
+    return { nom: et.nom, eleves: etEleves.length, payes: etPaye, ins, bia: etBia, vol1: etVol1, vol2: etVol2, fed, subLoc, couts: etCout, solde: ins + fed + subLoc - etCout };
   });
 
   // ---------- Operations list (with source tracking) ----------
@@ -156,26 +219,78 @@ export default function FinancesPage() {
     if (e.bia_resultat && e.bia_resultat !== "Non admis") operations.push({ id: e.id, source: "bia", date: e.bia_date || e.updated_at, type: "Subvention BIA", sens: "recette", montant: subFede, description: `${e.prenom} ${e.nom} — ${e.bia_resultat}`, etablissement: e.etablissement?.nom });
   });
   vols.forEach(v => {
-    operations.push({ id: v.id, source: "vol", date: v.created_at, type: "Vol", sens: "depense", montant: parseFloat(v.prix_total), description: `${v.numero_aerogest} — ${v.creneau?.reservations?.map((r: any) => `${r.eleve?.prenom} ${r.eleve?.nom}`).join(", ") || "—"}`, etablissement: v.creneau?.etablissement?.nom, aeronef: v.creneau?.aeronef?.type_aeronef, pilote: v.creneau?.pilote ? `${v.creneau.pilote.prenom} ${v.creneau.pilote.nom}` : "", temps: v.temps_vol_minutes });
+    operations.push({ id: v.id, source: "vol", date: v.creneau?.date_vol || v.created_at, type: "Vol", sens: "depense", montant: parseFloat(v.prix_total) || 0, description: `${v.numero_aerogest || (v.numeros_aerogest || []).join(", ")} — ${v.creneau?.reservations?.map((r: any) => `${r.eleve?.prenom} ${r.eleve?.nom}`).join(", ") || "—"}`, etablissement: v.creneau?.etablissement?.nom, aeronef: v.creneau?.aeronef?.type_aeronef, pilote: v.creneau?.pilote ? `${v.creneau.pilote.prenom} ${v.creneau.pilote.nom}` : "", temps: v.temps_vol_minutes });
+  });
+  subventionsDetail.forEach(sv => {
+    operations.push({ id: sv.id, source: "subvention", date: sv.date, type: "Subvention", sens: "recette", montant: sv.montant, description: `${sv.libelle}${sv.financeur ? ` (${sv.financeur})` : ""} — ${sv.nbEleves} élève${sv.nbEleves > 1 ? "s" : ""} × ${sv.parEleve.toFixed(2)}€`, etablissement: sv.etabNoms.join(", ") });
   });
   manualOps.forEach(op => {
-    operations.push({ id: op.id, source: "manuel", date: op.date, type: op.type, sens: op.sens, montant: parseFloat(op.montant), description: op.description, etablissement: op.etablissement, mode: op.mode });
+    operations.push({ id: op.id, source: "manuel", date: op.date, type: op.type, sens: op.sens, montant: parseFloat(op.montant) || 0, description: op.description, etablissement: op.etablissement, mode: op.mode });
   });
   // Add manual eleve vols (not already covered by vols_effectues)
   eleves.forEach(e => {
-    if (e.vol1_effectue && e.vol1_numero_aerogest && !aerogestInVols.has(e.vol1_numero_aerogest)) {
-      const n = aerogestCountAll[e.vol1_numero_aerogest] || 1;
-      operations.push({ id: `${e.id}_vol1`, source: "vol_manuel", date: e.updated_at, type: "Vol", sens: "depense", montant: e.vol1_prix ? parseFloat(e.vol1_prix) / n : null, description: `${e.prenom} ${e.nom} — Vol 1 (${e.vol1_numero_aerogest}${n > 1 ? ` ×${n}` : ""})`, etablissement: e.etablissement?.nom, pilote: e.vol1_pilote_nom || "", aeronef: e.vol1_aeronef?.type_aeronef || "", temps: e.vol1_temps_minutes != null ? Math.round(e.vol1_temps_minutes / n) : null });
+    if (e.vol1_effectue && isManualFlight(e.vol1_numero_aerogest)) {
+      const n = (e.vol1_numero_aerogest && aerogestCountAll[e.vol1_numero_aerogest]) || 1;
+      operations.push({ id: `${e.id}_vol1`, source: "vol_manuel", date: e.updated_at, type: "Vol", sens: "depense", montant: e.vol1_prix ? parseFloat(e.vol1_prix) / n : null, description: `${e.prenom} ${e.nom} — Vol 1 (${e.vol1_numero_aerogest || "sans n° Aérogest"}${n > 1 ? ` ×${n}` : ""})`, etablissement: e.etablissement?.nom, pilote: e.vol1_pilote_nom || "", aeronef: e.vol1_aeronef?.type_aeronef || "", temps: e.vol1_temps_minutes != null ? Math.round(e.vol1_temps_minutes / n) : null });
     }
-    if (e.vol2_effectue && e.vol2_numero_aerogest && !aerogestInVols.has(e.vol2_numero_aerogest)) {
-      const n = aerogestCountAll[e.vol2_numero_aerogest] || 1;
-      operations.push({ id: `${e.id}_vol2`, source: "vol_manuel", date: e.updated_at, type: "Vol", sens: "depense", montant: e.vol2_prix ? parseFloat(e.vol2_prix) / n : null, description: `${e.prenom} ${e.nom} — Vol 2 (${e.vol2_numero_aerogest}${n > 1 ? ` ×${n}` : ""})`, etablissement: e.etablissement?.nom, pilote: e.vol2_pilote_nom || "", aeronef: e.vol2_aeronef?.type_aeronef || "", temps: e.vol2_temps_minutes != null ? Math.round(e.vol2_temps_minutes / n) : null });
+    if (e.vol2_effectue && isManualFlight(e.vol2_numero_aerogest)) {
+      const n = (e.vol2_numero_aerogest && aerogestCountAll[e.vol2_numero_aerogest]) || 1;
+      operations.push({ id: `${e.id}_vol2`, source: "vol_manuel", date: e.updated_at, type: "Vol", sens: "depense", montant: e.vol2_prix ? parseFloat(e.vol2_prix) / n : null, description: `${e.prenom} ${e.nom} — Vol 2 (${e.vol2_numero_aerogest || "sans n° Aérogest"}${n > 1 ? ` ×${n}` : ""})`, etablissement: e.etablissement?.nom, pilote: e.vol2_pilote_nom || "", aeronef: e.vol2_aeronef?.type_aeronef || "", temps: e.vol2_temps_minutes != null ? Math.round(e.vol2_temps_minutes / n) : null });
     }
   });
-  operations.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+  const dateMs = (d: any) => { const t = new Date(d || "").getTime(); return Number.isFinite(t) ? t : 0; };
+  operations.sort((a, b) => dateMs(b.date) - dateMs(a.date));
 
   // ---------- Handlers ----------
+  function openSubForm(sv: any | null) {
+    setSubEditing(sv);
+    setSubForm(sv
+      ? { libelle: sv.libelle, financeur: sv.financeur || "", montant_total: String(sv.montant_total), date: sv.date, etablissement_ids: sv.etablissement_ids || [], note: sv.note || "" }
+      : { ...emptySubForm, date: todayParis() });
+    setShowSubForm(true);
+  }
+
+  async function handleSaveSub() {
+    const montant = parseFloat(subForm.montant_total.replace(",", "."));
+    if (!subForm.libelle.trim()) { toast.error("Le libellé est obligatoire"); return; }
+    if (!Number.isFinite(montant) || montant < 0) { toast.error("Le montant total doit être un nombre valide"); return; }
+    if (!subForm.date) { toast.error("La date est obligatoire"); return; }
+    if (subForm.etablissement_ids.length === 0) { toast.error("Choisissez au moins un établissement"); return; }
+    if (!selectedAnneeId) { toast.error("Aucune année sélectionnée"); return; }
+    setSavingSub(true);
+    const payload = {
+      libelle: subForm.libelle.trim(),
+      financeur: subForm.financeur.trim() || null,
+      montant_total: montant,
+      date: subForm.date,
+      etablissement_ids: subForm.etablissement_ids,
+      note: subForm.note.trim() || null,
+      annee_id: selectedAnneeId,
+    };
+    const { error } = subEditing
+      ? await supabase.from("subventions").update({ ...payload, updated_at: new Date().toISOString() }).eq("id", subEditing.id)
+      : await supabase.from("subventions").insert(payload);
+    setSavingSub(false);
+    if (error) { toast.error(`Erreur : ${error.message}`); return; }
+    toast.success(subEditing ? "Subvention mise à jour" : "Subvention ajoutée");
+    setShowSubForm(false);
+    load();
+  }
+
+  async function handleDeleteSub(sv: any) {
+    const { error } = await supabase.from("subventions").delete().eq("id", sv.id);
+    setConfirmDeleteSub(null);
+    if (error) { toast.error(`Erreur : ${error.message}`); return; }
+    toast.success("Subvention supprimée");
+    load();
+  }
+
   function openEdit(op: any) {
+    if (op.source === "subvention") {
+      const sv = subventions.find(x => x.id === op.id);
+      if (sv) openSubForm(sv);
+      return;
+    }
     setEditingOp(op);
     if (op.source === "inscription") {
       setEditForm({ date: op.date ? op.date.slice(0, 10) : "", montant: op.montant ?? "", mode: op.mode || "" });
@@ -190,38 +305,46 @@ export default function FinancesPage() {
 
   async function handleEditSave() {
     if (!editingOp) return;
+    const montant = parseFloat(String(editForm.montant ?? "").replace(",", "."));
+    if (editForm.montant !== "" && editForm.montant != null && !Number.isFinite(montant)) { toast.error("Montant invalide"); return; }
     setSaving(true);
+    let error: any = null;
     if (editingOp.source === "inscription") {
-      await supabase.from("eleves").update({ paiement_date: editForm.date || null, paiement_montant: parseFloat(editForm.montant) || null, paiement_mode: editForm.mode || null }).eq("id", editingOp.id);
+      ({ error } = await supabase.from("eleves").update({ paiement_date: editForm.date || null, paiement_montant: Number.isFinite(montant) ? montant : null, paiement_mode: editForm.mode || null }).eq("id", editingOp.id));
     } else if (editingOp.source === "bia") {
-      await supabase.from("eleves").update({ bia_date: editForm.date || null }).eq("id", editingOp.id);
+      ({ error } = await supabase.from("eleves").update({ bia_date: editForm.date || null }).eq("id", editingOp.id));
     } else if (editingOp.source === "vol") {
       const newTemps = editForm.temps !== "" ? parseInt(editForm.temps) : null;
-      const newPrix = editForm.montant !== "" ? parseFloat(editForm.montant) : 0;
-      if (editForm.montant !== "" && isNaN(newPrix)) { setSaving(false); toast.error("Montant invalide"); return; }
-      await supabase.from("vols_effectues").update({ prix_total: newPrix, temps_vol_minutes: (!isNaN(newTemps!) && newTemps !== null) ? newTemps : null }).eq("id", editingOp.id);
+      ({ error } = await supabase.from("vols_effectues").update({ prix_total: Number.isFinite(montant) ? montant : 0, temps_vol_minutes: (newTemps !== null && !isNaN(newTemps)) ? newTemps : null }).eq("id", editingOp.id));
     } else {
-      await supabase.from("operations_manuelles").update({ type: editForm.type, sens: editForm.sens, date: editForm.date, montant: parseFloat(editForm.montant) || 0, description: editForm.description, etablissement: editForm.etablissement, mode: editForm.mode }).eq("id", editingOp.id);
+      ({ error } = await supabase.from("operations_manuelles").update({ type: editForm.type, sens: editForm.sens, date: editForm.date, montant: Number.isFinite(montant) ? montant : 0, description: editForm.description, etablissement: editForm.etablissement, mode: editForm.mode }).eq("id", editingOp.id));
     }
     setSaving(false);
+    if (error) { toast.error(`Erreur : ${error.message}`); return; }
     setEditingOp(null);
     toast.success("Opération mise à jour");
     load();
   }
 
   async function handleDelete(op: any) {
+    if (op.source === "vol" || op.source === "vol_manuel") {
+      // Deleting here left the students' vol fields in place, so the cost came back as a "manual" flight.
+      toast.error("Pour supprimer un vol, passez par Planning des vols › Historique : les élèves et réservations seront remis à jour.");
+      setConfirmDelete(null);
+      return;
+    }
     setDeleting(true);
+    let error: any = null;
     if (op.source === "inscription") {
-      await supabase.from("eleves").update({ paiement_effectue: false, paiement_date: null, paiement_montant: null, paiement_mode: null }).eq("id", op.id);
+      ({ error } = await supabase.from("eleves").update({ paiement_effectue: false, paiement_date: null, paiement_montant: null, paiement_mode: null }).eq("id", op.id));
     } else if (op.source === "bia") {
-      await supabase.from("eleves").update({ bia_resultat: null, bia_passe: false, bia_date: null }).eq("id", op.id);
-    } else if (op.source === "vol") {
-      await supabase.from("vols_effectues").delete().eq("id", op.id);
+      ({ error } = await supabase.from("eleves").update({ bia_resultat: null, bia_passe: false, bia_date: null }).eq("id", op.id));
     } else {
-      await supabase.from("operations_manuelles").delete().eq("id", op.id);
+      ({ error } = await supabase.from("operations_manuelles").delete().eq("id", op.id));
     }
     setDeleting(false);
     setConfirmDelete(null);
+    if (error) { toast.error(`Erreur : ${error.message}`); return; }
     toast.success("Opération supprimée");
     load();
   }
@@ -244,6 +367,40 @@ export default function FinancesPage() {
     setAddForm(emptyAddForm);
     toast.success("Opération ajoutée");
     load();
+  }
+
+  function exportReleve() {
+    const fmt = (v: any) => v == null ? "" : String(v).replace(/^([=+\-@])/, "'$1").replace(/"/g, '""');
+    const cell = (v: any) => `"${fmt(v)}"`;
+    const date = new Date().toISOString().slice(0, 10);
+    const sorted = [...operations].sort((a, b) => dateMs(a.date) - dateMs(b.date));
+    const num = (n: number) => n.toFixed(2).replace(".", ",");
+    let soldeRun = 0;
+    const rows = [
+      ["Date", "Description", "Établissement", "Pilote / Aéronef", "Débit (€)", "Crédit (€)", "Solde cumulé (€)"],
+      ...sorted.map(op => {
+        const debit = op.sens === "depense" ? Math.abs(op.montant || 0) : 0;
+        const credit = op.sens === "recette" ? Math.abs(op.montant || 0) : 0;
+        soldeRun += credit - debit;
+        return [
+          op.date ? new Date(op.date).toLocaleDateString("fr-FR") : "—",
+          op.description ?? op.type ?? "",
+          op.etablissement ?? "",
+          [op.pilote, op.aeronef].filter(Boolean).join(" · "),
+          debit > 0 ? num(debit) : "",
+          credit > 0 ? num(credit) : "",
+          num(soldeRun),
+        ].map(cell);
+      }),
+    ];
+    const bom = "﻿";
+    const csv = bom + rows.map(r => r.join(";")).join("\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = `releve_compte_${date}.csv`; a.click();
+    URL.revokeObjectURL(url);
+    toast.success("Relevé de compte téléchargé");
   }
 
   function exportCSV(type: "operations" | "etabs" | "pilotes") {
@@ -273,19 +430,19 @@ export default function FinancesPage() {
     } else if (type === "etabs") {
       filename = `finances_etablissements_${date}.csv`;
       rows = [
-        ["Établissement", "Élèves", "Payés", "Inscriptions (€)", "BIA admis", "Subv. fédé (€)", "Coût vols (€)", "Solde (€)"],
+        ["Établissement", "Élèves", "Payés", "Inscriptions (€)", "BIA admis", "Subv. fédé (€)", "Subv. locales (€)", "Coût vols (€)", "Solde (€)"],
         ...etabStats.map(r => [
-          r.nom, r.eleves, r.payes, r.ins, r.bia, r.fed, r.couts.toFixed(2), r.solde.toFixed(2),
+          r.nom, r.eleves, r.payes, r.ins, r.bia, r.fed, r.subLoc.toFixed(2), r.couts.toFixed(2), r.solde.toFixed(2),
         ].map(cell)),
         // Total row
-        ["TOTAL", eleves.length, totalPaye, recettesInscriptions.toFixed(2), totalBia, recettesFede, coutVolsTotal.toFixed(2), solde.toFixed(2)].map(cell),
+        ["TOTAL", eleves.length, totalPaye, recettesInscriptions.toFixed(2), totalBia, recettesFede, recettesSubventions.toFixed(2), coutVolsTotal.toFixed(2), solde.toFixed(2)].map(cell),
       ];
     } else {
       filename = `finances_pilotes_${date}.csv`;
       rows = [
         ["Pilote", "Vols", "Heures", "Coût (€)"],
         ...Object.entries(piloteStats).map(([nom, s]: any) => [
-          nom, s.vols, (s.minutes / 60).toFixed(1), s.cout.toFixed(2),
+          nom, s.nbVols, s.heures.toFixed(1).replace(".", ","), s.cout.toFixed(2).replace(".", ","),
         ].map(cell)),
       ];
     }
@@ -306,10 +463,13 @@ export default function FinancesPage() {
     <div>
       <div className="mb-6 flex items-start justify-between gap-4 flex-wrap">
         <div>
-          <h1 className="text-xl font-bold text-gray-900">Finances — {new Date().getFullYear()}</h1>
+          <h1 className="text-xl font-bold text-gray-900">Finances — {anneeLabel || new Date().getFullYear()}</h1>
           {nomClub && <p className="text-sm text-gray-500 mt-0.5">{nomClub}</p>}
         </div>
         <div className="flex gap-2">
+          <button onClick={exportReleve} className="btn-primary btn-sm" title="Relevé de compte Débit/Crédit">
+            <Download className="w-3.5 h-3.5" /> Relevé de compte
+          </button>
           <button onClick={() => exportCSV("operations")} className="btn-secondary btn-sm" title="Exporter toutes les opérations">
             <Download className="w-3.5 h-3.5" /> Opérations
           </button>
@@ -326,8 +486,11 @@ export default function FinancesPage() {
       <div className="flex gap-1 mb-5 bg-gray-100 rounded-lg p-0.5 w-fit flex-wrap">
         {[
           { key: "overview", label: "Vue d'ensemble", icon: TrendingUp },
-          { key: "operations", label: "Operations", icon: Euro },
+          { key: "paiements", label: "Paiements", icon: Users },
+          { key: "subventions", label: "Subventions", icon: HandCoins },
+          { key: "operations", label: "Opérations", icon: Euro },
           { key: "pilotes", label: "Par pilote", icon: UserCheck },
+          { key: "roulage", label: "Roulage", icon: Clock },
           { key: "logs", label: "Logs", icon: History },
         ].map(({ key, label, icon: Icon }) => (
           <button key={key} onClick={() => setTab(key as any)} className={`flex items-center gap-1.5 px-4 py-2 rounded-md text-xs font-semibold transition-all ${tab === key ? "bg-white text-brand-500 shadow-sm" : "text-gray-500"}`}>
@@ -342,14 +505,15 @@ export default function FinancesPage() {
           <div className="flex gap-3 flex-wrap mb-6">
             <div className="card flex-1 min-w-[160px]"><p className="text-xs text-gray-500 mb-1">Inscriptions</p><p className="text-2xl font-bold text-emerald-600">{recettesInscriptions.toFixed(2)}€</p><p className="text-[11px] text-gray-400">{totalPaye} élève{totalPaye > 1 ? "s" : ""} payé{totalPaye > 1 ? "s" : ""}</p></div>
             <div className="card flex-1 min-w-[160px]"><p className="text-xs text-gray-500 mb-1">Subventions fede</p><p className="text-2xl font-bold text-emerald-600">{recettesFede}€</p><p className="text-[11px] text-gray-400">{totalBia} x {subFede}€</p></div>
+            <button onClick={() => setTab("subventions")} className="card flex-1 min-w-[160px] text-left hover:border-brand-200"><p className="text-xs text-gray-500 mb-1">Subventions locales</p><p className="text-2xl font-bold text-emerald-600">{recettesSubventions.toFixed(2)}€</p><p className="text-[11px] text-gray-400">{subventions.length} subvention{subventions.length > 1 ? "s" : ""}</p></button>
             <div className="card flex-1 min-w-[160px]"><p className="text-xs text-gray-500 mb-1">Cout vols</p><p className="text-2xl font-bold text-red-600">{coutVolsTotal.toFixed(2)}€</p><p className="text-[11px] text-gray-400">{totalVol1 + totalVol2} vols</p></div>
             <div className="card flex-1 min-w-[160px]"><p className="text-xs text-gray-500 mb-1">Solde</p><p className={`text-2xl font-bold ${solde >= 0 ? "text-emerald-600" : "text-red-600"}`}>{solde >= 0 ? "+" : ""}{solde.toFixed(2)}€</p></div>
           </div>
 
           <div className="card mb-4">
             <h2 className="text-sm font-semibold text-gray-900 mb-3 flex items-center gap-2"><School className="w-4 h-4 text-brand-400" /> Par etablissement</h2>
-            <div className="overflow-auto"><table className="w-full text-sm min-w-[700px]"><thead><tr className="bg-gray-50">
-              {["Etablissement", "Eleves", "Payes", "Inscriptions", "BIA", "Vol 1", "Vol 2", "Subv.", "Cout vols", "Solde"].map(h => <th key={h} className="px-3 py-2 text-left text-[10px] font-semibold uppercase text-gray-400">{h}</th>)}
+            <div className="overflow-auto"><table className="w-full text-sm min-w-[780px]"><thead><tr className="bg-gray-50">
+              {["Etablissement", "Eleves", "Payes", "Inscriptions", "BIA", "Vol 1", "Vol 2", "Subv. fédé", "Subv. locales", "Cout vols", "Solde"].map(h => <th key={h} className="px-3 py-2 text-left text-[10px] font-semibold uppercase text-gray-400">{h}</th>)}
             </tr></thead><tbody>
               {etabStats.map((r, i) => <tr key={i} className="border-t border-gray-100">
                 <td className="px-3 py-2.5 font-semibold">{r.nom}</td>
@@ -360,6 +524,7 @@ export default function FinancesPage() {
                 <td className="px-3 py-2.5 font-semibold">{r.vol1}</td>
                 <td className="px-3 py-2.5 font-semibold">{r.vol2}</td>
                 <td className="px-3 py-2.5 text-emerald-600">{r.fed}€</td>
+                <td className="px-3 py-2.5 text-emerald-600">{r.subLoc > 0 ? `${r.subLoc.toFixed(2)}€` : "—"}</td>
                 <td className="px-3 py-2.5 text-red-600">{r.couts.toFixed(2)}€</td>
                 <td className={`px-3 py-2.5 font-bold ${r.solde >= 0 ? "text-emerald-600" : "text-red-600"}`}>{r.solde >= 0 ? "+" : ""}{r.solde.toFixed(2)}€</td>
               </tr>)}
@@ -376,6 +541,125 @@ export default function FinancesPage() {
               ].map((k, i) => <div key={i} className="p-3 bg-gray-50 rounded-lg"><p className="text-[10px] text-gray-500">{k.l}</p><p className="text-xl font-bold text-gray-900 mt-1">{k.v}</p><p className="text-[10px] text-gray-400">{k.s}</p></div>)}
             </div>
           </div>
+        </div>
+      )}
+
+      {/* PAIEMENTS */}
+      {tab === "paiements" && (() => {
+        const elevesFiltered = eleves.filter(e => {
+          if (filterPaiementEtab && e.etablissement_id !== filterPaiementEtab) return false;
+          if (paiementFilter === "payes") return e.paiement_effectue;
+          if (paiementFilter === "non_payes") return !e.paiement_effectue;
+          return true;
+        });
+        const nonPayes = eleves.filter(e => !e.paiement_effectue);
+        const payes = eleves.filter(e => e.paiement_effectue);
+        return (
+          <div className="space-y-4">
+            <div className="flex gap-3 flex-wrap">
+              <div className="card flex-1 min-w-[130px] border-l-4 border-l-emerald-400">
+                <p className="text-xs text-gray-500">Payés</p>
+                <p className="text-2xl font-bold text-emerald-600">{payes.length}</p>
+                <p className="text-[11px] text-gray-400">{eleves.length > 0 ? Math.round(payes.length / eleves.length * 100) : 0}% du total</p>
+              </div>
+              <div className="card flex-1 min-w-[130px] border-l-4 border-l-red-400">
+                <p className="text-xs text-gray-500">Non payés</p>
+                <p className="text-2xl font-bold text-red-500">{nonPayes.length}</p>
+                <p className="text-[11px] text-gray-400">{nonPayes.reduce((a, e) => a + (e.paiement_montant != null ? 0 : prixInscription), 0).toFixed(0)}€ restants</p>
+              </div>
+              <div className="card flex-1 min-w-[130px]">
+                <p className="text-xs text-gray-500">Total inscrit</p>
+                <p className="text-2xl font-bold text-gray-900">{eleves.length}</p>
+                <p className="text-[11px] text-gray-400">{recettesInscriptions.toFixed(2)}€ encaissés</p>
+              </div>
+            </div>
+            <div className="flex gap-2 flex-wrap items-center">
+              {(["tous", "payes", "non_payes"] as const).map(f => (
+                <button key={f} onClick={() => setPaiementFilter(f)} className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all ${paiementFilter === f ? "bg-brand-500 text-white border-brand-500" : "border-gray-200 text-gray-600 hover:bg-gray-50"}`}>
+                  {f === "tous" ? "Tous" : f === "payes" ? "Payés" : "Non payés"}
+                </button>
+              ))}
+              <select value={filterPaiementEtab} onChange={e => setFilterPaiementEtab(e.target.value)} className="ml-auto pl-3 pr-8 py-1.5 text-xs border border-gray-200 rounded-lg bg-white text-gray-700">
+                <option value="">Tous les établissements</option>
+                {etabs.map(et => <option key={et.id} value={et.id}>{et.nom}</option>)}
+              </select>
+            </div>
+            <div className="card p-0 overflow-auto">
+              <table className="w-full text-sm min-w-[600px]">
+                <thead><tr className="bg-gray-50">
+                  {["Élève", "Établissement", "Statut", "Mode", "Montant", "Date paiement"].map(h => <th key={h} className="px-3 py-2 text-left text-[10px] font-semibold uppercase text-gray-400">{h}</th>)}
+                </tr></thead>
+                <tbody>
+                  {elevesFiltered.length === 0 ? (
+                    <tr><td colSpan={6} className="px-3 py-10 text-center text-gray-400 text-sm">Aucun élève</td></tr>
+                  ) : elevesFiltered.map((e, i) => (
+                    <tr key={i} className="border-t border-gray-100 hover:bg-gray-50">
+                      <td className="px-3 py-2.5 font-medium text-gray-900">{e.prenom} {e.nom}</td>
+                      <td className="px-3 py-2.5 text-xs text-gray-500">{e.etablissement?.nom || "—"}</td>
+                      <td className="px-3 py-2.5">
+                        {e.paiement_effectue
+                          ? <span className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full"><Check className="w-3 h-3" /> Payé</span>
+                          : <span className="inline-flex items-center gap-1 text-xs font-semibold text-red-500 bg-red-50 px-2 py-0.5 rounded-full"><X className="w-3 h-3" /> Non payé</span>}
+                      </td>
+                      <td className="px-3 py-2.5 text-xs text-gray-500">{e.paiement_mode || "—"}</td>
+                      <td className="px-3 py-2.5 text-xs font-semibold text-gray-700">{e.paiement_effectue ? `${(e.paiement_montant != null ? parseFloat(e.paiement_montant) : prixInscription).toFixed(2)}€` : "—"}</td>
+                      <td className="px-3 py-2.5 text-xs text-gray-500">{e.paiement_date ? new Date(e.paiement_date).toLocaleDateString("fr-FR") : "—"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              <div className="px-3 py-2 border-t border-gray-100 bg-gray-50 text-xs text-gray-500 font-medium">
+                {elevesFiltered.length} élève{elevesFiltered.length > 1 ? "s" : ""}
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* SUBVENTIONS */}
+      {tab === "subventions" && (
+        <div className="space-y-4">
+          <div className="flex justify-between items-center gap-3 flex-wrap">
+            <p className="text-sm text-gray-500">
+              Montant réparti à parts égales entre les élèves des établissements choisis ({anneeLabel || "année sélectionnée"}).
+            </p>
+            <button onClick={() => openSubForm(null)} className="btn-primary btn-sm"><Plus className="w-3.5 h-3.5" /> Nouvelle subvention</button>
+          </div>
+          {subventionsDetail.length === 0 ? (
+            <div className="card py-12 text-center text-gray-400 text-sm">Aucune subvention pour cette année.</div>
+          ) : (
+            <div className="card p-0 overflow-auto">
+              <table className="w-full text-sm min-w-[760px]">
+                <thead><tr className="bg-gray-50">
+                  {["Date", "Subvention", "Établissements", "Montant total", "Élèves", "Par élève", ""].map((h, i) => <th key={i} className="px-3 py-2 text-left text-[10px] font-semibold uppercase text-gray-400">{h}</th>)}
+                </tr></thead>
+                <tbody>
+                  {subventionsDetail.map(sv => (
+                    <tr key={sv.id} className="border-t border-gray-100 hover:bg-gray-50 group">
+                      <td className="px-3 py-2.5 text-xs text-gray-500 whitespace-nowrap">{new Date(`${sv.date}T12:00:00`).toLocaleDateString("fr-FR")}</td>
+                      <td className="px-3 py-2.5">
+                        <p className="font-semibold text-gray-900">{sv.libelle}</p>
+                        {(sv.financeur || sv.note) && <p className="text-[11px] text-gray-400">{[sv.financeur, sv.note].filter(Boolean).join(" · ")}</p>}
+                      </td>
+                      <td className="px-3 py-2.5 text-xs text-gray-600">{sv.etabNoms.join(", ")}</td>
+                      <td className="px-3 py-2.5 font-semibold text-emerald-600 whitespace-nowrap">{sv.montant.toFixed(2)}€</td>
+                      <td className="px-3 py-2.5">{sv.nbEleves}</td>
+                      <td className="px-3 py-2.5 font-semibold whitespace-nowrap">{sv.nbEleves > 0 ? `${sv.parEleve.toFixed(2)}€` : <span className="text-amber-600 text-xs font-medium">Aucun élève</span>}</td>
+                      <td className="px-3 py-2.5">
+                        <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                          <button onClick={() => openSubForm(sv)} className="p-1 rounded hover:bg-gray-200 text-gray-400 hover:text-gray-700" title="Modifier"><Edit className="w-3.5 h-3.5" /></button>
+                          <button onClick={() => setConfirmDeleteSub(sv)} className="p-1 rounded hover:bg-red-50 text-gray-400 hover:text-red-600" title="Supprimer"><Trash2 className="w-3.5 h-3.5" /></button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              <div className="px-3 py-2 border-t border-gray-100 bg-gray-50 text-xs font-semibold text-gray-600">
+                Total : <span className="text-emerald-600">{recettesSubventions.toFixed(2)}€</span>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
@@ -424,21 +708,127 @@ export default function FinancesPage() {
 
       {/* PAR PILOTE */}
       {tab === "pilotes" && (
-        <div className="card p-0 overflow-auto">
-          <table className="w-full text-sm"><thead><tr className="bg-gray-50">
-            {["Pilote", "Nombre de vols", "Heures de vol", "Cout total"].map(h => <th key={h} className="px-4 py-3 text-left text-[10px] font-semibold uppercase text-gray-400">{h}</th>)}
-          </tr></thead><tbody>
-            {Object.values(piloteStats).length === 0 ? <tr><td colSpan={4} className="px-4 py-12 text-center text-gray-400">Aucun vol enregistre</td></tr> : Object.values(piloteStats).sort((a, b) => b.nbVols - a.nbVols).map((p, i) => (
-              <tr key={i} className="border-t border-gray-100">
-                <td className="px-4 py-3 font-semibold text-gray-900">{p.nom}</td>
-                <td className="px-4 py-3">{p.nbVols}</td>
-                <td className="px-4 py-3">{p.heures.toFixed(1)}h</td>
-                <td className="px-4 py-3 font-semibold text-red-600">{p.cout.toFixed(2)}€</td>
-              </tr>
-            ))}
-          </tbody></table>
+        <div className="space-y-3">
+          {Object.values(piloteStats).length === 0 ? (
+            <div className="card py-12 text-center text-gray-400">Aucun vol enregistré</div>
+          ) : Object.values(piloteStats).sort((a, b) => b.nbVols - a.nbVols).map((p, i) => {
+            const maxVol = Math.max(...p.flights.map(f => f.tempsParEleve || 0));
+            const over30Count = p.flights.filter(f => (f.tempsParEleve || 0) > 30).length;
+            const isExpanded = expandedPilote === p.nom;
+            return (
+              <div key={i} className="card p-0 overflow-hidden">
+                <button
+                  onClick={() => setExpandedPilote(isExpanded ? null : p.nom)}
+                  className="w-full flex items-center gap-4 px-4 py-3 hover:bg-gray-50 transition-colors text-left"
+                >
+                  <div className="flex-1">
+                    <p className="font-semibold text-gray-900">{p.nom}</p>
+                    <p className="text-xs text-gray-400">{p.nbVols} vol{p.nbVols > 1 ? "s" : ""} · {p.heures.toFixed(1)}h · {p.cout.toFixed(2)}€</p>
+                  </div>
+                  {over30Count > 0 && (
+                    <span className="inline-flex items-center gap-1 text-xs font-semibold text-amber-600 bg-amber-50 px-2 py-0.5 rounded-full shrink-0">
+                      <Clock className="w-3 h-3" /> {over30Count} vol{over30Count > 1 ? "s" : ""} &gt;30 min
+                    </span>
+                  )}
+                  <span className="text-gray-300 text-sm">{isExpanded ? "▲" : "▼"}</span>
+                </button>
+                {isExpanded && (
+                  <div className="border-t border-gray-100 overflow-auto">
+                    <table className="w-full text-xs min-w-[500px]">
+                      <thead><tr className="bg-gray-50">
+                        {["Date", "N° Aérogest", "Nb pax", "Tps/élève", "Coût"].map(h => <th key={h} className="px-3 py-2 text-left text-[10px] font-semibold uppercase text-gray-400">{h}</th>)}
+                      </tr></thead>
+                      <tbody>
+                        {p.flights.sort((a, b) => (b.date || "").localeCompare(a.date || "")).map((f, j) => {
+                          const over30 = (f.tempsParEleve || 0) > 30;
+                          return (
+                            <tr key={j} className={`border-t border-gray-100 ${over30 ? "bg-amber-50" : ""}`}>
+                              <td className="px-3 py-2 text-gray-500">{f.date ? new Date(f.date).toLocaleDateString("fr-FR") : "—"}</td>
+                              <td className="px-3 py-2 font-mono text-gray-700">{f.numero || "—"}</td>
+                              <td className="px-3 py-2 text-gray-500">{f.nbPax > 1 ? `×${f.nbPax}` : "1 pax"}</td>
+                              <td className={`px-3 py-2 font-semibold ${over30 ? "text-amber-700" : "text-gray-700"}`}>
+                                {f.tempsParEleve != null ? `${f.tempsParEleve} min` : "—"}
+                                {f.nbPax > 1 && f.temps != null && <span className="ml-1 text-gray-400 text-[10px]">({f.temps} total)</span>}
+                                {over30 && <span className="ml-1 text-amber-500">⚠</span>}
+                              </td>
+                              <td className="px-3 py-2 text-red-600">{f.cout > 0 ? `${f.cout.toFixed(2)}€` : "—"}</td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                    {maxVol > 30 && (
+                      <div className="px-3 py-2 bg-amber-50 border-t border-amber-100 text-xs text-amber-700 font-medium">
+                        Max : {maxVol} min — {over30Count} vol{over30Count > 1 ? "s" : ""} dépassant 30 min
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </div>
       )}
+
+      {/* ROULAGE */}
+      {tab === "roulage" && (() => {
+        const TAXI_MIN = 8;
+        const roulageVols = vols.filter((v: any) => Array.isArray(v.numeros_aerogest) && v.numeros_aerogest.length > 1);
+        const totalFact = roulageVols.reduce((a: number, v: any) => a + v.numeros_aerogest.length * TAXI_MIN, 0);
+        const totalReel = roulageVols.reduce((a: number, v: any) => {
+          const n = v.numeros_aerogest.length;
+          return a + (n > 2 ? n - 1 : n) * TAXI_MIN;
+        }, 0);
+        const totalEco = totalFact - totalReel;
+        return (
+          <div className="space-y-4">
+            <div className="text-sm text-gray-500">
+              <p>Chaque numéro Aérogest inclut <strong>8 min de roulage</strong>. Pour un vol de 3 pax (3 numéros), le roulage réel est compté <strong>2×8 min</strong> au lieu de 3×8 min.</p>
+            </div>
+            {roulageVols.length === 0 ? (
+              <div className="card py-12 text-center space-y-2">
+                <p className="text-gray-400 font-medium">Aucun vol multi-numéros Aérogest</p>
+                <p className="text-xs text-gray-400">Les vols clôturés avec l'option "Numéros individuels" (3 pax) apparaîtront ici.</p>
+              </div>
+            ) : (
+              <>
+                <div className="flex gap-3 flex-wrap">
+                  <div className="card flex-1 min-w-[130px]"><p className="text-xs text-gray-500">Roulage facturé</p><p className="text-2xl font-bold text-red-500">{totalFact} min</p></div>
+                  <div className="card flex-1 min-w-[130px]"><p className="text-xs text-gray-500">Roulage réel</p><p className="text-2xl font-bold text-gray-900">{totalReel} min</p></div>
+                  <div className="card flex-1 min-w-[130px] border-l-4 border-l-emerald-400"><p className="text-xs text-gray-500">Économie</p><p className="text-2xl font-bold text-emerald-600">{totalEco} min</p><p className="text-[11px] text-gray-400">{roulageVols.length} vol{roulageVols.length > 1 ? "s" : ""}</p></div>
+                </div>
+                <div className="card p-0 overflow-auto">
+                  <table className="w-full text-sm min-w-[640px]">
+                    <thead><tr className="bg-gray-50">
+                      {["Date", "Aéronef", "Numéros Aérogest", "Pax", "Temps vol", "Roulage facturé", "Roulage réel", "Économie"].map(h => <th key={h} className="px-3 py-2 text-left text-[10px] font-semibold uppercase text-gray-400">{h}</th>)}
+                    </tr></thead>
+                    <tbody>
+                      {roulageVols.map((v: any, i: number) => {
+                        const n = v.numeros_aerogest.length;
+                        const fact = n * TAXI_MIN;
+                        const reel = (n > 2 ? n - 1 : n) * TAXI_MIN;
+                        const eco = fact - reel;
+                        return (
+                          <tr key={i} className="border-t border-gray-100 hover:bg-gray-50">
+                            <td className="px-3 py-2.5 text-gray-500 text-xs">{v.creneau?.date_vol ? new Date(v.creneau.date_vol).toLocaleDateString("fr-FR") : "—"}</td>
+                            <td className="px-3 py-2.5 text-xs text-gray-700">{v.creneau?.aeronef?.type_aeronef || "—"}</td>
+                            <td className="px-3 py-2.5 font-mono text-xs text-gray-700">{v.numeros_aerogest.join(" / ")}</td>
+                            <td className="px-3 py-2.5 text-center font-semibold text-gray-900">{n}</td>
+                            <td className="px-3 py-2.5 text-xs">{v.temps_vol_minutes != null ? `${v.temps_vol_minutes} min` : "—"}</td>
+                            <td className="px-3 py-2.5 text-xs text-red-500 font-semibold">{fact} min</td>
+                            <td className="px-3 py-2.5 text-xs font-semibold">{reel} min</td>
+                            <td className={`px-3 py-2.5 text-xs font-bold ${eco > 0 ? "text-emerald-600" : "text-gray-400"}`}>{eco > 0 ? `−${eco} min` : "—"}</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </>
+            )}
+          </div>
+        );
+      })()}
 
       {/* LOGS */}
       {tab === "logs" && (
@@ -572,6 +962,80 @@ export default function FinancesPage() {
         </div>
       )}
 
+      {/* SUBVENTION MODAL */}
+      {showSubForm && (() => {
+        const montant = parseFloat(subForm.montant_total.replace(",", "."));
+        const nbConcernes = eleves.filter(e => subForm.etablissement_ids.includes(e.etablissement_id)).length;
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4" onClick={() => !savingSub && setShowSubForm(false)}>
+            <div className="absolute inset-0 bg-black/40" />
+            <div onClick={e => e.stopPropagation()} className="relative bg-white rounded-2xl p-6 w-full max-w-lg shadow-xl max-h-[90vh] overflow-y-auto">
+              <div className="flex items-center justify-between mb-5">
+                <h3 className="text-base font-bold text-gray-900">{subEditing ? "Modifier la subvention" : "Nouvelle subvention"}</h3>
+                <button onClick={() => setShowSubForm(false)} className="p-1.5 rounded-lg hover:bg-gray-100"><X className="w-4 h-4" /></button>
+              </div>
+              <div className="space-y-3">
+                <div><label className="label">Libellé *</label><input value={subForm.libelle} onChange={e => setSubForm({ ...subForm, libelle: e.target.value })} className="input" placeholder="Aide au BIA 2026-2027" /></div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div><label className="label">Financeur</label><input value={subForm.financeur} onChange={e => setSubForm({ ...subForm, financeur: e.target.value })} className="input" placeholder="Mairie, Région, Rotary…" /></div>
+                  <div><label className="label">Date *</label><input type="date" value={subForm.date} onChange={e => setSubForm({ ...subForm, date: e.target.value })} className="input" /></div>
+                </div>
+                <div><label className="label">Montant total (€) *</label><input type="number" step="0.01" min="0" value={subForm.montant_total} onChange={e => setSubForm({ ...subForm, montant_total: e.target.value })} className="input" placeholder="1500" /></div>
+                <div>
+                  <div className="flex items-center justify-between">
+                    <label className="label">Établissements concernés *</label>
+                    <button type="button" onClick={() => setSubForm({ ...subForm, etablissement_ids: subForm.etablissement_ids.length === etabs.length ? [] : etabs.map(et => et.id) })} className="text-[11px] font-semibold text-brand-500 hover:text-brand-700 mb-1">
+                      {subForm.etablissement_ids.length === etabs.length ? "Tout décocher" : "Tout cocher"}
+                    </button>
+                  </div>
+                  <div className="border border-gray-200 rounded-lg divide-y divide-gray-100 max-h-[200px] overflow-y-auto">
+                    {etabs.map(et => {
+                      const checked = subForm.etablissement_ids.includes(et.id);
+                      const n = eleves.filter(e => e.etablissement_id === et.id).length;
+                      return (
+                        <label key={et.id} className="flex items-center gap-2 px-3 py-2 text-sm cursor-pointer hover:bg-gray-50">
+                          <input type="checkbox" checked={checked} onChange={() => setSubForm({ ...subForm, etablissement_ids: checked ? subForm.etablissement_ids.filter(id => id !== et.id) : [...subForm.etablissement_ids, et.id] })} />
+                          <span className="flex-1 text-gray-800">{et.nom}</span>
+                          <span className="text-[11px] text-gray-400">{n} élève{n > 1 ? "s" : ""}</span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                </div>
+                <div><label className="label">Note</label><input value={subForm.note} onChange={e => setSubForm({ ...subForm, note: e.target.value })} className="input" placeholder="Référence du dossier, conditions…" /></div>
+                <div className="p-3 rounded-lg bg-brand-50 border border-brand-100 text-sm text-brand-700">
+                  {subForm.etablissement_ids.length === 0
+                    ? "Cochez les établissements pour voir la répartition."
+                    : nbConcernes === 0
+                      ? "Aucun élève inscrit dans ces établissements pour l'instant : la part par élève se calculera dès les inscriptions."
+                      : <>Répartition : <strong>{nbConcernes} élève{nbConcernes > 1 ? "s" : ""}</strong>{Number.isFinite(montant) ? <> × <strong>{(montant / nbConcernes).toFixed(2)}€</strong> par élève</> : null}. Recalculée automatiquement si des élèves s&apos;ajoutent.</>}
+                </div>
+              </div>
+              <div className="flex justify-end gap-2 mt-5 pt-4 border-t border-gray-100">
+                <button onClick={() => setShowSubForm(false)} className="btn-secondary btn-sm">Annuler</button>
+                <button onClick={handleSaveSub} disabled={savingSub} className="btn-primary btn-sm">
+                  {savingSub ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />} {subEditing ? "Enregistrer" : "Ajouter"}
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {confirmDeleteSub && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/40" onClick={() => setConfirmDeleteSub(null)} />
+          <div className="relative bg-white rounded-2xl p-6 w-full max-w-sm shadow-xl">
+            <h3 className="text-base font-bold text-gray-900 mb-2">Supprimer cette subvention ?</h3>
+            <p className="text-sm text-gray-500 mb-4"><strong>{confirmDeleteSub.libelle}</strong> — {parseFloat(confirmDeleteSub.montant_total).toFixed(2)}€. Elle sera retirée des recettes.</p>
+            <div className="flex gap-2 justify-end">
+              <button onClick={() => setConfirmDeleteSub(null)} className="btn-secondary btn-sm">Annuler</button>
+              <button onClick={() => handleDeleteSub(confirmDeleteSub)} className="btn-danger btn-sm"><Trash2 className="w-3.5 h-3.5" /> Supprimer</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* DELETE CONFIRM */}
       {confirmDelete && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
@@ -584,11 +1048,12 @@ export default function FinancesPage() {
                 {confirmDelete.source === "inscription" && "Ceci annulera le paiement de l'élève (paiement_effectue = false)."}
                 {confirmDelete.source === "bia" && "Ceci effacera le résultat BIA de l'élève."}
                 {confirmDelete.source === "vol" && "Ceci supprimera définitivement le vol clôturé."}
+                {confirmDelete.source === "subvention" && "La subvention sera retirée des recettes et de la répartition par élève."}
               </p>
             )}
             <div className="flex gap-2 justify-end mt-4">
               <button onClick={() => setConfirmDelete(null)} className="btn-secondary btn-sm">Annuler</button>
-              <button onClick={() => handleDelete(confirmDelete)} disabled={deleting} className="btn-danger btn-sm">
+              <button onClick={() => confirmDelete.source === "subvention" ? (setConfirmDelete(null), handleDeleteSub(confirmDelete)) : handleDelete(confirmDelete)} disabled={deleting} className="btn-danger btn-sm">
                 {deleting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />} Supprimer
               </button>
             </div>

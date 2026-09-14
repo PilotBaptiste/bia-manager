@@ -1,27 +1,50 @@
-import { createClient } from "@supabase/supabase-js";
 import { NextResponse } from "next/server";
+import { requireRole } from "@/lib/auth";
+import { createServiceClient } from "@/lib/supabase/server";
 
-/**
- * Links all eleves whose parent_email matches the authenticated user's email
- * to that user's profile (sets parent_id = userId).
- * Safe to call multiple times — only updates rows where parent_id IS NULL.
- */
-export async function POST(req: Request) {
-  const { userId, email } = await req.json();
-  if (!userId || !email) {
-    return NextResponse.json({ error: "userId and email required" }, { status: 400 });
+// Identity comes from the session only: a caller must never link children by passing someone else's email.
+export async function POST() {
+  const auth = await requireRole([], { allowNoOrg: true });
+  if (auth instanceof NextResponse) return auth;
+  const userId = auth.userId;
+  const email = auth.email?.toLowerCase();
+  if (!email) {
+    return NextResponse.json({ error: "Email du compte introuvable" }, { status: 400 });
   }
 
-  const supabase = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!,
-  );
+  const supabase = createServiceClient();
+
+  // Parents invited before multi-club have no club yet: they join the club of their first unclaimed child.
+  let orgId = auth.orgId;
+  if (!orgId) {
+    const { data: first } = await supabase
+      .from("eleves")
+      .select("organisation_id")
+      .ilike("parent_email", email)
+      .is("parent_id", null)
+      .order("created_at", { ascending: true })
+      .limit(1)
+      .maybeSingle();
+    if (!first?.organisation_id) {
+      return NextResponse.json({ success: true });
+    }
+    const { error: orgError } = await supabase
+      .from("profiles")
+      .update({ organisation_id: first.organisation_id })
+      .eq("id", userId)
+      .is("organisation_id", null);
+    if (orgError) {
+      return NextResponse.json({ error: orgError.message }, { status: 400 });
+    }
+    orgId = first.organisation_id as string;
+  }
 
   // Also update profile nom/prenom from eleves if still empty
   const { data: eleve } = await supabase
     .from("eleves")
     .select("parent_nom, parent_prenom")
-    .eq("parent_email", email)
+    .eq("organisation_id", orgId)
+    .ilike("parent_email", email)
     .limit(1)
     .maybeSingle();
 
@@ -37,11 +60,13 @@ export async function POST(req: Request) {
       .eq("prenom", "");
   }
 
-  // Always sync parent_id by email — covers null, deleted/recreated accounts, etc.
+  // Only unclaimed children: an existing parent link is never reassigned.
   const { error } = await supabase
     .from("eleves")
     .update({ parent_id: userId })
-    .eq("parent_email", email);
+    .eq("organisation_id", orgId)
+    .ilike("parent_email", email)
+    .is("parent_id", null);
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 400 });

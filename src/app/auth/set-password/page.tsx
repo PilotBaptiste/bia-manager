@@ -3,6 +3,7 @@ import { useState, useEffect } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { useRouter } from "next/navigation";
 import { Plane, Eye, EyeOff, Loader2, CheckCircle } from "lucide-react";
+import { useClub } from "@/contexts/ClubContext";
 
 export default function SetPasswordPage() {
   const [password, setPassword] = useState("");
@@ -14,6 +15,7 @@ export default function SetPasswordPage() {
   const [sessionReady, setSessionReady] = useState(false);
   const router = useRouter();
   const supabase = createClient();
+  const club = useClub();
 
   useEffect(() => {
     // Verify a session exists (set by the callback route)
@@ -70,9 +72,7 @@ export default function SetPasswordPage() {
             </div>
             <div>
               <h1 className="text-2xl font-bold">BIA Manager</h1>
-              <p className="text-sm text-white/70">
-                Aéro-Club du Bassin d&apos;Arcachon
-              </p>
+              <p className="text-sm text-white/70">{club.nom}</p>
             </div>
           </div>
           <h2 className="text-3xl font-bold mb-4">Bienvenue sur BIA Manager</h2>
@@ -89,7 +89,7 @@ export default function SetPasswordPage() {
             </div>
             <div>
               <h1 className="text-lg font-bold text-brand-500">BIA Manager</h1>
-              <p className="text-xs text-gray-500">ACBA</p>
+              <p className="text-xs text-gray-500">{club.sigle || club.nom}</p>
             </div>
           </div>
 

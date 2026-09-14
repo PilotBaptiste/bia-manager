@@ -8,6 +8,7 @@ export interface Annee {
   active: boolean;
   date_debut: string;
   date_fin: string;
+  date_examen_bia: string | null;
 }
 
 interface YearContextType {
@@ -18,7 +19,10 @@ interface YearContextType {
   selectedAnnee: Annee | null;
   /** Année active = celle où on crée les nouveaux élèves/créneaux */
   activeAnneeId: string;
+  /** Date de l'examen BIA de l'année active (null si non renseignée) */
+  activeExamDate: string | null;
   loading: boolean;
+  refreshAnnees: () => Promise<void>;
 }
 
 const YearContext = createContext<YearContextType>({
@@ -27,7 +31,9 @@ const YearContext = createContext<YearContextType>({
   setSelectedAnneeId: () => {},
   selectedAnnee: null,
   activeAnneeId: "",
+  activeExamDate: null,
   loading: true,
+  refreshAnnees: async () => {},
 });
 
 const LS_KEY = "bia_selected_annee";
@@ -39,8 +45,7 @@ export function YearProvider({ children }: { children: React.ReactNode }) {
   const [activeAnneeId, setActiveAnneeId] = useState<string>("");
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    async function load() {
+  async function load() {
       const { data } = await supabase
         .from("annees")
         .select("*")
@@ -65,7 +70,9 @@ export function YearProvider({ children }: { children: React.ReactNode }) {
         }
       }
       setLoading(false);
-    }
+  }
+
+  useEffect(() => {
     load();
   }, []);
 
@@ -75,10 +82,11 @@ export function YearProvider({ children }: { children: React.ReactNode }) {
   }
 
   const selectedAnnee = annees.find((a) => a.id === selectedAnneeId) ?? null;
+  const activeExamDate = annees.find((a) => a.id === activeAnneeId)?.date_examen_bia ?? null;
 
   return (
     <YearContext.Provider
-      value={{ annees, selectedAnneeId, setSelectedAnneeId, selectedAnnee, activeAnneeId, loading }}
+      value={{ annees, selectedAnneeId, setSelectedAnneeId, selectedAnnee, activeAnneeId, activeExamDate, loading, refreshAnnees: load }}
     >
       {children}
     </YearContext.Provider>

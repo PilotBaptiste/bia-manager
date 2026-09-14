@@ -1,28 +1,32 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
+import { requireRole } from "@/lib/auth";
+import { createServiceClient } from "@/lib/supabase/server";
 
 export async function GET(req: Request) {
+  const auth = await requireRole(["superadmin", "coordinateur", "gerant", "pilote"]);
+  if (auth instanceof NextResponse) return auth;
   try {
     const { searchParams } = new URL(req.url);
     const email = searchParams.get("email");
     const eleveId = searchParams.get("eleve_id");
+    const creneauId = searchParams.get("creneau_id");
 
-    if (!email && !eleveId) {
-      return NextResponse.json({ error: "email or eleve_id required" }, { status: 400 });
+    if (!email && !eleveId && !creneauId) {
+      return NextResponse.json({ error: "email, eleve_id or creneau_id required" }, { status: 400 });
     }
 
-    const supabase = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_ROLE_KEY!,
-    );
+    const supabase = createServiceClient();
 
     let query = supabase
       .from("email_logs")
       .select("id, created_at, type, to_email, subject, statut, resend_id")
+      .eq("organisation_id", auth.orgId!)
       .order("created_at", { ascending: false })
-      .limit(50);
+      .limit(100);
 
-    if (eleveId) {
+    if (creneauId) {
+      query = query.eq("creneau_id", creneauId);
+    } else if (eleveId) {
       query = query.eq("eleve_id", eleveId);
     } else if (email) {
       query = query.eq("to_email", email);

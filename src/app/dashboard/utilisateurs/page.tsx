@@ -1,6 +1,8 @@
 "use client";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { fetchAll } from "@/lib/fetchAll";
+import { useYear } from "@/contexts/YearContext";
 import { toast } from "sonner";
 import {
   Shield,
@@ -20,9 +22,9 @@ import ConfirmModal from "@/components/ConfirmModal";
 const ALL_ROLES = [
   {
     value: "superadmin",
-    label: "SuperAdmin",
+    label: "Admin du club",
     color: "text-red-600 bg-red-50",
-    desc: "Tous les droits",
+    desc: "Tous les droits sur ce club",
   },
   {
     value: "coordinateur",
@@ -62,6 +64,7 @@ const emptyCreate = {
 
 export default function UtilisateursPage() {
   const supabase = createClient();
+  const { activeAnneeId } = useYear();
   const [users, setUsers] = useState<any[]>([]);
   const [etabs, setEtabs] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -82,7 +85,8 @@ export default function UtilisateursPage() {
   const [isSA, setIsSA] = useState(false);
   const [isCoordReadOnly, setIsCoordReadOnly] = useState(false);
   const [coordEtabIds, setCoordEtabIds] = useState<string[]>([]);
-  const [parentEmails, setParentEmails] = useState<{ email: string; nom: string; prenom: string }[]>([]);
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+  const [allEleves, setAllEleves] = useState<any[]>([]);
   const [parentDataByEmail, setParentDataByEmail] = useState<Record<string, { nom: string; prenom: string }>>({});
   // Bulk invite state
   const [showBulkInvite, setShowBulkInvite] = useState(false);
@@ -90,6 +94,7 @@ export default function UtilisateursPage() {
   const [bulkProgress, setBulkProgress] = useState(0);
   const [bulkTotal, setBulkTotal] = useState(0);
   const [bulkDone, setBulkDone] = useState(false);
+  const [bulkFailures, setBulkFailures] = useState(0);
   const [confirmInvite, setConfirmInvite] = useState<any | null>(null);
   const [confirmInviteLoading, setConfirmInviteLoading] = useState(false);
   const [authStatus, setAuthStatus] = useState<Record<string, { confirmed: boolean }>>({});
@@ -97,18 +102,22 @@ export default function UtilisateursPage() {
   async function load() {
     const { data: { user } } = await supabase.auth.getUser();
     const [usersRes, etabsRes, elevesRes, profRes] = await Promise.all([
-      supabase
+      fetchAll((from, to) => supabase
         .from("profiles")
         .select("*, etablissement_ids, etablissement:etablissements(nom)")
-        .order("nom"),
+        .order("nom")
+        .order("id")
+        .range(from, to)),
       supabase
         .from("etablissements")
         .select("*")
         .eq("actif", true)
         .order("nom"),
-      supabase
+      fetchAll((from, to) => supabase
         .from("eleves")
-        .select("prenom, nom, parent_email, parent_nom, parent_prenom, etablissement_id"),
+        .select("prenom, nom, parent_email, parent_nom, parent_prenom, etablissement_id, archive, annee_id")
+        .order("id")
+        .range(from, to)),
       user
         ? supabase.from("profiles").select("roles, etablissement_id, etablissement_ids").eq("id", user.id).single()
         : Promise.resolve({ data: null }),
@@ -118,12 +127,15 @@ export default function UtilisateursPage() {
     const cEtabIds: string[] = coord
       ? (profRes.data?.etablissement_ids?.length > 0 ? profRes.data.etablissement_ids : profRes.data?.etablissement_id ? [profRes.data.etablissement_id] : [])
       : [];
+    setCurrentUserId(user?.id ?? null);
     setIsSA(sa);
     setIsCoordReadOnly(coord);
     setCoordEtabIds(cEtabIds);
     // For coordinateur: filter users to parents whose elèves are in their étabs
     let usersFiltered = usersRes.data || [];
-    if (coord && cEtabIds.length > 0) {
+    if (coord && cEtabIds.length === 0) {
+      usersFiltered = [];
+    } else if (coord) {
       const parentEmailsInEtabs = new Set(
         (elevesRes.data || [])
           .filter((e: any) => cEtabIds.includes(e.etablissement_id) && e.parent_email)
@@ -137,18 +149,7 @@ export default function UtilisateursPage() {
     setEtabs(etabsRes.data || []);
     // Fetch auth confirmation status (superadmin only — best-effort)
     if (sa) fetch("/api/admin/users-status").then(r => r.json()).then(setAuthStatus).catch(() => {});
-    // Build unique parent email list for bulk invite
-    const seen = new Set<string>();
-    const pList: { email: string; nom: string; prenom: string }[] = [];
-    for (const e of elevesRes.data || []) {
-      if (!e.parent_email) continue;
-      const key = e.parent_email.toLowerCase();
-      if (!seen.has(key)) {
-        seen.add(key);
-        pList.push({ email: e.parent_email, nom: e.parent_nom || "", prenom: e.parent_prenom || "" });
-      }
-    }
-    setParentEmails(pList);
+    setAllEleves(elevesRes.data || []);
 
     // Build maps: parent_email -> student names + parent name fallback
     const studentMap: Record<string, string[]> = {};
@@ -173,6 +174,21 @@ export default function UtilisateursPage() {
   useEffect(() => {
     load();
   }, []);
+
+  const parentEmails = useMemo(() => {
+    if (!activeAnneeId) return [];
+    const seen = new Set<string>();
+    const pList: { email: string; nom: string; prenom: string }[] = [];
+    for (const e of allEleves) {
+      if (!e.parent_email || e.archive || e.annee_id !== activeAnneeId) continue;
+      const key = e.parent_email.trim().toLowerCase();
+      if (!seen.has(key)) {
+        seen.add(key);
+        pList.push({ email: e.parent_email.trim(), nom: e.parent_nom || "", prenom: e.parent_prenom || "" });
+      }
+    }
+    return pList;
+  }, [allEleves, activeAnneeId]);
 
   const filtered = users.filter((u) => {
     if (
@@ -208,10 +224,20 @@ export default function UtilisateursPage() {
 
   async function handleSave() {
     if (!editing) return;
+    const original = users.find((u) => u.id === editing.id);
+    const removesSA = original?.roles?.includes("superadmin") && !editing.roles?.includes("superadmin");
+    if (removesSA && editing.id === currentUserId) {
+      toast.error("Vous ne pouvez pas retirer votre propre rôle Admin du club.");
+      return;
+    }
+    if (removesSA && users.filter((u) => u.roles?.includes("superadmin")).length <= 1) {
+      toast.error("Impossible de retirer le rôle Admin du club au dernier admin.");
+      return;
+    }
     setSaving(true);
     setError(null);
     const ids: string[] = editing.etablissement_ids || [];
-    const { error: err } = await supabase
+    const { data: updatedRows, error: err } = await supabase
       .from("profiles")
       .update({
         nom: editing.nom,
@@ -222,10 +248,15 @@ export default function UtilisateursPage() {
         etablissement_ids: ids,                  // full multi-etab array
         actif: editing.actif,
       })
-      .eq("id", editing.id);
+      .eq("id", editing.id)
+      .select("id");
     setSaving(false);
     if (err) {
-      toast.error(err.message);
+      toast.error(`Erreur mise à jour du profil : ${err.message}`);
+      return;
+    }
+    if (!updatedRows || updatedRows.length === 0) {
+      toast.error("Mise à jour refusée : vous n'avez pas les droits sur ce profil.");
       return;
     }
     toast.success("Profil mis à jour");
@@ -318,6 +349,7 @@ export default function UtilisateursPage() {
     setBulkProgress(0);
     setBulkTotal(parentEmails.length);
     setBulkDone(false);
+    setBulkFailures(0);
     let failures = 0;
     for (let i = 0; i < parentEmails.length; i++) {
       const p = parentEmails[i];
@@ -336,6 +368,7 @@ export default function UtilisateursPage() {
       await new Promise((r) => setTimeout(r, 300));
     }
     setBulkSending(false);
+    setBulkFailures(failures);
     setBulkDone(true);
     if (failures > 0) toast.error(`${failures} invitation(s) n'ont pas pu être envoyées`);
   }
@@ -481,11 +514,15 @@ export default function UtilisateursPage() {
             )}
             {bulkDone && (
               <div className="text-center py-6">
-                <div className="w-14 h-14 rounded-full bg-emerald-100 flex items-center justify-center mx-auto mb-4">
-                  <Check className="w-7 h-7 text-emerald-600" />
+                <div className={`w-14 h-14 rounded-full flex items-center justify-center mx-auto mb-4 ${bulkFailures > 0 ? "bg-amber-100" : "bg-emerald-100"}`}>
+                  {bulkFailures > 0 ? <AlertCircle className="w-7 h-7 text-amber-600" /> : <Check className="w-7 h-7 text-emerald-600" />}
                 </div>
-                <p className="text-sm font-semibold text-gray-900 mb-2">{bulkTotal} emails envoyés !</p>
-                <p className="text-sm text-gray-500 mb-5">Tous les parents ont reçu leur invitation.</p>
+                <p className="text-sm font-semibold text-gray-900 mb-2">{bulkTotal - bulkFailures} / {bulkTotal} emails envoyés</p>
+                <p className="text-sm text-gray-500 mb-5">
+                  {bulkFailures > 0
+                    ? `${bulkFailures} invitation${bulkFailures > 1 ? "s" : ""} n'${bulkFailures > 1 ? "ont" : "a"} pas pu être envoyée${bulkFailures > 1 ? "s" : ""}.`
+                    : "Tous les parents ont reçu leur invitation."}
+                </p>
                 <button onClick={() => setShowBulkInvite(false)} className="btn-primary btn-sm">Fermer</button>
               </div>
             )}

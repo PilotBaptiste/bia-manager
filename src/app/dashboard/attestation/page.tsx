@@ -11,8 +11,9 @@ import {
   ShieldCheck,
 } from "lucide-react";
 import { PDFDocument, rgb, StandardFonts } from "pdf-lib";
+import { useClub } from "@/contexts/ClubContext";
 
-const DEFAULT_TEMPLATE = `Je soussigne(e) {PARENT_NOM}, parent/responsable legal de {ELEVE_PRENOM} {ELEVE_NOM}, ne(e) le {ELEVE_DATE_NAISSANCE} a {ELEVE_LIEU_NAISSANCE}, autorise mon enfant a effectuer un vol decouverte au sein de l'Aero-Club du Bassin d'Arcachon dans le cadre du Brevet d'Initiation Aeronautique (BIA).
+const DEFAULT_TEMPLATE = `Je soussigne(e) {PARENT_NOM}, parent/responsable legal de {ELEVE_PRENOM} {ELEVE_NOM}, ne(e) le {ELEVE_DATE_NAISSANCE} a {ELEVE_LIEU_NAISSANCE}, autorise mon enfant a effectuer un vol decouverte au sein de {NOM_AEROCLUB} dans le cadre du Brevet d'Initiation Aeronautique (BIA).
 
 Je declare avoir pris connaissance des conditions de vol et des mesures de securite en vigueur.
 
@@ -21,6 +22,8 @@ Fait a {LIEU_SIGNATURE}, le {DATE_SIGNATURE}`;
 export default function AttestationPage() {
 
   const supabase = createClient();
+  const club = useClub();
+  const clubNomPdf = club.nom.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
   const [enfants, setEnfants] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [signing, setSigning] = useState<string | null>(null);
@@ -71,6 +74,7 @@ export default function AttestationPage() {
       )
       .replace(/{ELEVE_LIEU_NAISSANCE}/g, enfant.lieu_naissance)
       .replace(/{ETABLISSEMENT}/g, enfant.etablissement?.nom || "")
+      .replace(/{NOM_AEROCLUB}/g, club.nom)
       .replace(/{LIEU_SIGNATURE}/g, lieuVal || lieu || "________________")
       .replace(/{DATE_SIGNATURE}/g, now)
       .replace(/{ANNEE}/g, new Date().getFullYear().toString());
@@ -114,7 +118,7 @@ export default function AttestationPage() {
       color: rgb(1, 1, 1),
     });
     page.drawText(
-      "Aero-Club du Bassin d'Arcachon - BIA " + signDate.getFullYear(),
+      clubNomPdf + " - BIA " + signDate.getFullYear(),
       { x: 50, y: height - 65, size: 10, font, color: rgb(0.7, 0.8, 0.9) },
     );
     page.drawText("Document officiel", {
@@ -326,7 +330,7 @@ export default function AttestationPage() {
       color: rgb(0.85, 0.87, 0.9),
     });
     page.drawText(
-      "BIA Manager - Aero-Club du Bassin d'Arcachon | Document genere electroniquement | Ne pas modifier",
+      `BIA Manager - ${clubNomPdf} | Document genere electroniquement | Ne pas modifier`,
       {
         x: 50,
         y: 37,
@@ -376,14 +380,15 @@ export default function AttestationPage() {
 
     try {
       const { blob: pdfBlob, signatureId } = await generatePDF(enfant);
-      const fileName = `attestation_${enfant.nom}_${enfant.prenom}_${Date.now()}.pdf`;
+      // Storage keys must stay ASCII: accented names made the upload fail silently.
+      const fileName = `${enfant.id}/attestation_${Date.now()}.pdf`;
 
       const { error: uploadErr } = await supabase.storage
         .from("attestations")
         .upload(fileName, pdfBlob, { contentType: "application/pdf" });
-      if (uploadErr) console.warn("Upload:", uploadErr.message);
+      if (uploadErr) throw new Error(`Le PDF n'a pas pu être enregistré (${uploadErr.message}). Réessayez.`);
 
-      await supabase
+      const { error: updateErr } = await supabase
         .from("eleves")
         .update({
           attestation_signee: true,
@@ -392,6 +397,7 @@ export default function AttestationPage() {
           attestation_url: fileName,
         })
         .eq("id", eleveId);
+      if (updateErr) throw new Error(`La signature n'a pas pu être enregistrée (${updateErr.message}).`);
 
       setSaving(false);
       setSigning(null);
@@ -425,17 +431,11 @@ export default function AttestationPage() {
 
   async function downloadPDF(enfant: any) {
     if (!enfant.attestation_url) return;
-    const { data } = await supabase.storage
-      .from("attestations")
-      .download(enfant.attestation_url);
-    if (data) {
-      const url = URL.createObjectURL(data);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `attestation_${enfant.nom}_${enfant.prenom}.pdf`;
-      a.click();
-      URL.revokeObjectURL(url);
-    }
+    const params = new URLSearchParams({
+      path: enfant.attestation_url,
+      name: `attestation_${enfant.nom}_${enfant.prenom}.pdf`,
+    });
+    window.location.href = `/api/attestation/download?${params}`;
   }
 
   if (loading)
@@ -593,7 +593,7 @@ export default function AttestationPage() {
                         {e.prenom} {e.nom}
                       </strong>
                       . J&apos;autorise mon enfant a effectuer un vol decouverte
-                      au sein de l&apos;Aero-Club du Bassin d&apos;Arcachon.
+                      au sein de {club.nom}.
                       <br />
                       <br />
                       <span className="text-gray-400">

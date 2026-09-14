@@ -34,6 +34,7 @@ export default function EtablissementsPage() {
   async function load() {
     const { data: { user } } = await supabase.auth.getUser();
     let filteredEtabIds: string[] = [];
+    let restricted = false;
     if (user) {
       const { data: prof } = await supabase.from("profiles").select("roles, etablissement_ids, etablissement_id").eq("id", user.id).single();
       const sa = prof?.roles?.includes("superadmin") ?? false;
@@ -44,15 +45,22 @@ export default function EtablissementsPage() {
       setIsGerant(gerant);
       // Coordinateurs et gérants voient uniquement leurs établissements
       if (coord || gerant) {
+        restricted = true;
         filteredEtabIds = prof?.etablissement_ids?.length > 0
           ? prof.etablissement_ids
           : prof?.etablissement_id ? [prof.etablissement_id] : [];
       }
     }
-    const query = filteredEtabIds.length > 0
+    if (!user || (restricted && filteredEtabIds.length === 0)) {
+      setEtabs([]);
+      setLoading(false);
+      return;
+    }
+    const query = restricted
       ? supabase.from("etablissements").select("*").in("id", filteredEtabIds).order("nom")
       : supabase.from("etablissements").select("*").order("nom");
-    const { data } = await query;
+    const { data, error } = await query;
+    if (error) toast.error(`Erreur de chargement : ${error.message}`);
     setEtabs(data || []);
     setLoading(false);
   }
@@ -84,14 +92,15 @@ export default function EtablissementsPage() {
   async function handleSave() {
     if (!form.nom.trim()) { toast.error("Le nom est obligatoire"); return; }
     setSaving(true);
-    if (editing) {
-      await supabase.from("etablissements").update(form).eq("id", editing.id);
-      toast.success("Établissement mis à jour");
-    } else {
-      await supabase.from("etablissements").insert(form);
-      toast.success("Établissement créé");
-    }
+    const { error } = editing
+      ? await supabase.from("etablissements").update(form).eq("id", editing.id)
+      : await supabase.from("etablissements").insert(form);
     setSaving(false);
+    if (error) {
+      toast.error(`Erreur lors de l'enregistrement : ${error.message}`);
+      return;
+    }
+    toast.success(editing ? "Établissement mis à jour" : "Établissement créé");
     setShowForm(false);
     load();
   }
@@ -100,11 +109,15 @@ export default function EtablissementsPage() {
     setSavingCode(true);
     const code = generateCode(8);
     const nb = parseInt(nbEleves) || null;
-    await supabase.from("etablissements").update({
+    const { error } = await supabase.from("etablissements").update({
       code_inscription: code,
       nb_eleves_attendus: nb,
     }).eq("id", etab.id);
     setSavingCode(false);
+    if (error) {
+      toast.error(`Erreur lors de la génération du code : ${error.message}`);
+      return;
+    }
     toast.success(`Code généré : ${code}`);
     setCodeModal(null);
     load();
@@ -113,8 +126,12 @@ export default function EtablissementsPage() {
   async function handleSaveLimit(etab: Etablissement) {
     setSavingCode(true);
     const nb = parseInt(nbEleves) || null;
-    await supabase.from("etablissements").update({ nb_eleves_attendus: nb }).eq("id", etab.id);
+    const { error } = await supabase.from("etablissements").update({ nb_eleves_attendus: nb }).eq("id", etab.id);
     setSavingCode(false);
+    if (error) {
+      toast.error(`Erreur lors de la mise à jour : ${error.message}`);
+      return;
+    }
     toast.success("Limite mise à jour");
     setCodeModal(null);
     load();
@@ -289,8 +306,12 @@ export default function EtablissementsPage() {
                 <button
                   onClick={async () => {
                     setSavingCode(true);
-                    await supabase.from("etablissements").update({ code_inscription: null }).eq("id", codeModal.id);
+                    const { error } = await supabase.from("etablissements").update({ code_inscription: null }).eq("id", codeModal.id);
                     setSavingCode(false);
+                    if (error) {
+                      toast.error(`Erreur lors de la suppression du code : ${error.message}`);
+                      return;
+                    }
                     toast.success("Code supprimé — les inscriptions sont désactivées");
                     setCodeModal(null);
                     load();

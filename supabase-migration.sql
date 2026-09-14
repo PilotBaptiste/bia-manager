@@ -1,3 +1,8 @@
+-- ⚠️ FICHIER HISTORIQUE — ne reflète plus la base réelle.
+-- Référence à jour : supabase-schema-reference.sql (généré par « npm run db:schema »)
+-- et supabase-introspection.sql pour les politiques RLS, fonctions et triggers.
+-- Évolutions à appliquer : supabase-securite-2026-09.sql puis supabase-evolutions-2026-09.sql.
+
 -- ══════════════════════════════════════════════════════════
 -- BIA MANAGER — Aéro-Club du Bassin d'Arcachon
 -- Script SQL complet pour Supabase

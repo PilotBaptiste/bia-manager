@@ -4,6 +4,8 @@ import { Users, CheckCircle2, Plane, Euro, Calendar, Clock, School, FileSignatur
 import Link from "next/link";
 import ParentOnboarding from "@/components/ParentOnboarding";
 import DashboardSAStats from "@/components/DashboardSAStats";
+import { getClubInfo } from "@/lib/club";
+import { inActiveEtab } from "@/lib/etablissements";
 
 // ─── Stat Card ──────────────────────────────────────────
 function Stat({ icon: Icon, label, value, sub, color = "bg-brand-50 text-brand-500" }: any) {
@@ -21,174 +23,23 @@ function Stat({ icon: Icon, label, value, sub, color = "bg-brand-50 text-brand-5
   );
 }
 
-// ─── SuperAdmin Dashboard ───────────────────────────────
-async function DashboardSuperAdmin({ supabase }: { supabase: any }) {
-  // Fetch active year to scope all queries
-  const { data: anData } = await supabase.from("annees").select("id, label").eq("active", true).single();
-  const aid = anData?.id ?? null;
-
-  function eleveBase() {
-    const q = supabase.from("eleves").select("*", { count: "exact" }).eq("archive", false);
-    return aid ? q.eq("annee_id", aid) : q;
-  }
-  function creneauBase() {
-    const q = supabase.from("creneaux").select("*", { count: "exact" }).in("statut", ["ouvert", "confirme"]);
-    return aid ? q.eq("annee_id", aid) : q;
-  }
-
-  const [
-    { count: totalEleves },
-    { count: attestations },
-    { count: paiements },
-    { count: nonPayes },
-    { count: nonSignes },
-    { count: vol1Effectues },
-    { count: vol2Effectues },
-    { count: vol2Autorises },
-    { count: volsPrevus },
-    { data: prochainsCrenaux },
-  ] = await Promise.all([
-    eleveBase(),
-    eleveBase().eq("attestation_signee", true),
-    eleveBase().eq("paiement_effectue", true),
-    eleveBase().eq("paiement_effectue", false),
-    eleveBase().eq("attestation_signee", false),
-    eleveBase().eq("vol1_effectue", true),
-    eleveBase().eq("vol2_effectue", true),
-    eleveBase().eq("vol2_autorise", true),
-    creneauBase(),
-    (aid
-      ? supabase.from("creneaux").select("*, pilote:profiles!pilote_id(nom, prenom), aeronef:aeronefs(type_aeronef, immatriculation), reservations(id, statut, eleve:eleves(nom, prenom))").in("statut", ["ouvert", "confirme"]).eq("annee_id", aid).order("date_vol").limit(5)
-      : supabase.from("creneaux").select("*, pilote:profiles!pilote_id(nom, prenom), aeronef:aeronefs(type_aeronef, immatriculation), reservations(id, statut, eleve:eleves(nom, prenom))").in("statut", ["ouvert", "confirme"]).order("date_vol").limit(5)
-    ),
-  ]);
-
-  const total = totalEleves || 0;
-  const vol1Restants = total - (vol1Effectues || 0);
-  const vol2Total = vol2Autorises || 0;
-  const vol2Restants = vol2Total - (vol2Effectues || 0);
-
-  return (
-    <div>
-      <div className="mb-6">
-        <h1 className="text-xl font-bold text-gray-900">Tableau de bord — {anData?.label ?? new Date().getFullYear()}</h1>
-        <p className="text-sm text-gray-500 mt-1">Aéro-Club du Bassin d&apos;Arcachon · SuperAdmin</p>
-      </div>
-      <div className="flex gap-3 flex-wrap mb-6">
-        <Stat icon={Users} label="Élèves inscrits" value={total} color="bg-brand-50 text-brand-500" />
-        <Stat icon={CheckCircle2} label="Attestations" value={`${attestations || 0}/${total}`} color="bg-emerald-50 text-emerald-600" />
-        <Stat icon={Plane} label="Vol 1 restants" value={`${vol1Restants}/${total}`} sub={`${vol1Effectues || 0} effectué${(vol1Effectues || 0) > 1 ? "s" : ""}`} color="bg-amber-50 text-amber-600" />
-        <Stat icon={Plane} label="Vol 2 restants" value={`${vol2Restants}/${vol2Total}`} sub={`${vol2Effectues || 0} effectué${(vol2Effectues || 0) > 1 ? "s" : ""}`} color="bg-purple-50 text-purple-600" />
-        <Stat icon={Calendar} label="Vols prévus" value={volsPrevus || 0} color="bg-brand-50 text-brand-500" />
-        <Stat icon={Euro} label="Paiements reçus" value={`${paiements || 0}/${total}`} color="bg-emerald-50 text-emerald-600" />
-      </div>
-
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {/* Actions requises */}
-        <div className="card">
-          <div className="flex items-center justify-between mb-3">
-            <h2 className="text-sm font-semibold text-gray-900">Actions requises</h2>
-            {((nonPayes || 0) + (nonSignes || 0)) > 0 && (
-              <span className="badge bg-red-50 text-red-600">{(nonPayes || 0) + (nonSignes || 0)}</span>
-            )}
-          </div>
-          <div className="space-y-2">
-            {(nonPayes || 0) > 0 && (
-              <Link href="/dashboard/eleves?paiement=non" className="flex items-center gap-2 p-2.5 rounded-lg bg-red-50 text-sm hover:bg-red-100 transition-colors">
-                <AlertCircle className="w-4 h-4 text-red-500 shrink-0" />
-                <span className="text-red-700">{nonPayes} élève{(nonPayes || 0) > 1 ? "s" : ""} — paiement en attente</span>
-              </Link>
-            )}
-            {(nonSignes || 0) > 0 && (
-              <Link href="/dashboard/eleves?attestation=non" className="flex items-center gap-2 p-2.5 rounded-lg bg-amber-50 text-sm hover:bg-amber-100 transition-colors">
-                <AlertCircle className="w-4 h-4 text-amber-500 shrink-0" />
-                <span className="text-amber-700">{nonSignes} attestation{(nonSignes || 0) > 1 ? "s" : ""} parentale{(nonSignes || 0) > 1 ? "s" : ""} non signée{(nonSignes || 0) > 1 ? "s" : ""}</span>
-              </Link>
-            )}
-            {(nonPayes || 0) === 0 && (nonSignes || 0) === 0 && (
-              <p className="text-sm text-gray-400">Aucune action requise</p>
-            )}
-          </div>
-        </div>
-
-        {/* Prochains vols */}
-        <div className="card">
-          <div className="flex items-center justify-between mb-3">
-            <h2 className="text-sm font-semibold text-gray-900">Prochains vols</h2>
-            <Link href="/dashboard/vols" className="text-xs text-brand-500 font-semibold hover:underline">Voir tout →</Link>
-          </div>
-          {prochainsCrenaux && prochainsCrenaux.length > 0 ? (
-            <div className="space-y-2">
-              {prochainsCrenaux.map((c: any) => {
-                const activeRes = (c.reservations || []).filter((r: any) => r.statut !== "annule");
-                return (
-                  <Link key={c.id} href="/dashboard/vols" className="block p-2.5 rounded-lg bg-gray-50 hover:bg-gray-100 transition-colors">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <p className="text-sm font-medium text-gray-900">{new Date(c.date_vol).toLocaleDateString("fr-FR")} · {c.heure_debut?.slice(0, 5)}</p>
-                        <p className="text-xs text-gray-500">{c.pilote?.prenom} {c.pilote?.nom} · {c.aeronef?.type_aeronef}</p>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <span className="text-xs text-gray-500">{activeRes.length} élève{activeRes.length > 1 ? "s" : ""}</span>
-                        <span className={`badge ${c.statut === "confirme" ? "bg-brand-50 text-brand-500" : "bg-amber-50 text-amber-600"}`}>
-                          {c.statut === "confirme" ? "Confirmé" : "Ouvert"}
-                        </span>
-                      </div>
-                    </div>
-                    {activeRes.length > 0 && (
-                      <div className="mt-1.5 flex flex-wrap gap-1">
-                        {activeRes.map((r: any, i: number) => (
-                          <span key={i} className="text-[11px] bg-white border border-gray-200 text-gray-700 px-1.5 py-0.5 rounded">
-                            {r.eleve?.prenom} {r.eleve?.nom}
-                          </span>
-                        ))}
-                      </div>
-                    )}
-                    {activeRes.length === 0 && (
-                      <p className="text-[11px] text-gray-400 mt-1">Aucun élève inscrit</p>
-                    )}
-                  </Link>
-                );
-              })}
-            </div>
-          ) : (
-            <p className="text-sm text-gray-400">Aucun vol planifié</p>
-          )}
-        </div>
-
-        {/* Accès rapide */}
-        <div className="card md:col-span-2">
-          <h2 className="text-sm font-semibold text-gray-900 mb-3">Accès rapide</h2>
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-            {[
-              { href: "/dashboard/eleves", label: "Élèves", icon: Users },
-              { href: "/dashboard/etablissements", label: "Établissements", icon: School },
-              { href: "/dashboard/vols", label: "Planning vols", icon: Calendar },
-              { href: "/dashboard/finances", label: "Finances", icon: Euro },
-              { href: "/dashboard/aeronefs", label: "Aéronefs", icon: Plane },
-              { href: "/dashboard/utilisateurs", label: "Utilisateurs", icon: Users },
-            ].map((l, i) => (
-              <Link key={i} href={l.href} className="flex items-center gap-2 p-3 rounded-lg hover:bg-gray-50 border border-gray-100 text-sm text-gray-700 transition-colors">
-                <l.icon className="w-4 h-4 text-brand-400" />{l.label}
-              </Link>
-            ))}
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 // ─── Coordinateur Dashboard ─────────────────────────────
 async function DashboardCoordinateur({ supabase, profile }: { supabase: any; profile: any }) {
   const coordEtabIds: string[] = profile?.etablissement_ids?.length > 0
     ? profile.etablissement_ids
     : profile?.etablissement_id ? [profile.etablissement_id] : [];
 
-  // Base query builders filtered by coord's établissements (or all if no restriction)
-  const eleveBase = coordEtabIds.length > 0
-    ? supabase.from("eleves").select("*", { count: "exact" }).in("etablissement_id", coordEtabIds).eq("archive", false)
-    : supabase.from("eleves").select("*", { count: "exact" }).eq("archive", false);
+  const { data: anData } = await supabase.from("annees").select("id").eq("active", true).maybeSingle();
+  const scopeIds = coordEtabIds.length > 0 ? coordEtabIds : ["00000000-0000-0000-0000-000000000000"];
+  const eleveBase = () => {
+    const q = supabase
+      .from("eleves")
+      .select("id, etablissement:etablissements!inner(actif)", { count: "exact", head: true })
+      .in("etablissement_id", scopeIds)
+      .eq("archive", false)
+      .eq("etablissement.actif", true);
+    return anData?.id ? q.eq("annee_id", anData.id) : q;
+  };
 
   const [
     { count: totalEleves },
@@ -196,26 +47,23 @@ async function DashboardCoordinateur({ supabase, profile }: { supabase: any; pro
     { count: vol2Effectues },
     { count: vol2Autorises },
     { data: etabs },
-    { data: prochainsCrenaux },
+    { data: creneauxOuverts },
   ] = await Promise.all([
-    eleveBase,
-    (coordEtabIds.length > 0
-      ? supabase.from("eleves").select("*", { count: "exact" }).in("etablissement_id", coordEtabIds).eq("archive", false).eq("vol1_effectue", true)
-      : supabase.from("eleves").select("*", { count: "exact" }).eq("archive", false).eq("vol1_effectue", true)),
-    (coordEtabIds.length > 0
-      ? supabase.from("eleves").select("*", { count: "exact" }).in("etablissement_id", coordEtabIds).eq("archive", false).eq("vol2_effectue", true)
-      : supabase.from("eleves").select("*", { count: "exact" }).eq("archive", false).eq("vol2_effectue", true)),
-    (coordEtabIds.length > 0
-      ? supabase.from("eleves").select("*", { count: "exact" }).in("etablissement_id", coordEtabIds).eq("archive", false).eq("vol2_autorise", true)
-      : supabase.from("eleves").select("*", { count: "exact" }).eq("archive", false).eq("vol2_autorise", true)),
-    supabase.from("etablissements").select("id, nom").eq("actif", true)
-      .then((r: any) => coordEtabIds.length > 0 ? { data: (r.data || []).filter((e: any) => coordEtabIds.includes(e.id)) } : r),
-    supabase.from("creneaux")
-      .select("*, pilote:profiles!pilote_id(nom, prenom), aeronef:aeronefs(type_aeronef, immatriculation), reservations(id, statut, eleve:eleves(nom, prenom))")
-      .in("statut", ["ouvert", "confirme"])
-      .order("date_vol")
-      .limit(5),
+    eleveBase(),
+    eleveBase().eq("vol1_effectue", true),
+    eleveBase().eq("vol2_effectue", true),
+    eleveBase().eq("vol2_autorise", true),
+    supabase.from("etablissements").select("id, nom").eq("actif", true).in("id", scopeIds),
+    (() => {
+      const q = supabase.from("creneaux")
+        .select("*, pilote:profiles!pilote_id(nom, prenom), aeronef:aeronefs(type_aeronef, immatriculation), reservations(id, statut, eleve:eleves(nom, prenom))")
+        .in("statut", ["ouvert", "confirme"])
+        .order("date_vol");
+      return anData?.id ? q.eq("annee_id", anData.id) : q;
+    })(),
   ]);
+  const coordActiveIds = new Set<string>((etabs || []).map((e: any) => e.id));
+  const prochainsCrenaux = (creneauxOuverts || []).filter((c: any) => inActiveEtab(c, coordActiveIds)).slice(0, 5);
 
   const total = totalEleves || 0;
   const vol1Restants = total - (vol1Effectues || 0);
@@ -226,12 +74,12 @@ async function DashboardCoordinateur({ supabase, profile }: { supabase: any; pro
     <div>
       <div className="mb-6">
         <h1 className="text-xl font-bold text-gray-900">Tableau de bord — Coordinateur</h1>
-        <p className="text-sm text-gray-500 mt-1">{coordEtabIds.length > 0 ? `${(etabs || []).length} établissement${(etabs || []).length > 1 ? "s" : ""}` : "Vue globale"} · {new Date().getFullYear()}</p>
+        <p className="text-sm text-gray-500 mt-1">{`${(etabs || []).length} établissement${(etabs || []).length > 1 ? "s" : ""}`} · {new Date().getFullYear()}</p>
       </div>
       <div className="flex gap-3 flex-wrap mb-6">
         <Stat icon={Users} label="Élèves" value={total} />
-        <Stat icon={Plane} label="Vol 1 restants" value={`${vol1Restants}/${total}`} sub={`${vol1Effectues || 0} effectué${(vol1Effectues || 0) > 1 ? "s" : ""}`} color="bg-amber-50 text-amber-600" />
-        <Stat icon={Plane} label="Vol 2 restants" value={`${vol2Restants}/${vol2Total}`} sub={`${vol2Effectues || 0} effectué${(vol2Effectues || 0) > 1 ? "s" : ""}`} color="bg-purple-50 text-purple-600" />
+        <Stat icon={Plane} label="Vol 1 effectués" value={`${vol1Effectues || 0}/${total}`} sub={`${vol1Restants} restant${vol1Restants > 1 ? "s" : ""}`} color="bg-amber-50 text-amber-600" />
+        <Stat icon={Plane} label="Vol 2 effectués" value={`${vol2Effectues || 0}/${vol2Total}`} sub={`${vol2Restants} restant${vol2Restants > 1 ? "s" : ""}`} color="bg-purple-50 text-purple-600" />
         <Stat icon={School} label="Établissements" value={(etabs || []).length} color="bg-emerald-50 text-emerald-600" />
       </div>
 
@@ -296,7 +144,12 @@ async function DashboardCoordinateur({ supabase, profile }: { supabase: any; pro
 
 // ─── Pilote Dashboard ───────────────────────────────────
 async function DashboardPilote({ supabase, profile }: { supabase: any; profile: any }) {
-  const { data: mesCreneaux } = await supabase.from("creneaux").select("*, aeronef:aeronefs(type_aeronef, immatriculation), reservations(*, eleve:eleves(nom, prenom, commentaires, vol1_temps_minutes))").eq("pilote_id", profile.id).order("date_vol");
+  const [{ data: tousCreneaux }, { data: etabsActifs }] = await Promise.all([
+    supabase.from("creneaux").select("*, aeronef:aeronefs(type_aeronef, immatriculation), reservations(*, eleve:eleves(nom, prenom, commentaires, vol1_temps_minutes))").eq("pilote_id", profile.id).order("date_vol"),
+    supabase.from("etablissements").select("id").eq("actif", true),
+  ]);
+  const piloteActiveIds = new Set<string>((etabsActifs || []).map((e: any) => e.id));
+  const mesCreneaux = (tousCreneaux || []).filter((c: any) => inActiveEtab(c, piloteActiveIds));
   const aVenir = mesCreneaux?.filter((c: any) => c.statut !== "termine" && c.statut !== "annule") || [];
   const termines = mesCreneaux?.filter((c: any) => c.statut === "termine") || [];
 
@@ -367,13 +220,23 @@ async function DashboardGerant({ supabase, profile }: { supabase: any; profile: 
         <h2 className="text-lg font-bold text-gray-900 mb-2">Aucun établissement assigné</h2>
         <p className="text-sm text-gray-500 max-w-sm">
           Votre compte gérant n&apos;est pas encore lié à un établissement.<br />
-          Contactez le SuperAdmin pour qu&apos;il vous assigne un établissement.
+          Contactez l&apos;admin du club pour qu&apos;il vous assigne un établissement.
         </p>
       </div>
     );
   }
 
-  const { data: etab } = await supabase.from("etablissements").select("nom").eq("id", etabId).single();
+  const { data: etab } = await supabase.from("etablissements").select("nom, actif").eq("id", etabId).single();
+  if (etab && etab.actif === false) {
+    return (
+      <div className="flex flex-col items-center justify-center py-20 text-center">
+        <h2 className="text-lg font-bold text-gray-900 mb-2">Établissement désactivé</h2>
+        <p className="text-sm text-gray-500 max-w-sm">
+          {etab.nom} a été désactivé par l&apos;aéroclub. Contactez l&apos;admin du club si vous pensez qu&apos;il s&apos;agit d&apos;une erreur.
+        </p>
+      </div>
+    );
+  }
   const { data: mesEleves } = await supabase.from("eleves").select("*").eq("etablissement_id", etabId).eq("archive", false).order("nom");
   const eleves = mesEleves || [];
 
@@ -390,8 +253,8 @@ async function DashboardGerant({ supabase, profile }: { supabase: any; profile: 
         return (
           <div className="flex gap-3 flex-wrap mb-6">
             <Stat icon={Users} label="Mes élèves" value={eleves.length} />
-            <Stat icon={Plane} label="Vol 1 restants" value={`${eleves.length - vol1Eff}/${eleves.length}`} sub={`${vol1Eff} effectué${vol1Eff > 1 ? "s" : ""}`} color="bg-amber-50 text-amber-600" />
-            <Stat icon={Plane} label="Vol 2 restants" value={`${vol2Aut - vol2Eff}/${vol2Aut}`} sub={`${vol2Eff} effectué${vol2Eff > 1 ? "s" : ""}`} color="bg-purple-50 text-purple-600" />
+            <Stat icon={Plane} label="Vol 1 effectués" value={`${vol1Eff}/${eleves.length}`} sub={`${eleves.length - vol1Eff} restant${eleves.length - vol1Eff > 1 ? "s" : ""}`} color="bg-amber-50 text-amber-600" />
+            <Stat icon={Plane} label="Vol 2 effectués" value={`${vol2Eff}/${vol2Aut}`} sub={`${vol2Aut - vol2Eff} restant${vol2Aut - vol2Eff > 1 ? "s" : ""}`} color="bg-purple-50 text-purple-600" />
             <Stat icon={Euro} label="Paiements" value={`${eleves.filter((e: any) => e.paiement_effectue).length}/${eleves.length}`} color="bg-emerald-50 text-emerald-600" />
           </div>
         );
@@ -429,15 +292,11 @@ async function DashboardGerant({ supabase, profile }: { supabase: any; profile: 
 
 // ─── Parent Dashboard ───────────────────────────────────
 async function DashboardParent({ supabase, profile }: { supabase: any; profile: any }) {
-  const [{ data: mesEnfants }, { data: paramsData }] = await Promise.all([
-    supabase.from("eleves").select("*, etablissement:etablissements(nom), reservations(*, creneau:creneaux(date_vol, heure_debut, heure_fin, statut, pilote:profiles!pilote_id(nom, prenom, email, telephone), aeronef:aeronefs(type_aeronef, immatriculation)))").eq("parent_id", profile.id).eq("archive", false),
-    supabase.from("parametres").select("cle, valeur"),
+  const [{ data: mesEnfants }, club] = await Promise.all([
+    supabase.from("eleves").select("*, etablissement:etablissements!inner(nom, actif), reservations(*, creneau:creneaux(date_vol, heure_debut, heure_fin, statut, pilote:profiles!pilote_id(nom, prenom, email, telephone), aeronef:aeronefs(type_aeronef, immatriculation)))").eq("parent_id", profile.id).eq("archive", false).eq("etablissement.actif", true),
+    getClubInfo(),
   ]);
   const enfants = mesEnfants || [];
-  const params = Object.fromEntries((paramsData || []).map((p: any) => [p.cle, p.valeur]));
-  const contactNom = params["nom_aeroclub"] || "Aéro-Club du Bassin d'Arcachon";
-  const contactEmail = params["email_aeroclub"] || "contact@acba.fr";
-  const contactTel = params["telephone_aeroclub"] || null;
 
   // Show onboarding modal if profile incomplete
   // Check nom + prenom + telephone — ensures parents who had their account deleted+recreated
@@ -456,7 +315,7 @@ async function DashboardParent({ supabase, profile }: { supabase: any; profile: 
       )}
       <div className="mb-6">
         <h1 className="text-xl font-bold text-gray-900">Bonjour{profile.prenom ? `, ${profile.prenom}` : ""} !</h1>
-        <p className="text-sm text-gray-500 mt-1">Espace parent · Aéro-Club du Bassin d&apos;Arcachon</p>
+        <p className="text-sm text-gray-500 mt-1">Espace parent · {club.nom}</p>
       </div>
 
       {enfants.length > 0 ? (
@@ -563,9 +422,9 @@ async function DashboardParent({ supabase, profile }: { supabase: any; profile: 
       {/* Contact */}
       <div className="card mt-4">
         <h2 className="text-sm font-semibold text-gray-900 mb-2">Contact</h2>
-        <p className="text-sm text-gray-700 font-medium">{contactNom}</p>
-        <p className="text-sm text-gray-500">{contactEmail}</p>
-        {contactTel && <p className="text-sm text-gray-500">{contactTel}</p>}
+        <p className="text-sm text-gray-700 font-medium">{club.nom}</p>
+        {club.email && <p className="text-sm text-gray-500">{club.email}</p>}
+        {club.telephone && <p className="text-sm text-gray-500">{club.telephone}</p>}
       </div>
     </div>
   );

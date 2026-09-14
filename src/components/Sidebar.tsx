@@ -4,6 +4,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils";
 import { useYear } from "@/contexts/YearContext";
+import { useClub } from "@/contexts/ClubContext";
 import {
   Plane,
   LayoutDashboard,
@@ -27,6 +28,8 @@ import {
   MessageCircle,
   CalendarDays,
   ChevronDown,
+  BarChart2,
+  Building2,
 } from "lucide-react";
 
 const iconMap: Record<string, any> = {
@@ -47,6 +50,8 @@ const iconMap: Record<string, any> = {
   Upload,
   Mail,
   MessageCircle,
+  BarChart2,
+  Building2,
 };
 
 function getNav(roles: string[]) {
@@ -57,7 +62,7 @@ function getNav(roles: string[]) {
       items.push({ key: k, label: l, icon: i, href: h });
   };
 
-  // SuperAdmin
+  add("plateforme", "Plateforme", "Building2", "/plateforme", ["proprietaire"]);
   add("dashboard", "Tableau de bord", "LayoutDashboard", "/dashboard", [
     "superadmin",
     "coordinateur",
@@ -78,6 +83,7 @@ function getNav(roles: string[]) {
     "gerant",
   ]);
   add("finances", "Finances", "Euro", "/dashboard/finances", ["superadmin"]);
+  add("statistiques", "Statistiques", "BarChart2", "/dashboard/statistiques", ["superadmin"]);
   add(
     "etablissements",
     "Établissements",
@@ -126,6 +132,8 @@ function getNav(roles: string[]) {
     ["superadmin", "coordinateur", "pilote", "gerant"],
   );
   add("profil", "Mon profil", "UserCheck", "/dashboard/profil", [
+    "superadmin",
+    "coordinateur",
     "parent",
     "pilote",
     "gerant",
@@ -142,7 +150,8 @@ function getNav(roles: string[]) {
 }
 
 function getRoleLabel(roles: string[]): string {
-  if (roles.includes("superadmin")) return "SuperAdmin";
+  if (roles.includes("proprietaire")) return "Propriétaire de la plateforme";
+  if (roles.includes("superadmin")) return "Admin du club";
   const labels: string[] = [];
   if (roles.includes("coordinateur")) labels.push("Coordinateur");
   if (roles.includes("pilote")) labels.push("Pilote");
@@ -159,8 +168,11 @@ export default function Sidebar({ profile }: { profile: any }) {
   const nav = getNav(profile.roles || []);
   const roleLabel = getRoleLabel(profile.roles || []);
   const { annees, selectedAnneeId, setSelectedAnneeId, selectedAnnee, activeAnneeId } = useYear();
+  const club = useClub();
+  const clubSigle = club.sigle || club.nom;
 
   const roles = profile.roles || [];
+  const isOwner = roles.includes("proprietaire");
   const isParent = roles.includes("parent") && !roles.includes("superadmin");
   const showYearSelector = !isParent && annees.length > 0;
 
@@ -183,9 +195,19 @@ export default function Sidebar({ profile }: { profile: any }) {
         </div>
         <div>
           <p className="text-sm font-bold text-brand-500">BIA Manager</p>
-          <p className="text-[10px] text-gray-400">ACBA · {new Date().getFullYear()}</p>
+          <p className="text-[10px] text-gray-400 truncate max-w-[150px]" title={club.nom}>{clubSigle} · {new Date().getFullYear()}</p>
         </div>
       </div>
+      {isOwner && profile.organisation?.nom && (
+        <button
+          onClick={() => router.push("/plateforme")}
+          className="mx-1 mb-3 px-3 py-2 rounded-lg bg-brand-50 border border-brand-100 text-left hover:bg-brand-100 transition-colors"
+          title="Changer de club depuis la plateforme"
+        >
+          <p className="text-[10px] font-bold uppercase tracking-wider text-brand-400">Vous êtes dans</p>
+          <p className="text-[13px] font-semibold text-brand-600 truncate">{profile.organisation.nom}</p>
+        </button>
+      )}
       {/* ── Year selector ── */}
       {showYearSelector && (
         <div className="mb-3 px-1">
@@ -208,8 +230,8 @@ export default function Sidebar({ profile }: { profile: any }) {
             <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400 pointer-events-none" />
           </div>
           {selectedAnnee && selectedAnnee.id !== activeAnneeId && (
-            <p className="text-[10px] text-amber-600 font-semibold mt-1 px-2 flex items-center gap-1">
-              <span>⚠</span> Vue archive — lecture recommandée
+            <p className="text-[10px] text-amber-600 font-medium mt-1 px-2">
+              Navigation archive · Création → année ★
             </p>
           )}
         </div>
@@ -282,7 +304,7 @@ export default function Sidebar({ profile }: { profile: any }) {
           <div className="w-8 h-8 rounded-lg bg-brand-500 flex items-center justify-center">
             <Plane className="w-4 h-4 text-white" />
           </div>
-          <span className="text-sm font-bold text-brand-500">ACBA · BIA</span>
+          <span className="text-sm font-bold text-brand-500">{clubSigle} · BIA</span>
         </div>
         <button onClick={() => setOpen(!open)} className="p-1.5">
           {open ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}

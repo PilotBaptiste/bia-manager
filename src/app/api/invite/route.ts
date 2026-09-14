@@ -1,28 +1,61 @@
-import { createClient } from "@supabase/supabase-js";
 import { Resend } from "resend";
 import { NextResponse } from "next/server";
+import { createServerSupabaseClient, createServiceClient } from "@/lib/supabase/server";
+import { getClubInfo, DEFAULT_CLUB_NOM } from "@/lib/club";
+import { getOrgById } from "@/lib/org";
+import { clubUrl } from "@/lib/tenant";
+
+const STAFF_ROLES = ["superadmin", "coordinateur", "gerant"];
+const escHtml = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 
 export async function POST(req: Request) {
   try {
-  const { email, nom, prenom } = await req.json();
+  const payload = await req.json();
+  const email = String(payload.email || "").trim().toLowerCase();
 
   if (!email) {
     return NextResponse.json({ error: "email obligatoire" }, { status: 400 });
   }
 
+  // Public callers (forgot password) may only trigger a recovery email for an existing account.
+  const session = await createServerSupabaseClient();
+  const { data: { user: caller } } = await session.auth.getUser();
+  let isStaff = false;
+  let callerOrgId: string | null = null;
+  if (caller) {
+    const { data: prof } = await session.from("profiles").select("roles, organisation_id").eq("id", caller.id).single();
+    isStaff = (prof?.roles || []).some((r: string) => STAFF_ROLES.includes(r));
+    callerOrgId = prof?.organisation_id ?? null;
+  }
+  const nom = isStaff && payload.nom ? escHtml(String(payload.nom)) : "";
+  const prenom = isStaff && payload.prenom ? escHtml(String(payload.prenom)) : "";
+
   if (!process.env.SUPABASE_SERVICE_ROLE_KEY) {
     return NextResponse.json({ error: "SUPABASE_SERVICE_ROLE_KEY manquant dans les variables d'environnement Vercel" }, { status: 500 });
   }
 
-  const supabase = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY,
-  );
+  const supabase = createServiceClient();
+
+  const { data: targetProfiles } = await supabase
+    .from("profiles")
+    .select("id, organisation_id")
+    .ilike("email", email)
+    .limit(1);
+  const targetProfile = targetProfiles?.[0] ?? null;
+
+  if (isStaff && callerOrgId && targetProfile?.organisation_id && targetProfile.organisation_id !== callerOrgId) {
+    return NextResponse.json({ error: "Cette adresse est déjà utilisée par un autre aéroclub" }, { status: 409 });
+  }
+
+  const targetOrgId: string | null = targetProfile?.organisation_id ?? (isStaff ? callerOrgId : null);
+  const targetOrg = targetOrgId ? await getOrgById(targetOrgId) : null;
 
   const appUrl =
     process.env.NEXT_PUBLIC_APP_URL ?? "https://bia-manager-acba.vercel.app";
 
-  const redirectTo = `${appUrl}/auth/callback?next=/auth/set-password`;
+  const redirectTo = targetOrg
+    ? clubUrl(targetOrg.slug, "/auth/callback?next=/auth/set-password", new URL(req.url).origin)
+    : `${appUrl}/auth/callback?next=/auth/set-password`;
 
   // Try recovery first (existing auth user), fall back to invite (creates the account)
   let linkData: any = null;
@@ -35,8 +68,11 @@ export async function POST(req: Request) {
     options: { redirectTo },
   });
 
+  if (recovery.error && !isStaff) {
+    return NextResponse.json({ success: true });
+  }
+
   if (recovery.error) {
-    // User doesn't have an auth account yet — create it via invite
     const invite = await supabase.auth.admin.generateLink({
       type: "invite",
       email,
@@ -53,8 +89,30 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: linkError.message }, { status: 400 });
   }
 
+  const invitedUserId: string | undefined = linkData?.user?.id;
+  if (isStaff && callerOrgId && !targetProfile?.organisation_id && invitedUserId) {
+    await supabase
+      .from("profiles")
+      .update({ organisation_id: callerOrgId })
+      .eq("id", invitedUserId)
+      .is("organisation_id", null);
+  }
+
   const resetLink = linkData.properties.action_link;
-  const displayName = nom && prenom ? `${prenom} ${nom}` : email;
+  const displayName = nom && prenom ? `${prenom} ${nom}` : escHtml(email);
+
+  const club = await getClubInfo(targetOrgId);
+  const clubNom = club.nom !== DEFAULT_CLUB_NOM ? escHtml(club.nom) : "";
+  const waUrl = club.whatsapp
+    ? `https://wa.me/${club.whatsapp}?text=Bonjour%2C%20j%27ai%20besoin%20d%27aide%20sur%20BIA%20Manager.`
+    : "";
+  const whatsappBlock = waUrl
+    ? `<div style="margin-top:32px;padding-top:24px;border-top:1px solid #eee;text-align:center">
+            <p style="color:#555;font-size:14px;margin:0 0 12px;font-weight:600">Besoin d'aide ? Contactez-nous sur WhatsApp</p>
+            <img src="https://api.qrserver.com/v1/create-qr-code/?size=140x140&data=${encodeURIComponent(waUrl)}" alt="QR Code WhatsApp support" width="140" height="140" style="border-radius:8px;border:1px solid #eee" />
+            <p style="color:#aaa;font-size:12px;margin:8px 0 0">Scannez ce QR code avec votre téléphone${club.telephoneSupport ? ` · ${escHtml(club.telephoneSupport)}` : ""}</p>
+          </div>`
+    : "";
 
   const subject = isRecovery
     ? "BIA Manager — Réinitialisez votre mot de passe"
@@ -72,18 +130,14 @@ export async function POST(req: Request) {
           <p style="color:#aaa;font-size:12px;margin-top:24px">Ce lien est valable 24 heures. Si vous n'avez pas demandé cette réinitialisation, ignorez cet email.</p>`
     : `<h2 style="margin:0 0 8px;font-size:22px;color:#111">Bonjour ${displayName},</h2>
           <p style="color:#555;margin:0 0 24px">
-            Vous avez été invité(e) sur la plateforme BIA Manager de l'Aéro-Club du Bassin d'Arcachon.
+            Vous avez été invité(e) sur la plateforme BIA Manager${clubNom ? ` — ${clubNom}` : ""}.
             Cliquez sur le bouton ci-dessous pour définir votre mot de passe et accéder à votre espace.
           </p>
           <a href="${resetLink}" style="display:inline-block;background:#1b3a5c;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:600;font-size:15px">
             Définir mon mot de passe →
           </a>
           <p style="color:#aaa;font-size:12px;margin-top:24px">Ce lien est valable 24 heures. Si vous n'avez pas demandé cet accès, ignorez cet email.</p>
-          <div style="margin-top:32px;padding-top:24px;border-top:1px solid #eee;text-align:center">
-            <p style="color:#555;font-size:14px;margin:0 0 12px;font-weight:600">Besoin d'aide ? Contactez-nous sur WhatsApp</p>
-            <img src="https://api.qrserver.com/v1/create-qr-code/?size=140x140&data=https%3A%2F%2Fwa.me%2F33756919167%3Ftext%3DBonjour%252C%2520j%2527ai%2520besoin%2520d%2527aide%2520sur%2520BIA%2520Manager." alt="QR Code WhatsApp support" width="140" height="140" style="border-radius:8px;border:1px solid #eee" />
-            <p style="color:#aaa;font-size:12px;margin:8px 0 0">Scannez ce QR code avec votre téléphone · 07 56 91 91 67</p>
-          </div>`;
+          ${whatsappBlock}`;
 
   // Send via Resend — no rate limit issues
   if (process.env.RESEND_API_KEY) {
@@ -111,7 +165,8 @@ export async function POST(req: Request) {
       statut = "erreur";
     }
     try {
-      await supabase.from("email_logs").insert({
+      if (targetOrgId) await supabase.from("email_logs").insert({
+        organisation_id: targetOrgId,
         type: isRecovery ? "reset_password" : "invite",
         to_email: email,
         subject,
@@ -122,11 +177,10 @@ export async function POST(req: Request) {
     } catch { /* ignore logging errors */ }
   } else {
     // Fallback: let Supabase send it (dev without Resend configured)
-    await supabase.auth.resetPasswordForEmail(email, {
-      redirectTo: `${appUrl}/auth/callback?next=/auth/set-password`,
-    });
+    await supabase.auth.resetPasswordForEmail(email, { redirectTo });
     try {
-      await supabase.from("email_logs").insert({
+      if (targetOrgId) await supabase.from("email_logs").insert({
+        organisation_id: targetOrgId,
         type: "invite",
         to_email: email,
         subject: "Accès BIA Manager — Définissez votre mot de passe",
