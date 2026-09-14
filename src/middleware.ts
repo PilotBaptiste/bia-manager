@@ -48,16 +48,25 @@ export async function middleware(request: NextRequest) {
     return res;
   };
 
+  const isOwnerLogin = pathname.startsWith("/auth/proprietaire");
+
   if (ROOT_DOMAIN && !isApi) {
-    // The owner console only exists on admin.<domain>; anywhere else it answers "not found", not a redirect.
-    if (isPlatform && !onAdmin) {
+    // The owner console and its login only exist on admin.<domain>; anywhere else they answer "not found".
+    if ((isPlatform || isOwnerLogin) && !onAdmin) {
       return NextResponse.rewrite(new URL("/page-introuvable", request.url), { status: 404 });
+    }
+    // On admin.<domain>, the regular login is replaced by the dedicated owner login.
+    if (onAdmin && isLoginPage && !user) {
+      return NextResponse.rewrite(new URL("/auth/proprietaire", request.url));
     }
     // The showcase home page is public, signed in or not.
     if (onShowcase && isRoot) return supabaseResponse;
   }
 
   if (!user && !isAuth && !isApi && !isInscription && !(isRoot && !slug && !onAdmin)) {
+    return redirectTo(new URL("/auth/connexion", request.url).toString());
+  }
+  if (onAdmin && !user && isInscription) {
     return redirectTo(new URL("/auth/connexion", request.url).toString());
   }
 
