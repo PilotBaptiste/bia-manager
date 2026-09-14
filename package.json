@@ -8,9 +8,11 @@
     "start": "next start",
     "db:schema": "node scripts/generate-schema-reference.mjs",
     "test:roles": "node --test tests/roles.test.mjs",
-    "test:isolation": "node scripts/test-isolation-clubs.mjs"
+    "test:isolation": "node scripts/test-isolation-clubs.mjs",
+    "seed:demo": "node scripts/seed-demo-club.mjs"
   },
   "dependencies": {
+    "@sentry/nextjs": "^10.74.0",
     "@supabase/ssr": "^0.6.0",
     "@supabase/supabase-js": "^2.49.0",
     "@types/react-signature-canvas": "^1.0.7",

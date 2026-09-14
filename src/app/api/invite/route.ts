@@ -1,4 +1,5 @@
 import { Resend } from "resend";
+import { isDemoAddress } from "@/lib/demo";
 import { NextResponse } from "next/server";
 import { createServerSupabaseClient, createServiceClient } from "@/lib/supabase/server";
 import { getClubInfo, DEFAULT_CLUB_NOM } from "@/lib/club";
@@ -138,6 +139,10 @@ export async function POST(req: Request) {
           </a>
           <p style="color:#aaa;font-size:12px;margin-top:24px">Ce lien est valable 24 heures. Si vous n'avez pas demandé cet accès, ignorez cet email.</p>
           ${whatsappBlock}`;
+
+  if (isDemoAddress(email)) {
+    return NextResponse.json({ success: true, demo: true });
+  }
 
   // Send via Resend — no rate limit issues
   if (process.env.RESEND_API_KEY) {

@@ -11,6 +11,11 @@ const SLUG_RE = /^[a-z0-9]([a-z0-9-]{0,40}[a-z0-9])?$/;
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
+// The template is copied from the owner's current club: its hardcoded club name becomes the {NOM_AEROCLUB} placeholder.
+function neutraliserNomClub(template: string) {
+  return template.replace(/(de )?l['’]A[eé]ro-?Club du Bassin d['’]Arcachon/gi, (_m, de) => `${de ?? ""}{NOM_AEROCLUB}`);
+}
+
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 // ─── GET : liste des clubs avec leurs chiffres ──────────────────────
@@ -194,7 +199,7 @@ export async function POST(req: NextRequest) {
       { cle: "duree_cible_vols", valeur: copied.duree_cible_vols?.valeur ?? "60", description: copied.duree_cible_vols?.description || "Durée cible totale des 2 vols (minutes)" },
     ];
     if (copied.template_attestation) {
-      reglages.push({ cle: "template_attestation", valeur: copied.template_attestation.valeur, description: copied.template_attestation.description || "Template de l'attestation parentale" });
+      reglages.push({ cle: "template_attestation", valeur: neutraliserNomClub(copied.template_attestation.valeur), description: copied.template_attestation.description || "Template de l'attestation parentale" });
     }
     reglages.push(
       { cle: "nom_aeroclub", valeur: nom, description: "Nom complet de l'aéroclub" },
