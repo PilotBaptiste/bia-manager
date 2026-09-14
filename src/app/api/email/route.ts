@@ -125,6 +125,20 @@ function fmt(date: string) {
   }
 }
 
+// Resend's default limit is a few API requests per second: pace requests and retry when throttled.
+const RESEND_PAUSE_MS = 550;
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+async function withRateLimitRetry<T extends { data: any; error: any }>(send: () => Promise<T>): Promise<{ data: any; error: { message?: string } | null }> {
+  for (let attempt = 0; ; attempt++) {
+    const res = await send().catch((err: any) => ({ data: null, error: { message: err?.message ?? "Erreur envoi", name: "exception" } }));
+    const throttled = res.error && (res.error.name === "rate_limit_exceeded" || res.error.statusCode === 429);
+    if (!throttled || attempt >= 4) return res;
+    await sleep(1000 * (attempt + 1));
+  }
+}
+
+export const maxDuration = 120;
+
 export async function POST(req: Request) {
   const auth = await requireRole();
   if (auth instanceof NextResponse) return auth;
@@ -652,44 +666,52 @@ export async function POST(req: Request) {
 
     const supabaseAdmin = adminSupabase();
     const errors: string[] = [];
+    const outcomes: { resendId: string | null; statut: string }[] = emails.map(() => ({ resendId: null, statut: "erreur" }));
+    const payload = (e: (typeof emails)[number]) => ({
+      from: FROM,
+      to: unescHtml(e.to),
+      subject: unescHtml(e.subject),
+      html: e.html,
+      ...(e.attachments ? { attachments: e.attachments } : {}),
+    });
 
-    for (const e of emails) {
-      let resendId: string | null = null;
-      let statut = "envoye";
-      try {
-        const result = await resend.emails.send({
-          from: FROM,
-          to: unescHtml(e.to),
-          subject: unescHtml(e.subject),
-          html: e.html,
-          ...(e.attachments ? { attachments: e.attachments } : {}),
-        });
-        // Resend SDK v2+ returns { data, error } instead of throwing
-        if ((result as any).error) {
-          errors.push((result as any).error?.message ?? "Erreur Resend");
-          statut = "erreur";
-        } else {
-          resendId = result.data?.id ?? null;
-        }
-      } catch (err: any) {
-        errors.push(err?.message ?? "Erreur envoi");
-        statut = "erreur";
+    // Emails with attachments must be sent one by one; the others go through the batch API (100 per request),
+    // so a notification to hundreds of parents stays within Resend's rate limit and Vercel's time limit.
+    const singles = emails.map((e, i) => ({ e, i })).filter(({ e }) => e.attachments);
+    const batchable = emails.map((e, i) => ({ e, i })).filter(({ e }) => !e.attachments);
+    let requests = 0;
+
+    for (const { e, i } of singles) {
+      if (requests++ > 0) await sleep(RESEND_PAUSE_MS);
+      const { data, error } = await withRateLimitRetry(() => resend.emails.send(payload(e)));
+      if (error) errors.push(error.message ?? "Erreur Resend");
+      else outcomes[i] = { resendId: data?.id ?? null, statut: "envoye" };
+    }
+    for (let k = 0; k < batchable.length; k += 100) {
+      const chunk = batchable.slice(k, k + 100);
+      if (requests++ > 0) await sleep(RESEND_PAUSE_MS);
+      const { data, error } = await withRateLimitRetry(() => resend.batch.send(chunk.map(({ e }) => payload(e))));
+      if (error) {
+        chunk.forEach(() => errors.push(error.message ?? "Erreur Resend"));
+        continue;
       }
+      chunk.forEach(({ i }, pos) => {
+        outcomes[i] = { resendId: (data as any)?.data?.[pos]?.id ?? null, statut: "envoye" };
+      });
+    }
 
-      // Log to email_logs (best-effort, don't fail the request if logging fails)
-      try {
-        if (!supabaseAdmin) throw new Error("no supabase");
-        await supabaseAdmin.from("email_logs").insert({
-          organisation_id: orgId,
-          type,
-          to_email: unescHtml(e.to),
-          subject: unescHtml(e.subject),
-          eleve_id: e.eleve_id !== undefined ? e.eleve_id : (body.eleve_id ?? null),
-          creneau_id: body.creneau_id ?? null,
-          resend_id: resendId,
-          statut,
-        });
-      } catch { /* ignore logging errors */ }
+    // One insert for the whole send (best-effort: logging must never fail the request)
+    if (supabaseAdmin && emails.length > 0) {
+      await supabaseAdmin.from("email_logs").insert(emails.map((e, i) => ({
+        organisation_id: orgId,
+        type,
+        to_email: unescHtml(e.to),
+        subject: unescHtml(e.subject),
+        eleve_id: e.eleve_id !== undefined ? e.eleve_id : (body.eleve_id ?? null),
+        creneau_id: body.creneau_id ?? null,
+        resend_id: outcomes[i].resendId,
+        statut: outcomes[i].statut,
+      })));
     }
 
     return NextResponse.json({
