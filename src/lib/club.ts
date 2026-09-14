@@ -1,3 +1,4 @@
+import { unstable_rethrow } from "next/navigation";
 import { cache } from "react";
 import { createServiceClient } from "@/lib/supabase/server";
 import { getOrgById, getRequestOrg } from "@/lib/org";
@@ -40,6 +41,7 @@ export const getClubInfo = cache(async (orgId?: string | null): Promise<ClubInfo
       for (const row of data ?? []) p[row.cle] = (row.valeur ?? "").trim();
     }
   } catch (e) {
+    unstable_rethrow(e);
     console.error("getClubInfo:", e);
   }
   return {

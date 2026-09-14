@@ -3,7 +3,8 @@ import "./globals.css";
 import { getClubInfo, DEFAULT_CLUB_NOM } from "@/lib/club";
 import { ClubProvider } from "@/contexts/ClubContext";
 
-export const revalidate = 60;
+// Every page depends on the requesting host (club subdomain) and on the session: never prerender them.
+export const dynamic = "force-dynamic";
 
 export async function generateMetadata(): Promise<Metadata> {
   const club = await getClubInfo();
