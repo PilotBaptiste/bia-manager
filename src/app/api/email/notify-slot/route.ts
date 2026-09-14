@@ -22,6 +22,8 @@ import { createServiceClient } from "@/lib/supabase/server";
  * Body: { creneau_id, etablissement_id?, etablissement_ids?, eleves_autorises?, force?,
  *         date_vol, heure_debut, heure_fin, pilote_nom, aeronef }
  */
+export const maxDuration = 120;
+
 export async function POST(req: Request) {
   const auth = await requireRole(["superadmin", "pilote", "coordinateur", "gerant"]);
   if (auth instanceof NextResponse) return auth;
