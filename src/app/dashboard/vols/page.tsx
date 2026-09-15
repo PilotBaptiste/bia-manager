@@ -2,6 +2,7 @@
 import { useState, useEffect, useMemo } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { fetchAll } from "@/lib/fetchAll";
+import { emailStatus } from "@/lib/emailStatus";
 import { inActiveEtab } from "@/lib/etablissements";
 import { useYear } from "@/contexts/YearContext";
 import { matchDesiderata } from "@/components/DesiderataGrid";
@@ -1587,7 +1588,10 @@ export default function VolsPage() {
                   )
                 : [];
               const sentAt = latestLog ? new Date(latestLog.created_at).toLocaleString("fr-FR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : null;
-              const errCount = batchLogs.filter((l) => l.statut === "erreur").length;
+              const countGroupe = (g: string) => batchLogs.filter((l) => emailStatus(l.statut).groupe === g).length;
+              const okCount = countGroupe("ok");
+              const pendingCount = countGroupe("attente");
+              const errCount = countGroupe("echec");
               return (
                 <div className="mt-4 pt-3 border-t border-gray-100">
                   <p className="text-xs font-semibold text-gray-500 uppercase mb-2">Dernier envoi de notifications</p>
@@ -1597,16 +1601,17 @@ export default function VolsPage() {
                     <div className="space-y-1">
                       <p className="text-xs text-gray-500 mb-1">
                         {sentAt && <span className="mr-2">{sentAt}</span>}
-                        <span className="text-emerald-600 font-medium">{batchLogs.filter((l) => l.statut === "envoye").length} envoyé(s)</span>
-                        {errCount > 0 && (
-                          <span className="ml-2 text-red-500 font-semibold">· {errCount} erreur(s)</span>
-                        )}
+                        <span className="text-gray-600 font-medium">{batchLogs.length} email{batchLogs.length > 1 ? "s" : ""}</span>
+                        {okCount > 0 && <span className="ml-2 text-emerald-600 font-medium">· {okCount} délivré{okCount > 1 ? "s" : ""}</span>}
+                        {pendingCount > 0 && <span className="ml-2 text-blue-500 font-medium">· {pendingCount} en cours</span>}
+                        {errCount > 0 && <span className="ml-2 text-red-500 font-semibold">· {errCount} échec{errCount > 1 ? "s" : ""}</span>}
                       </p>
                       <div className="max-h-28 overflow-y-auto space-y-1">
                         {batchLogs.map((l) => (
                           <div key={l.id} className="flex items-center gap-2 text-xs">
-                            <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${l.statut === "envoye" ? "bg-emerald-400" : "bg-red-400"}`} />
+                            <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${emailStatus(l.statut).dot}`} />
                             <span className="text-gray-600 truncate flex-1">{l.to_email}</span>
+                            <span className={`shrink-0 ${emailStatus(l.statut).groupe === "echec" ? "text-red-500" : "text-gray-400"}`}>{emailStatus(l.statut).label}</span>
                           </div>
                         ))}
                       </div>
