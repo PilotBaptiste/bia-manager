@@ -6,6 +6,7 @@ import { fetchAll } from "@/lib/fetchAll";
 import { toast } from "sonner";
 import { useYear } from "@/contexts/YearContext";
 import { useModule } from "@/contexts/ModulesContext";
+import { emailStatus } from "@/lib/emailStatus";
 import type { Eleve, Etablissement } from "@/types";
 import {
   Users,
@@ -2016,18 +2017,7 @@ export default function ElevesPage() {
                     </thead>
                     <tbody>
                       {emailLogs.map((log) => {
-                        const statusMap: Record<string, { label: string; dot: string }> = {
-                          envoye:   { label: "Envoyé",   dot: "bg-blue-400" },
-                          delivre:  { label: "Délivré",  dot: "bg-emerald-400" },
-                          ouvert:   { label: "Ouvert",   dot: "bg-green-500" },
-                          clique:   { label: "Cliqué",   dot: "bg-green-600" },
-                          retarde:  { label: "Retardé",  dot: "bg-amber-400" },
-                          rebondi:  { label: "Rebondi",  dot: "bg-red-400" },
-                          spam:     { label: "Spam",     dot: "bg-red-500" },
-                          erreur:   { label: "Erreur",   dot: "bg-red-400" },
-                          supprime: { label: "Supprimé", dot: "bg-gray-300" },
-                        };
-                        const st = statusMap[log.statut] ?? { label: log.statut, dot: "bg-gray-300" };
+                        const st = emailStatus(log.statut);
                         const typeMap: Record<string, string> = {
                           attestation_ready: "Vol disponible",
                           booking_confirm: "Réservation confirmée",
