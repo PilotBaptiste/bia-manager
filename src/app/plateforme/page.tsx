@@ -20,6 +20,7 @@ import {
   Mail,
   Puzzle,
   Bug,
+  CreditCard,
 } from "lucide-react";
 import { ROOT_DOMAIN, clubUrl } from "@/lib/tenant";
 import { MODULES, MODULE_CATEGORIES } from "@/lib/modules";
@@ -34,6 +35,7 @@ type Club = {
   counts: { etablissements: number; eleves: number; users: number; parents: number; vol1: number; vol2: number; vols: number; creneauxClotures: number };
   admins: { prenom: string; nom: string; email: string }[];
   modules: string[];
+  sumupMerchantCode: string | null;
 };
 
 function slugify(nom: string) {
@@ -91,6 +93,8 @@ export default function PlateformePage() {
 
   const [modulesFor, setModulesFor] = useState<Club | null>(null);
   const [testingSentry, setTestingSentry] = useState(false);
+  const [paiementFor, setPaiementFor] = useState<Club | null>(null);
+  const [sumupForm, setSumupForm] = useState({ merchantCode: "", apiKey: "" });
   const [modulesDraft, setModulesDraft] = useState<string[]>([]);
   const [renaming, setRenaming] = useState<Club | null>(null);
   const [newNom, setNewNom] = useState("");
@@ -198,6 +202,22 @@ export default function PlateformePage() {
       toast.error(e.message);
     } finally {
       setTestingSentry(false);
+    }
+  }
+
+  async function handleSavePaiement(supprimer = false) {
+    if (!paiementFor) return;
+    setSaving(true);
+    try {
+      const body = supprimer ? { sumupMerchantCode: "", sumupApiKey: "" } : { sumupMerchantCode: sumupForm.merchantCode.trim(), sumupApiKey: sumupForm.apiKey.trim() };
+      await api(`/api/plateforme/clubs/${paiementFor.id}/paiement`, { method: "PUT", body: JSON.stringify(body) });
+      toast.success(supprimer ? "Compte SumUp retiré" : `Compte SumUp de ${paiementFor.nom} enregistré`);
+      setPaiementFor(null);
+      load();
+    } catch (e: any) {
+      toast.error(e.message);
+    } finally {
+      setSaving(false);
     }
   }
 
@@ -390,6 +410,13 @@ export default function PlateformePage() {
                               Accéder au site
                             </button>
                           )}
+                          <button
+                            onClick={() => { setPaiementFor(c); setSumupForm({ merchantCode: c.sumupMerchantCode ?? "", apiKey: "" }); }}
+                            className={`relative p-1.5 rounded-lg hover:bg-gray-100 transition-colors ${c.sumupMerchantCode ? "text-emerald-600" : "text-gray-400 hover:text-gray-700"}`}
+                            title={c.sumupMerchantCode ? `Encaissement SumUp configuré (${c.sumupMerchantCode})` : "Configurer l'encaissement SumUp"}
+                          >
+                            <CreditCard className="w-3.5 h-3.5" />
+                          </button>
                           <button
                             onClick={() => { setModulesFor(c); setModulesDraft(c.modules ?? []); }}
                             className="relative p-1.5 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-gray-700 transition-colors"
@@ -666,6 +693,47 @@ export default function PlateformePage() {
               <button onClick={handleSaveModules} disabled={saving} className="btn-primary btn-sm">
                 {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : null} Enregistrer
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {paiementFor && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" onClick={() => !saving && setPaiementFor(null)}>
+          <div className="absolute inset-0 bg-black/40" />
+          <div onClick={(e) => e.stopPropagation()} className="relative bg-white rounded-2xl p-6 w-full max-w-md shadow-xl">
+            <div className="flex items-center justify-between mb-1">
+              <h3 className="text-lg font-bold text-gray-900">Encaissement — {paiementFor.nom}</h3>
+              <button onClick={() => setPaiementFor(null)} className="p-1.5 rounded-lg hover:bg-gray-100"><X className="w-4 h-4" /></button>
+            </div>
+            <p className="text-sm text-gray-500 mb-4">
+              Le club encaisse sur son propre compte SumUp. Les clés ne sont lisibles par personne dans l&apos;application, pas même par l&apos;admin du club.
+              Activez ensuite le module « Paiement de l&apos;inscription par carte ».
+            </p>
+            <div className="space-y-3">
+              <div>
+                <label className="label">Code marchand</label>
+                <input className="input font-mono" value={sumupForm.merchantCode} onChange={(e) => setSumupForm({ ...sumupForm, merchantCode: e.target.value })} placeholder="MQxxxxxx" />
+              </div>
+              <div>
+                <label className="label">Clé API secrète</label>
+                <input className="input font-mono" type="password" autoComplete="off" value={sumupForm.apiKey} onChange={(e) => setSumupForm({ ...sumupForm, apiKey: e.target.value })} placeholder={paiementFor.sumupMerchantCode ? "Laisser vide pour conserver la clé actuelle" : "sup_sk_…"} />
+                <p className="text-[11px] text-gray-400 mt-1">Les identifiants sont vérifiés auprès de SumUp avant d&apos;être enregistrés.</p>
+              </div>
+            </div>
+            <div className="flex justify-between gap-2 mt-5 pt-4 border-t border-gray-100">
+              <div>
+                {paiementFor.sumupMerchantCode && (
+                  <button onClick={() => handleSavePaiement(true)} disabled={saving} className="btn-sm border border-red-200 text-red-600 bg-red-50 hover:bg-red-100 rounded-lg px-3 py-1.5 text-xs font-semibold">
+                    Retirer le compte
+                  </button>
+                )}
+              </div>
+              <div className="flex gap-2">
+                <button onClick={() => setPaiementFor(null)} className="btn-secondary btn-sm">Annuler</button>
+                <button onClick={() => handleSavePaiement(false)} disabled={saving} className="btn-primary btn-sm">
+                  {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : null} Enregistrer
+                </button>
+              </div>
             </div>
           </div>
         </div>

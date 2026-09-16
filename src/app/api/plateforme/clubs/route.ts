@@ -25,11 +25,13 @@ export async function GET() {
 
   try {
     const db = createServiceClient();
-    const [orgsRes, anneesRes, adminsRes] = await Promise.all([
+    const [orgsRes, anneesRes, adminsRes, secretsRes] = await Promise.all([
       db.from("organisations").select("*").order("nom"),
       db.from("annees").select("id, label, organisation_id").eq("active", true),
       db.from("profiles").select("id, prenom, nom, email, organisation_id").contains("roles", ["superadmin"]),
+      db.from("organisation_secrets").select("organisation_id, sumup_merchant_code"),
     ]);
+    const sumupParClub = new Map((secretsRes.data ?? []).filter((s: any) => s.sumup_merchant_code).map((s: any) => [s.organisation_id, s.sumup_merchant_code]));
     if (orgsRes.error) throw orgsRes.error;
 
     const activeYear = new Map<string, { id: string; label: string }>();
@@ -69,6 +71,7 @@ export async function GET() {
         return {
           ...org,
           modules: Array.isArray((org as any).modules) ? (org as any).modules : [],
+          sumupMerchantCode: sumupParClub.get(org.id) ?? null,
           annee: annee?.label ?? null,
           counts: {
             etablissements: etabs.count ?? 0,

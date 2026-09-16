@@ -3,6 +3,7 @@ import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { Users, CheckCircle2, Plane, Euro, Calendar, Clock, School, FileSignature, CalendarPlus, AlertCircle } from "lucide-react";
 import Link from "next/link";
 import ParentOnboarding from "@/components/ParentOnboarding";
+import PaiementButton from "./PaiementButton";
 import DashboardSAStats from "@/components/DashboardSAStats";
 import { getClubInfo } from "@/lib/club";
 import { inActiveEtab } from "@/lib/etablissements";
@@ -297,6 +298,9 @@ async function DashboardParent({ supabase, profile }: { supabase: any; profile: 
     getClubInfo(),
   ]);
   const enfants = mesEnfants || [];
+  const { data: prixParam } = await supabase.from("parametres").select("valeur").eq("cle", "prix_inscription").maybeSingle();
+  const prixInscription = parseFloat(prixParam?.valeur ?? "") || 80;
+  const paiementEnLigne = (profile.modules || []).includes("paiement_en_ligne");
 
   // Show onboarding modal if profile incomplete
   // Check nom + prenom + telephone — ensures parents who had their account deleted+recreated
@@ -337,9 +341,12 @@ async function DashboardParent({ supabase, profile }: { supabase: any; profile: 
               <div className={`p-3 rounded-lg ${e.paiement_effectue ? "bg-emerald-50" : "bg-red-50"}`}>
                 <p className="text-xs font-semibold text-gray-500 mb-1">Paiement inscription</p>
                 {e.paiement_effectue ? (
-                  <p className="text-sm font-semibold text-emerald-700">✅ Paye — {e.paiement_montant || 80}€</p>
+                  <p className="text-sm font-semibold text-emerald-700">✅ Paye — {e.paiement_montant || prixInscription}€</p>
                 ) : (
-                  <p className="text-sm font-semibold text-red-700">❌ En attente — {e.paiement_montant || 80}€</p>
+                  <>
+                    <p className="text-sm font-semibold text-red-700">❌ En attente — {e.paiement_montant || prixInscription}€</p>
+                    {paiementEnLigne && <PaiementButton eleveId={e.id} montant={Number(e.paiement_montant || prixInscription)} />}
+                  </>
                 )}
               </div>
 

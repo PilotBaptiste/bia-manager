@@ -37,6 +37,8 @@ export const MODULES: ModuleDef[] = [
     description: "Réglementation des vols BIA et mémo PDF pour les pilotes." },
   { key: "export_ffa", label: "Export FFA des résultats BIA", categorie: "Documents",
     description: "Liste imprimable des résultats BIA (bouton dans Élèves)." },
+  { key: "paiement_en_ligne", label: "Paiement de l'inscription par carte", categorie: "Familles",
+    description: "Les familles règlent l'inscription en ligne sur le compte SumUp du club. Les clés se saisissent dans « Encaissement »." },
   { key: "laboratoire", label: "Laboratoire", categorie: "Essais",
     nav: { href: "/dashboard/laboratoire", icon: "FlaskConical", roles: ["superadmin", "coordinateur", "pilote", "gerant"] },
     description: "Onglet d'essai pour tester une nouveauté sur un seul aéroclub." },
