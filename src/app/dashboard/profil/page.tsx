@@ -194,6 +194,7 @@ function EnfantCard({
             {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
             Enregistrer
           </button>
+
         </div>
       )}
     </div>
@@ -212,6 +213,29 @@ export default function ProfilPage() {
   const [pwSaving, setPwSaving] = useState(false);
   const [pwMsg, setPwMsg] = useState<string | null>(null);
   const [enfants, setEnfants] = useState<Enfant[]>([]);
+  const [accepteEmails, setAccepteEmails] = useState<boolean | null>(null);
+  const [savingEmails, setSavingEmails] = useState(false);
+
+  useEffect(() => {
+    fetch("/api/mes-preferences-email")
+      .then((r) => r.json())
+      .then((d) => setAccepteEmails(d.accepte !== false))
+      .catch(() => setAccepteEmails(true));
+  }, []);
+
+  async function majPreferenceEmail(accepte: boolean) {
+    setSavingEmails(true);
+    const res = await fetch("/api/mes-preferences-email", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ accepte }),
+    });
+    setSavingEmails(false);
+    if (!res.ok) { toast.error("Enregistrement impossible"); return; }
+    setAccepteEmails(accepte);
+    toast.success(accepte ? "Vous recevrez à nouveau les emails" : "Vous ne recevrez plus d'emails");
+  }
+
 
   useEffect(() => {
     async function load() {
@@ -354,6 +378,26 @@ export default function ProfilPage() {
               {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}{" "}
               Enregistrer
             </button>
+
+            <div className="pt-4 mt-2 border-t border-gray-100">
+            <p className="text-sm font-semibold text-gray-900 mb-1">Emails de l&apos;aéroclub</p>
+            {accepteEmails === null ? (
+              <p className="text-xs text-gray-400">Chargement…</p>
+            ) : (
+              <>
+                <p className="text-xs text-gray-500 mb-2">
+                  {accepteEmails
+                    ? "Vous recevez les créneaux de vol disponibles, les confirmations de réservation, les rappels et les annulations."
+                    : "Vous ne recevez plus aucun email : ni créneaux disponibles, ni confirmations, ni rappels, ni annulations. Il vous appartient de vous tenir informé auprès de l'aéroclub."}
+                </p>
+                <button onClick={() => majPreferenceEmail(!accepteEmails)} disabled={savingEmails} className={accepteEmails ? "btn-secondary btn-sm" : "btn-primary btn-sm"}>
+                  {savingEmails ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : null}
+                  {accepteEmails ? "Ne plus recevoir d'emails" : "Recevoir à nouveau les emails"}
+                </button>
+              </>
+            )}
+          </div>
+
           </div>
         </div>
 

@@ -1,5 +1,6 @@
 import { Resend } from "resend";
 import { isDemoAddress } from "@/lib/demo";
+import { estDesabonne, lienDesabonnement, piedDesabonnement } from "@/lib/emailPrefs";
 import { NextResponse } from "next/server";
 import { createServerSupabaseClient, createServiceClient } from "@/lib/supabase/server";
 import { getClubInfo, DEFAULT_CLUB_NOM } from "@/lib/club";
@@ -119,7 +120,7 @@ export async function POST(req: Request) {
     ? "BIA Manager — Réinitialisez votre mot de passe"
     : "Accès BIA Manager — Définissez votre mot de passe";
 
-  const bodyHtml = isRecovery
+  let bodyHtml = isRecovery
     ? `<h2 style="margin:0 0 8px;font-size:22px;color:#111">Bonjour ${displayName},</h2>
           <p style="color:#555;margin:0 0 24px">
             Vous avez demandé la réinitialisation de votre mot de passe BIA Manager.
@@ -139,6 +140,14 @@ export async function POST(req: Request) {
           </a>
           <p style="color:#aaa;font-size:12px;margin-top:24px">Ce lien est valable 24 heures. Si vous n'avez pas demandé cet accès, ignorez cet email.</p>
           ${whatsappBlock}`;
+
+  // Un compte qui a refusé les emails ne reçoit plus rien, y compris ce lien d'accès.
+  if (targetOrgId && (await estDesabonne(targetOrgId, email))) {
+    return NextResponse.json({ success: true, desabonne: true });
+  }
+  if (targetOrgId && targetOrg) {
+    bodyHtml += piedDesabonnement(lienDesabonnement(targetOrgId, email, clubUrl(targetOrg.slug, "", new URL(req.url).origin)));
+  }
 
   if (isDemoAddress(email)) {
     return NextResponse.json({ success: true, demo: true });

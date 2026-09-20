@@ -16,6 +16,7 @@ export default function InscriptionCodePage() {
   const [etabError, setEtabError] = useState<string | null>(null);
 
   // Parent form
+  const [accepteEmails, setAccepteEmails] = useState(true);
   const [parent, setParent] = useState({
     email: "", password: "", passwordConfirm: "",
     nom: "", prenom: "", telephone: "",
@@ -118,6 +119,7 @@ export default function InscriptionCodePage() {
           prenom: parent.prenom.trim(),
           telephone: parent.telephone.trim(),
         },
+        accepteEmails,
         enfants: enfants.map((e) => ({
           nom: e.nom.trim(),
           prenom: e.prenom.trim(),
@@ -280,6 +282,22 @@ export default function InscriptionCodePage() {
                   required />
               </div>
             </div>
+
+            <label className="mt-4 flex items-start gap-3 rounded-xl border border-gray-200 bg-gray-50 p-3 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={accepteEmails}
+                onChange={(e) => setAccepteEmails(e.target.checked)}
+                className="mt-0.5"
+              />
+              <span className="text-xs text-gray-600">
+                <span className="block font-semibold text-gray-900">Je souhaite recevoir les emails de l&apos;aéroclub</span>
+                Toute l&apos;organisation du BIA passe par email : ouverture des créneaux de vol, confirmation de réservation,
+                rappels et annulations. Si vous décochez cette case, vous ne recevrez <strong>aucun</strong> de ces messages
+                et il vous appartiendra de vous tenir informé auprès de l&apos;aéroclub. Vous pourrez les réactiver à tout
+                moment depuis votre espace, rubrique Mon profil.
+              </span>
+            </label>
           </div>
 
           {/* ── Children section ── */}
