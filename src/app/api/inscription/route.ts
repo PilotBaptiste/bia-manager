@@ -1,5 +1,6 @@
 import { Resend } from "resend";
 import { isDemoAddress } from "@/lib/demo";
+import { definirPreference } from "@/lib/emailPrefs";
 import { NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
 import { getClubInfo, DEFAULT_CLUB_NOM } from "@/lib/club";
@@ -69,7 +70,7 @@ export async function GET(req: Request) {
 
 // POST — create user + profile + eleves
 export async function POST(req: Request) {
-  const { code, parent, enfants } = await req.json();
+  const { code, parent, enfants, accepteEmails = true } = await req.json();
 
   if (!code || !parent?.email || !parent?.password || !parent?.nom || !parent?.prenom) {
     return NextResponse.json({ error: "Données parent incomplètes" }, { status: 400 });
@@ -191,6 +192,8 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: `Erreur création élèves: ${elevesError.message}` }, { status: 500 });
   }
 
+  await definirPreference(orgId, parentEmail, accepteEmails !== false, "inscription").catch(() => {});
+
   // 7. Send welcome email
   if (process.env.RESEND_API_KEY) {
     const resend = new Resend(process.env.RESEND_API_KEY);
@@ -201,7 +204,7 @@ export async function POST(req: Request) {
       .map((e: any) => `<li>${escHtml(e.prenom)} ${escHtml(e.nom)}</li>`)
       .join("");
 
-    if (!isDemoAddress(parent.email)) await resend.emails.send({
+    if (!isDemoAddress(parent.email) && accepteEmails) await resend.emails.send({
       from: process.env.RESEND_FROM ?? "BIA Manager <noreply@bia-manager-acba.vercel.app>",
       to: parent.email.trim().toLowerCase(),
       subject: `Inscription BIA confirmée — ${etab.nom}`,

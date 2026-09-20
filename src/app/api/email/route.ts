@@ -1,5 +1,6 @@
 import { Resend } from "resend";
 import { isDemoAddress } from "@/lib/demo";
+import { adressesDesabonnees, lienDesabonnement, piedDesabonnement } from "@/lib/emailPrefs";
 import { NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
 import { requireRole } from "@/lib/auth";
@@ -678,7 +679,13 @@ export async function POST(req: Request) {
 
     // Emails with attachments must be sent one by one; the others go through the batch API (100 per request),
     // so a notification to hundreds of parents stays within Resend's rate limit and Vercel's time limit.
-    emails.forEach((e, i) => { if (isDemoAddress(unescHtml(e.to))) outcomes[i] = { resendId: null, statut: "demo" }; });
+    const desabonnes = await adressesDesabonnees(orgId, emails.map((e) => unescHtml(e.to)));
+    emails.forEach((e, i) => {
+      const destinataire = unescHtml(e.to);
+      if (isDemoAddress(destinataire)) outcomes[i] = { resendId: null, statut: "demo" };
+      else if (desabonnes.has(destinataire.toLowerCase())) outcomes[i] = { resendId: null, statut: "desabonne" };
+      else e.html += piedDesabonnement(lienDesabonnement(orgId, destinataire, base));
+    });
     const deliverable = emails.map((e, i) => ({ e, i })).filter(({ i }) => outcomes[i].statut !== "demo");
     const singles = deliverable.filter(({ e }) => e.attachments);
     const batchable = deliverable.filter(({ e }) => !e.attachments);
