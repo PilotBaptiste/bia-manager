@@ -101,6 +101,6 @@ Aucune donnée personnelle n'est envoyée : ni cookies, ni en-têtes, ni contenu
 ## 6. Club de démonstration
 `aeroclub-test.biamanager.com` sert de démo et d'environnement d'essai.
 - **Remplir ou remettre à zéro** : `npm run seed:demo -- --reset`. Le script refuse tout club dont l'adresse ne contient pas « test » ou « demo », et vérifie que les autres clubs n'ont pas bougé.
-- **Comptes** : `demo.pilote1@example.com`, `demo.coordinateur@example.com`, `demo.parent01@example.com`… Le mot de passe commun est affiché à la fin du script.
+- **Comptes** : `demo.pilote1@example.com`, `demo.coordinateur@example.com`, `demo.parent01@example.com`… Mot de passe commun : `admin123` (modifiable avec la variable `DEMO_PASSWORD`).
 - **Emails** : aucun email n'est jamais envoyé aux adresses `@example.com`. Les envois sont enregistrés avec le statut « demo ».
 - **Isolation** : `npm run test:isolation` (ajouter `CLUB_CIBLE=aeroclub-test` pour viser le club de démo).
