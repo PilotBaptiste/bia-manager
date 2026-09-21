@@ -101,7 +101,8 @@ const avions = await db.from("aeronefs").insert([
 const [dr400, c152] = avions;
 
 // ── Comptes ──────────────────────────────────────────────────────
-const password = `Demo-${randomBytes(9).toString("base64url")}`;
+// Mot de passe commun et fixe pour les présentations (club fictif, isolé des autres clubs).
+const password = process.env.DEMO_PASSWORD || "admin123";
 const accounts = [];
 async function account(email, prenom, nom, roles, extra = {}) {
   const created = await db.auth.admin.createUser({ email, password, email_confirm: true, user_metadata: { prenom, nom } }).then(must(`Compte ${email}`));
