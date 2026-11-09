@@ -29,3 +29,23 @@ export function nomFichierSur(nom: string): string {
     .replace(/-+/g, "-")
     .slice(-120);
 }
+
+/** Un PDF ou une image s'affiche directement dans l'application ; le reste se télécharge. */
+export function sAfficheEnLigne(nom: string | null | undefined): boolean {
+  const ext = extension(nom);
+  return [".pdf", ".jpg", ".jpeg", ".png"].includes(ext);
+}
+
+export function extension(nom: string | null | undefined): string {
+  const n = String(nom ?? "");
+  const i = n.lastIndexOf(".");
+  return i === -1 ? "" : n.slice(i).toLowerCase();
+}
+
+/** Libellé court du format, pour la pastille affichée à côté d'un document. */
+export function formatLisible(nom: string | null | undefined): string {
+  const ext = extension(nom).replace(".", "").toUpperCase();
+  if (!ext) return "Fichier";
+  if (ext === "JPEG") return "JPG";
+  return ext;
+}

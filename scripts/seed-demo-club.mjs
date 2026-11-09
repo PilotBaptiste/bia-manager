@@ -60,7 +60,7 @@ if (existing && !RESET) {
   process.exit(1);
 }
 if (RESET) {
-  for (const t of ["cours_vus", "cours", "paiements", "vols_lignes", "vols_effectues", "reservations", "creneaux", "subventions",
+  for (const t of ["cours_ressources_vues", "cours_vus", "cours_ressources", "cours", "paiements", "vols_lignes", "vols_effectues", "reservations", "creneaux", "subventions",
     "eleves", "pilote_qualifications", "pilote_etablissements", "aeronef_tarifs", "aeronefs", "etablissements",
     "email_logs", "activity_logs"]) {
     // Les tables arrivées avec un script SQL plus récent peuvent ne pas exister encore
@@ -261,16 +261,30 @@ const COURS_DEMO = [
   ["Espaces aériens et classes", "Navigation, réglementation, sécurité des vols", "https://fr.wikipedia.org/wiki/Espace_a%C3%A9rien", 1],
   ["Les grandes dates de l'aviation", "Histoire de l'aéronautique et de l'espace", "https://fr.wikipedia.org/wiki/Histoire_de_l%27aviation", 1],
 ];
-const { error: coursError } = await db.from("cours").insert(
-  COURS_DEMO.map(([titre, matiere, url, ordre]) => ({
-    organisation_id: ORG, titre, matiere, url, ordre, type: "lien", publie: true,
-    description: "Ressource de démonstration — à remplacer par vos propres documents.",
+const { data: coursCrees, error: coursError } = await db.from("cours").insert(
+  COURS_DEMO.map(([titre, matiere, , ordre]) => ({
+    organisation_id: ORG, titre, matiere, ordre, type: "lien", publie: true,
+    description: "Cours de démonstration — à remplacer par vos propres documents.",
   })),
-);
+).select("id, titre");
 if (coursError && !/does not exist|schema cache/i.test(coursError.message)) {
   throw new Error(`Cours de démo : ${coursError.message}`);
 }
-const coursAjoutes = coursError ? 0 : COURS_DEMO.length;
+// Chaque cours reçoit son document : un cours peut en réunir plusieurs
+let coursAjoutes = 0;
+if (!coursError) {
+  coursAjoutes = COURS_DEMO.length;
+  const parTitre = new Map((coursCrees ?? []).map((c) => [c.titre, c.id]));
+  const { error: resError } = await db.from("cours_ressources").insert(
+    COURS_DEMO.flatMap(([titre, , url]) => {
+      const coursId = parTitre.get(titre);
+      return coursId ? [{ organisation_id: ORG, cours_id: coursId, titre: "Fiche de révision", type: "lien", url, ordre: 0 }] : [];
+    }),
+  );
+  if (resError && !/does not exist|schema cache/i.test(resError.message)) {
+    throw new Error(`Documents des cours de démo : ${resError.message}`);
+  }
+}
 
 // ── Vérification : les autres clubs n'ont pas bougé ──────────────
 const after = await snapshotOthers(ORG);
