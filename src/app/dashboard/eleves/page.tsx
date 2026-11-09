@@ -98,7 +98,7 @@ const ELEVES_LIST_SELECT =
 
 const ELEVES_EXPORT_SELECT = "*, etablissement:etablissements!inner(nom,actif)";
 
-const SEARCH_FIELDS = ["nom", "prenom", "parent_nom", "parent_prenom", "parent_email", "vol1_numero_aerogest", "vol2_numero_aerogest"];
+const SEARCH_FIELDS = ["nom", "prenom", "parent_nom", "parent_prenom", "parent_email", "parent2_nom", "parent2_email", "vol1_numero_aerogest", "vol2_numero_aerogest"];
 
 const emptyForm = {
   nom: "",
@@ -114,6 +114,10 @@ const emptyForm = {
   parent_prenom: "",
   parent_email: "",
   parent_telephone: "",
+  parent2_nom: "",
+  parent2_prenom: "",
+  parent2_email: "",
+  parent2_telephone: "",
   paiement_effectue: false,
   paiement_mode: "",
   paiement_montant: "80",
@@ -128,6 +132,7 @@ const emptyForm = {
   vol_fi_mode: false,
   vol2_autorise: false,
   vol2_effectue: false,
+  vol2_refuse: false,
   vol2_temps_minutes: "",
   vol2_aeronef_id: "",
   vol2_prix: "",
@@ -147,6 +152,10 @@ export default function ElevesPage() {
   const router = useRouter();
   const { selectedAnneeId, activeAnneeId } = useYear();
   const hasExportFFA = useModule("export_ffa");
+  const hasSecondParent = useModule("second_parent");
+  const [showParent2, setShowParent2] = useState(false);
+  // Réglage du club : autoriser le vol 2 même sans le BIA
+  const [vol2SansBia, setVol2SansBia] = useState(false);
   // anneeId = active year, used when creating new students
   const anneeId = activeAnneeId;
   const [eleves, setEleves] = useState<any[]>([]);
@@ -269,14 +278,17 @@ export default function ElevesPage() {
         ? supabase.from("etablissements").select("*").in("id", coordEtabIds).order("nom")
         : supabase.from("etablissements").select("*").eq("actif", true).order("nom"),
       supabase.from("aeronefs").select("*").eq("actif", true).order("type_aeronef"),
-      supabase.from("parametres").select("cle,valeur").eq("cle", "prix_inscription").single(),
+      supabase.from("parametres").select("cle,valeur").in("cle", ["prix_inscription", "vol2_sans_bia"]),
       fetchAll((from, to) => supabase.from("profiles").select("email, nom, prenom, telephone").contains("roles", ["parent"]).order("id").range(from, to)),
       supabase.from("profiles").select("id, nom, prenom").contains("roles", ["pilote"]).eq("actif", true).order("nom"),
     ]);
     setEtablissements((etR.data || []).filter((e: any) => e.actif !== false));
     setAeronefs(aR.data || []);
     setPilotes(pilotesR.data || []);
-    if (pR.data?.valeur) setDefaultMontant(pR.data.valeur);
+    const params: Record<string, string> = {};
+    for (const row of pR.data || []) params[row.cle] = row.valeur;
+    if (params.prix_inscription) setDefaultMontant(params.prix_inscription);
+    setVol2SansBia(params.vol2_sans_bia === "true");
     // Build email → profile map for parent name sync
     const pmap: Record<string, any> = {};
     for (const p of profR.data || []) {
@@ -379,6 +391,7 @@ export default function ElevesPage() {
 
   function openCreate() {
     setEditingId(null);
+    setShowParent2(false);
     setForm({ ...emptyForm, paiement_montant: defaultMontant, etablissement_id: etablissements[0]?.id || "" });
     setFormError(null);
     setShowForm(true);
@@ -401,6 +414,7 @@ export default function ElevesPage() {
 
   function openEdit(s: any) {
     setEditingId(s.id);
+    setShowParent2(!!s.parent2_email);
     const addr = parseAdresse(s.adresse);
     setForm({
       nom: s.nom,
@@ -416,6 +430,10 @@ export default function ElevesPage() {
       parent_prenom: s.parent_prenom,
       parent_email: s.parent_email,
       parent_telephone: s.parent_telephone,
+      parent2_nom: s.parent2_nom || "",
+      parent2_prenom: s.parent2_prenom || "",
+      parent2_email: s.parent2_email || "",
+      parent2_telephone: s.parent2_telephone || "",
       paiement_effectue: s.paiement_effectue,
       paiement_mode: s.paiement_mode || "",
       paiement_montant: String(s.paiement_montant || 80),
@@ -430,6 +448,7 @@ export default function ElevesPage() {
       vol1_numero_aerogest: s.vol1_numero_aerogest || "",
       vol2_autorise: s.vol2_autorise,
       vol2_effectue: s.vol2_effectue,
+      vol2_refuse: s.vol2_refuse || false,
       vol2_temps_minutes: String(s.vol2_temps_minutes || ""),
       vol2_aeronef_id: s.vol2_aeronef_id || "",
       vol2_prix: String(s.vol2_prix || ""),
@@ -480,6 +499,17 @@ export default function ElevesPage() {
         setFormError("La date de naissance ne peut pas être dans le futur.");
         return;
       }
+      const email2 = form.parent2_email.trim();
+      if (email2) {
+        if (!emailRegex.test(email2)) {
+          setFormError("Format d'email du second parent invalide.");
+          return;
+        }
+        if (email2.toLowerCase() === form.parent_email.trim().toLowerCase()) {
+          setFormError("Les deux parents doivent avoir des adresses email différentes.");
+          return;
+        }
+      }
     }
     if (!anneeId && !isPiloteOnly) {
       setFormError("Aucune annee active.");
@@ -515,6 +545,7 @@ export default function ElevesPage() {
         // En mode FI : vol2 est automatiquement complété avec les mêmes données
         vol2_autorise: form.vol_fi_mode ? form.vol1_effectue : form.vol2_autorise,
         vol2_effectue: form.vol_fi_mode ? form.vol1_effectue : form.vol2_effectue,
+        vol2_refuse: form.vol_fi_mode ? false : form.vol2_refuse,
         vol2_temps_minutes: form.vol_fi_mode ? null : (form.vol2_effectue && form.vol2_temps_minutes ? parseInt(form.vol2_temps_minutes) : null),
         vol2_aeronef_id: form.vol_fi_mode ? null : (form.vol2_aeronef_id || null),
         vol2_prix: form.vol_fi_mode ? null : (form.vol2_prix ? parseFloat(form.vol2_prix) : null),
@@ -549,6 +580,10 @@ export default function ElevesPage() {
       parent_prenom: form.parent_prenom,
       parent_email: form.parent_email,
       parent_telephone: form.parent_telephone,
+      parent2_nom: form.parent2_nom.trim() || null,
+      parent2_prenom: form.parent2_prenom.trim() || null,
+      parent2_email: form.parent2_email.trim().toLowerCase() || null,
+      parent2_telephone: form.parent2_telephone.trim() || null,
       paiement_effectue: form.paiement_effectue,
       paiement_mode: form.paiement_mode || null,
       paiement_montant: form.paiement_effectue ? montantSaisi : null,
@@ -568,6 +603,7 @@ export default function ElevesPage() {
       // Mode FI : vol2 auto-complété avec le vol FI, sinon champs normaux
       vol2_autorise: form.vol_fi_mode ? form.vol1_effectue : form.vol2_autorise,
       vol2_effectue: form.vol_fi_mode ? form.vol1_effectue : form.vol2_effectue,
+      vol2_refuse: form.vol_fi_mode ? false : form.vol2_refuse,
       vol2_temps_minutes: form.vol_fi_mode ? null : (form.vol2_effectue && form.vol2_temps_minutes ? parseInt(form.vol2_temps_minutes) : null),
       vol2_aeronef_id: form.vol_fi_mode ? null : (form.vol2_aeronef_id || null),
       vol2_prix: form.vol_fi_mode ? null : (form.vol2_prix ? parseFloat(form.vol2_prix) : null),
@@ -594,6 +630,12 @@ export default function ElevesPage() {
     } else if (original && (original.parent_email || "").toLowerCase() !== parentEmail) {
       payload.parent_id = null;
     }
+    // Second parent : rattaché au compte existant qui porte la même adresse, sinon délié
+    const parent2Email = payload.parent2_email || "";
+    const { data: parent2Profile } = parent2Email
+      ? await supabase.from("profiles").select("id").ilike("email", parent2Email).maybeSingle()
+      : { data: null };
+    payload.parent2_id = parent2Profile?.id ?? null;
 
     let result;
     if (editingId) {
@@ -641,7 +683,7 @@ export default function ElevesPage() {
     );
     toast.dismiss(tid);
     if (error) { toast.error(`Erreur lors de l'export : ${error.message}`); return; }
-    const headers = ["Nom","Prenom","Date naissance","Lieu naissance","Adresse","Etablissement","Classe","Parent nom","Parent prenom","Email parent","Tel parent","Paiement","Montant","Mode paiement","Attestation","Vol 1","Temps vol 1 (min)","Prix vol 1","BIA resultat","Vol 2 autorise","Vol 2","Temps vol 2 (min)","Prix vol 2","Commentaires"];
+    const headers = ["Nom","Prenom","Date naissance","Lieu naissance","Adresse","Etablissement","Classe","Parent nom","Parent prenom","Email parent","Tel parent","Parent 2 nom","Parent 2 prenom","Email parent 2","Tel parent 2","Paiement","Montant","Mode paiement","Attestation","Vol 1","Temps vol 1 (min)","Prix vol 1","BIA resultat","Vol 2 autorise","Vol 2","Vol 2 refuse","Temps vol 2 (min)","Prix vol 2","Commentaires"];
     const rows = allRows.map((s: any) => [
       s.nom, s.prenom,
       s.date_naissance ? new Date(s.date_naissance).toLocaleDateString("fr-FR") : "",
@@ -650,6 +692,7 @@ export default function ElevesPage() {
       s.etablissement?.nom || "",
       s.classe || "",
       s.parent_nom || "", s.parent_prenom || "", s.parent_email || "", s.parent_telephone || "",
+      s.parent2_nom || "", s.parent2_prenom || "", s.parent2_email || "", s.parent2_telephone || "",
       s.paiement_effectue ? "Oui" : "Non",
       s.paiement_montant || "",
       s.paiement_mode || "",
@@ -660,6 +703,7 @@ export default function ElevesPage() {
       s.bia_resultat || "",
       s.vol2_autorise ? "Oui" : "Non",
       s.vol2_effectue ? "Oui" : "Non",
+      s.vol2_refuse ? "Oui" : "Non",
       s.vol2_temps_minutes || "",
       s.vol2_prix || "",
       s.commentaires || "",
@@ -967,6 +1011,74 @@ export default function ElevesPage() {
           </div>
         </div>}
 
+        {/* Second responsable légal — familles séparées */}
+        {!isPiloteOnly && hasSecondParent && <div className="mb-5">
+          <div className="flex items-center justify-between mb-3">
+            <h4 className="text-xs font-bold uppercase tracking-wider text-gray-400">
+              Second responsable legal
+            </h4>
+            {!showParent2 && (
+              <button type="button" onClick={() => setShowParent2(true)} className="text-xs font-semibold text-brand-500 hover:underline">
+                + Ajouter un second parent
+              </button>
+            )}
+          </div>
+          {showParent2 ? (
+            <>
+              <p className="text-xs text-gray-500 mb-3">
+                Les deux parents reçoivent les emails et peuvent réserver ou annuler un vol. Laissez vide s'il n'y en a qu'un.
+              </p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="label">Nom</label>
+                  <input
+                    value={form.parent2_nom}
+                    onChange={(e) => setForm({ ...form, parent2_nom: e.target.value })}
+                    className="input"
+                  />
+                </div>
+                <div>
+                  <label className="label">Prenom</label>
+                  <input
+                    value={form.parent2_prenom}
+                    onChange={(e) => setForm({ ...form, parent2_prenom: e.target.value })}
+                    className="input"
+                  />
+                </div>
+                <div>
+                  <label className="label">Email</label>
+                  <input
+                    type="email"
+                    value={form.parent2_email}
+                    onChange={(e) => setForm({ ...form, parent2_email: e.target.value })}
+                    className="input"
+                  />
+                </div>
+                <div>
+                  <label className="label">Telephone</label>
+                  <input
+                    value={form.parent2_telephone}
+                    onChange={(e) => setForm({ ...form, parent2_telephone: e.target.value })}
+                    className="input"
+                  />
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowParent2(false);
+                  setForm({ ...form, parent2_nom: "", parent2_prenom: "", parent2_email: "", parent2_telephone: "" });
+                }}
+                className="mt-2 text-xs text-gray-400 hover:text-red-500"
+              >
+                Retirer le second parent
+              </button>
+            </>
+          ) : (
+            <p className="text-xs text-gray-400">Aucun second parent enregistré.</p>
+          )}
+        </div>}
+
         {/* Statuts */}
         <div className="mb-5">
           <h4 className="text-xs font-bold uppercase tracking-wider text-gray-400 mb-3">
@@ -1170,7 +1282,13 @@ export default function ElevesPage() {
                           bia_resultat: r,
                           // Sync vol2_autorise automatically: true if BIA passed, false otherwise.
                           // Admin can still manually toggle the checkbox below.
-                          vol2_autorise: r === "Admis" || r === "Mention",
+                          // Si le club autorise le vol 2 sans le BIA, un échec ne révoque plus l'autorisation.
+                          vol2_autorise:
+                            r === "Admis" || r === "Mention"
+                              ? true
+                              : vol2SansBia
+                                ? form.vol2_autorise
+                                : false,
                         });
                       }}
                       className="select"
@@ -1360,6 +1478,7 @@ export default function ElevesPage() {
                 <input
                   type="checkbox"
                   checked={form.vol2_autorise}
+                  disabled={form.vol2_refuse}
                   onChange={(e) =>
                     setForm({ ...form, vol2_autorise: e.target.checked })
                   }
@@ -1368,16 +1487,39 @@ export default function ElevesPage() {
                   Vol 2 autorise
                 </span>
               </label>
+              {vol2SansBia && form.bia_resultat === "Non admis" && form.vol2_autorise && (
+                <p className="text-[11px] text-amber-600 mb-2 -mt-1">
+                  Vol 2 maintenu malgré un BIA non admis (réglage du club).
+                </p>
+              )}
               <label className="flex items-center gap-2 cursor-pointer mb-3">
                 <input
                   type="checkbox"
                   checked={form.vol2_effectue}
+                  disabled={form.vol2_refuse}
                   onChange={(e) =>
                     setForm({ ...form, vol2_effectue: e.target.checked })
                   }
                 />
                 <span className="text-sm font-semibold text-gray-700">
                   Vol 2 effectue
+                </span>
+              </label>
+              <label className="flex items-center gap-2 cursor-pointer mb-3">
+                <input
+                  type="checkbox"
+                  checked={form.vol2_refuse}
+                  onChange={(e) =>
+                    setForm({
+                      ...form,
+                      vol2_refuse: e.target.checked,
+                      // Un élève qui renonce sort des listes « vol 2 à programmer »
+                      ...(e.target.checked ? { vol2_autorise: false, vol2_effectue: false } : {}),
+                    })
+                  }
+                />
+                <span className="text-sm font-semibold text-gray-700">
+                  Ne souhaite pas faire le vol 2
                 </span>
               </label>
               {form.vol2_effectue && (
@@ -1634,6 +1776,56 @@ export default function ElevesPage() {
                 </button>
               </div>
             </Section>
+            {hasSecondParent && s.parent2_email && (
+              <Section title="Second responsable legal">
+                <InfoRow label="Nom" value={`${s.parent2_prenom ?? ""} ${s.parent2_nom ?? ""}`.trim() || "—"} />
+                <InfoRow label="Email" value={s.parent2_email} />
+                <div className="flex items-center justify-between py-1.5 border-b border-gray-50 last:border-0">
+                  <span className="text-xs text-gray-500">Téléphone</span>
+                  <div className="flex items-center gap-2">
+                    {s.parent2_telephone ? (
+                      <>
+                        <span className="text-xs font-medium text-gray-800">{s.parent2_telephone}</span>
+                        <a
+                          href={`tel:${s.parent2_telephone.replace(/\s/g, "")}`}
+                          className="flex items-center gap-1 px-2 py-1 rounded-lg bg-emerald-50 text-emerald-700 hover:bg-emerald-100 transition-colors text-xs font-semibold"
+                        >
+                          <Phone className="w-3 h-3" /> Appeler
+                        </a>
+                      </>
+                    ) : (
+                      <span className="text-xs text-gray-400">—</span>
+                    )}
+                  </div>
+                </div>
+                <div className="mt-2">
+                  <button
+                    onClick={() => {
+                      setConfirmAction({
+                        title: "Envoyer l'invitation",
+                        message: `Envoyer un email d'invitation/accès à ${s.parent2_email} ?`,
+                        variant: "primary",
+                        onConfirm: async () => {
+                          const tid = toast.loading("Envoi de l'invitation…");
+                          const res = await fetch("/api/invite", {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({ email: s.parent2_email, nom: s.parent2_nom, prenom: s.parent2_prenom }),
+                          });
+                          const json = await res.json();
+                          toast.dismiss(tid);
+                          if (res.ok) toast.success(`Invitation envoyée à ${s.parent2_email}`);
+                          else toast.error(`Erreur: ${json.error}`);
+                        },
+                      });
+                    }}
+                    className="btn-secondary btn-sm"
+                  >
+                    <Mail className="w-3.5 h-3.5" /> Invitation second parent
+                  </button>
+                </div>
+              </Section>
+            )}
             {s.commentaires && (
               <Section title="Commentaires">
                 <div className="text-sm bg-amber-50 p-3 rounded-lg border-l-[3px] border-amber-400 text-gray-700">
@@ -1952,6 +2144,8 @@ export default function ElevesPage() {
                     accent="text-red-600"
                   />
                 </>
+              ) : s.vol2_refuse ? (
+                <InfoRow label="Statut" value="Ne souhaite pas faire le vol 2" accent="text-gray-400" />
               ) : s.vol2_autorise ? (
                 (() => {
                   const r = getActiveResa((s as any).reservations, 2);
@@ -2456,6 +2650,10 @@ export default function ElevesPage() {
                     <td className="px-3 py-2.5">
                       {s.vol2_effectue ? (
                         <Dot ok />
+                      ) : s.vol2_refuse ? (
+                        <span className="text-xs font-medium text-gray-400 whitespace-nowrap" title="L'élève ne souhaite pas faire le vol 2">
+                          Renonce
+                        </span>
                       ) : s.vol2_autorise ? (
                         (() => {
                           const r = getActiveResa((s as any).reservations, 2);

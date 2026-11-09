@@ -7,6 +7,7 @@ import { requireRole } from "@/lib/auth";
 import { getClubInfo, DEFAULT_CLUB_NOM } from "@/lib/club";
 import { getOrgById } from "@/lib/org";
 import { clubUrl } from "@/lib/tenant";
+import { PARENT_COLUMNS, parentsDe } from "@/lib/parents";
 
 const STAFF_ROLES = ["superadmin", "coordinateur", "gerant", "pilote"];
 const PARENT_TYPES = ["booking_confirm", "booking_cancel", "attestation_ready"];
@@ -24,6 +25,26 @@ function escDeep(v: any): any {
 function adminSupabase() {
   if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) return null;
   return createServiceClient();
+}
+
+/**
+ * Autres responsables légaux de l'élève, hors destinataire déjà prévu.
+ * Les adresses viennent de la base, jamais du navigateur : un parent ne peut pas
+ * faire envoyer un email à une adresse de son choix.
+ */
+async function coParents(eleveId: string | null | undefined, orgId: string, dejaPrevenu: string) {
+  if (!eleveId) return [];
+  const admin = adminSupabase();
+  if (!admin) return [];
+  const { data } = await admin
+    .from("eleves")
+    .select(PARENT_COLUMNS)
+    .eq("id", eleveId)
+    .eq("organisation_id", orgId)
+    .maybeSingle();
+  if (!data) return [];
+  const exclu = dejaPrevenu.trim().toLowerCase();
+  return parentsDe(data).filter((p) => p.email.toLowerCase() !== exclu);
 }
 
 const FROM =
@@ -258,6 +279,36 @@ export async function POST(req: Request) {
         attachments: [icsAttachment],
       });
 
+      // Au second responsable légal — il est prévenu de la réservation faite par l'autre parent
+      for (const co of await coParents(raw.eleve_id, orgId, raw.parent_email || "")) {
+        emails.push({
+          to: co.email,
+          subject: `✅ Réservation enregistrée — Vol ${type_vol} du ${fmt(date_vol)}`,
+          html: wrap(`
+            <h2 style="margin:0 0 4px;font-size:20px;color:#0f172a">Réservation enregistrée</h2>
+            <p style="color:#64748b;margin:0 0 20px;font-size:14px">Bonjour ${escHtml(co.prenom)},</p>
+            <p style="color:#374151;font-size:14px;margin:0 0 8px">
+              Un vol vient d'être réservé pour <strong>${eleve_prenom} ${eleve_nom}</strong> (<strong>Vol ${type_vol}</strong>).
+              Vous recevez cet email car vous êtes enregistré comme responsable légal.
+            </p>
+            ${infoBox([
+              { label: "📅 Date", value: fmt(date_vol) },
+              { label: "⏰ Horaire", value: `${heure_debut?.slice(0, 5)} – ${heure_fin?.slice(0, 5)}` },
+              { label: "✈️ Appareil", value: aeronef || "—" },
+              { label: "👨‍✈️ Pilote", value: pilote_nom || "—" },
+              ...(etablissement ? [{ label: "🏫 Établissement", value: etablissement }] : []),
+            ])}
+            ${lieuVolHtml ? `<div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;padding:14px 16px;margin:16px 0">
+              <p style="margin:0;color:#1e40af;font-size:13px;font-weight:700">📍 Lieu du vol</p>
+              <p style="margin:6px 0 0;color:#1d4ed8;font-size:13px">${lieuVolHtml}</p>
+            </div>` : ""}
+            ${ctaBtn("Voir les réservations", `${base}/dashboard/reservation`)}
+          `, contact),
+          eleve_id: raw.eleve_id ?? null,
+          attachments: [icsAttachment],
+        });
+      }
+
       // To pilot — new booking notification (skip if same address as parent)
       if (pilote_email && pilote_email !== parent_email) {
         emails.push({
@@ -315,6 +366,29 @@ export async function POST(req: Request) {
           ${ctaBtn("Réserver un nouveau créneau", `${base}/dashboard/reservation`)}
         `, contact),
       });
+
+      // Au second responsable légal — l'annulation faite par l'un est signalée à l'autre
+      for (const co of await coParents(raw.eleve_id, orgId, raw.parent_email || "")) {
+        emails.push({
+          to: co.email,
+          subject: `❌ Réservation annulée — Vol ${type_vol} du ${fmt(date_vol)}`,
+          html: wrap(`
+            <h2 style="margin:0 0 4px;font-size:20px;color:#0f172a">Réservation annulée</h2>
+            <p style="color:#64748b;margin:0 0 20px;font-size:14px">Bonjour ${escHtml(co.prenom)},</p>
+            <p style="color:#374151;font-size:14px;margin:0 0 16px">
+              La réservation de <strong>${eleve_prenom} ${eleve_nom}</strong> pour le <strong>Vol ${type_vol}</strong> a été annulée.
+              Vous recevez cet email car vous êtes enregistré comme responsable légal.
+            </p>
+            ${infoBox([
+              { label: "📅 Date annulée", value: fmt(date_vol) },
+              { label: "⏰ Horaire", value: heure_debut?.slice(0, 5) || "—" },
+              ...(motif ? [{ label: "💬 Motif", value: motif }] : []),
+            ])}
+            ${ctaBtn("Réserver un nouveau créneau", `${base}/dashboard/reservation`)}
+          `, contact),
+          eleve_id: raw.eleve_id ?? null,
+        });
+      }
 
       // To pilot — cancellation notification (skip if same address as parent)
       if (pilote_email && pilote_email !== parent_email) {
@@ -583,6 +657,8 @@ export async function POST(req: Request) {
         ...(el.parent_nom || el.parent_prenom ? [{ label: "👨‍👩‍👦 Parent", value: `${el.parent_prenom || ""} ${el.parent_nom || ""}`.trim() }] : []),
         ...(el.parent_telephone ? [{ label: "📞 Tél. parent", value: el.parent_telephone }] : []),
         ...(el.parent_email ? [{ label: "📧 Email parent", value: el.parent_email }] : []),
+        ...(el.parent2_nom || el.parent2_prenom ? [{ label: "👨‍👩‍👦 Parent 2", value: `${el.parent2_prenom || ""} ${el.parent2_nom || ""}`.trim() }] : []),
+        ...(el.parent2_telephone ? [{ label: "📞 Tél. parent 2", value: el.parent2_telephone }] : []),
       ]).flat();
       emails.push({
         to: pilote_email,
@@ -686,7 +762,10 @@ export async function POST(req: Request) {
       else if (desabonnes.has(destinataire.toLowerCase())) outcomes[i] = { resendId: null, statut: "desabonne" };
       else e.html += piedDesabonnement(lienDesabonnement(orgId, destinataire, base));
     });
-    const deliverable = emails.map((e, i) => ({ e, i })).filter(({ i }) => outcomes[i].statut !== "demo");
+    // Ni les adresses de démonstration ni les désabonnés ne reçoivent quoi que ce soit :
+    // leur statut (« demo » / « desabonne ») est conservé dans l'historique.
+    const NON_ENVOYE = ["demo", "desabonne"];
+    const deliverable = emails.map((e, i) => ({ e, i })).filter(({ i }) => !NON_ENVOYE.includes(outcomes[i].statut));
     const singles = deliverable.filter(({ e }) => e.attachments);
     const batchable = deliverable.filter(({ e }) => !e.attachments);
     let requests = 0;
@@ -724,9 +803,14 @@ export async function POST(req: Request) {
       })));
     }
 
+    // « envoyé » compte les messages réellement partis, plus ceux des adresses de
+    // démonstration (volontairement non envoyés). Les désabonnés sont comptés à part.
+    const desabonnesIgnores = outcomes.filter((o) => o.statut === "desabonne").length;
+    const sent = outcomes.filter((o) => o.statut === "envoye" || o.statut === "demo").length;
     return NextResponse.json({
       success: errors.length < emails.length || emails.length === 0,
-      sent: emails.length - errors.length,
+      sent,
+      desabonnes: desabonnesIgnores > 0 ? desabonnesIgnores : undefined,
       errors: errors.length > 0 ? errors : undefined,
     });
   } catch (e: any) {

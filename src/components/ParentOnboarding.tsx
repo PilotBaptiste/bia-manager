@@ -62,7 +62,8 @@ export default function ParentOnboarding({ userId, defaultPrenom, defaultNom, de
       const { data } = await supabase
         .from("eleves")
         .select("id,nom,prenom,date_naissance,lieu_naissance,adresse_rue,adresse_cp,adresse_ville,desiderata")
-        .eq("parent_id", user.id)
+        // Les deux responsables légaux voient l'élève
+        .or(`parent_id.eq.${user.id},parent2_id.eq.${user.id}`)
         .eq("archive", false);
       if (data && data.length > 0) {
         setEnfants(data);

@@ -43,7 +43,8 @@ export default function AttestationPage() {
       supabase
         .from("eleves")
         .select("*, etablissement:etablissements(nom)")
-        .eq("parent_id", user.id)
+        // Les deux responsables légaux voient l'élève
+        .or(`parent_id.eq.${user.id},parent2_id.eq.${user.id}`)
         .eq("archive", false),
       supabase
         .from("parametres")

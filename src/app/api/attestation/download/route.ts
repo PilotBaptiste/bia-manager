@@ -28,7 +28,8 @@ export async function GET(req: Request) {
     .select("id")
     .eq("organisation_id", auth.orgId!)
     .eq("attestation_url", path);
-  if (!isStaff) ownerQuery = ownerQuery.eq("parent_id", auth.userId);
+  // Les deux responsables légaux peuvent télécharger l'attestation de leur enfant
+  if (!isStaff) ownerQuery = ownerQuery.or(`parent_id.eq.${auth.userId},parent2_id.eq.${auth.userId}`);
   const { data: owned } = await ownerQuery.limit(1);
   if (!owned?.length) {
     return isStaff

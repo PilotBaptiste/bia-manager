@@ -10,6 +10,8 @@ const ClubContext = createContext<ClubInfo>({
   lieuVol: "",
   whatsapp: "",
   telephoneSupport: "",
+  emailSupport: "",
+  messageSupport: "",
 });
 
 export function ClubProvider({ club, children }: { club: ClubInfo; children: React.ReactNode }) {

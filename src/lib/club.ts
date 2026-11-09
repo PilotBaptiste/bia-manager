@@ -11,6 +11,8 @@ export type ClubInfo = {
   lieuVol: string;
   whatsapp: string;
   telephoneSupport: string;
+  emailSupport: string;
+  messageSupport: string;
 };
 
 export const DEFAULT_CLUB_NOM = "BIA Manager";
@@ -23,6 +25,8 @@ const KEYS = {
   lieuVol: "lieu_vol",
   whatsapp: "whatsapp_support",
   telephoneSupport: "telephone_support",
+  emailSupport: "email_support",
+  messageSupport: "message_support",
 } as const satisfies Record<keyof ClubInfo, string>;
 
 // `orgId` omitted = club of the current request (subdomain, then signed-in user).
@@ -52,5 +56,7 @@ export const getClubInfo = cache(async (orgId?: string | null): Promise<ClubInfo
     lieuVol: p[KEYS.lieuVol] || "",
     whatsapp: (p[KEYS.whatsapp] || "").replace(/\D/g, ""),
     telephoneSupport: p[KEYS.telephoneSupport] || "",
+    emailSupport: p[KEYS.emailSupport] || "",
+    messageSupport: p[KEYS.messageSupport] || "",
   };
 });

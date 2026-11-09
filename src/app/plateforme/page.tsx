@@ -20,6 +20,7 @@ import {
   Mail,
   Puzzle,
   Bug,
+  CreditCard,
 } from "lucide-react";
 import { ROOT_DOMAIN, clubUrl } from "@/lib/tenant";
 import { MODULES, MODULE_CATEGORIES } from "@/lib/modules";
@@ -96,6 +97,65 @@ export default function PlateformePage() {
   const [newNom, setNewNom] = useState("");
   const [toggling, setToggling] = useState<Club | null>(null);
   const [saving, setSaving] = useState(false);
+
+  // Clés HelloAsso du club : chaque aéroclub encaisse sur son propre compte
+  const [haFor, setHaFor] = useState<Club | null>(null);
+  const [haForm, setHaForm] = useState({ client_id: "", client_secret: "", slug: "" });
+  const [haSecretRenseigne, setHaSecretRenseigne] = useState(false);
+  const [haLoading, setHaLoading] = useState(false);
+
+  async function openHelloAsso(c: Club) {
+    setHaFor(c);
+    setHaForm({ client_id: "", client_secret: "", slug: "" });
+    setHaSecretRenseigne(false);
+    setHaLoading(true);
+    try {
+      const data = await api<{ helloasso: { client_id: string; slug: string; secret_renseigne: boolean } }>(
+        `/api/plateforme/clubs/${c.id}/helloasso`,
+      );
+      setHaForm({ client_id: data.helloasso.client_id, client_secret: "", slug: data.helloasso.slug });
+      setHaSecretRenseigne(data.helloasso.secret_renseigne);
+    } catch (e: any) {
+      toast.error(e.message);
+    } finally {
+      setHaLoading(false);
+    }
+  }
+
+  async function saveHelloAsso() {
+    if (!haFor) return;
+    setSaving(true);
+    try {
+      const res = await api<{ verifie?: boolean; message?: string }>(`/api/plateforme/clubs/${haFor.id}/helloasso`, {
+        method: "PUT",
+        body: JSON.stringify(haForm),
+      });
+      if (res.verifie) toast.success(`HelloAsso connecté pour ${haFor.nom}`);
+      else toast.warning(res.message ?? "Clés enregistrées, mais HelloAsso ne les a pas validées.");
+      setHaFor(null);
+    } catch (e: any) {
+      toast.error(e.message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function effacerHelloAsso() {
+    if (!haFor) return;
+    setSaving(true);
+    try {
+      await api(`/api/plateforme/clubs/${haFor.id}/helloasso`, {
+        method: "PUT",
+        body: JSON.stringify({ effacer: true }),
+      });
+      toast.success("Configuration HelloAsso effacée");
+      setHaFor(null);
+    } catch (e: any) {
+      toast.error(e.message);
+    } finally {
+      setSaving(false);
+    }
+  }
 
   async function load() {
     try {
@@ -398,6 +458,15 @@ export default function PlateformePage() {
                             <Puzzle className="w-3.5 h-3.5" />
                             {(c.modules?.length ?? 0) > 0 && <span className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-brand-400" />}
                           </button>
+                          {(c.modules ?? []).includes("paiement_en_ligne") && (
+                            <button
+                              onClick={() => openHelloAsso(c)}
+                              className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-gray-700 transition-colors"
+                              title="Clés HelloAsso du club"
+                            >
+                              <CreditCard className="w-3.5 h-3.5" />
+                            </button>
+                          )}
                           <button
                             onClick={() => { setRenaming(c); setNewNom(c.nom); }}
                             className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-gray-700 transition-colors"
@@ -666,6 +735,76 @@ export default function PlateformePage() {
               <button onClick={handleSaveModules} disabled={saving} className="btn-primary btn-sm">
                 {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : null} Enregistrer
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {haFor && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" onClick={() => !saving && setHaFor(null)}>
+          <div className="absolute inset-0 bg-black/40" />
+          <div onClick={(e) => e.stopPropagation()} className="relative bg-white rounded-2xl p-6 w-full max-w-lg shadow-xl">
+            <div className="flex items-center justify-between mb-1">
+              <h3 className="text-lg font-bold text-gray-900">HelloAsso — {haFor.nom}</h3>
+              <button onClick={() => setHaFor(null)} className="p-1.5 rounded-lg hover:bg-gray-100"><X className="w-4 h-4" /></button>
+            </div>
+            <p className="text-sm text-gray-500 mb-4">
+              Ce club encaisse sur <strong>son propre compte HelloAsso</strong>. Récupérez les clés dans
+              son espace HelloAsso : Mon compte › Intégrations › API. La clé secrète est stockée côté serveur
+              et n&apos;est jamais renvoyée ici.
+            </p>
+
+            {haLoading ? (
+              <div className="flex items-center justify-center py-8"><Loader2 className="w-5 h-5 animate-spin text-brand-400" /></div>
+            ) : (
+              <div className="space-y-3">
+                <div>
+                  <label className="label">Nom de l&apos;organisation HelloAsso (slug) *</label>
+                  <input
+                    value={haForm.slug}
+                    onChange={(e) => setHaForm({ ...haForm, slug: e.target.value })}
+                    className="input"
+                    placeholder="aero-club-du-bassin-d-arcachon"
+                  />
+                  <p className="text-[11px] text-gray-400 mt-1">
+                    Visible dans l&apos;adresse de la page HelloAsso du club : helloasso.com/associations/<strong>ce-nom</strong>
+                  </p>
+                </div>
+                <div>
+                  <label className="label">Identifiant client (client_id) *</label>
+                  <input
+                    value={haForm.client_id}
+                    onChange={(e) => setHaForm({ ...haForm, client_id: e.target.value })}
+                    className="input font-mono text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="label">Clé secrète (client_secret) {haSecretRenseigne ? "" : "*"}</label>
+                  <input
+                    type="password"
+                    value={haForm.client_secret}
+                    onChange={(e) => setHaForm({ ...haForm, client_secret: e.target.value })}
+                    className="input font-mono text-sm"
+                    placeholder={haSecretRenseigne ? "Déjà enregistrée — laisser vide pour la conserver" : ""}
+                    autoComplete="off"
+                  />
+                </div>
+                <div className="rounded-xl bg-amber-50 border border-amber-200 p-3 text-[12px] text-amber-800">
+                  Le compte HelloAsso du club doit être <strong>validé par HelloAsso</strong> et avoir
+                  l&apos;autorisation Checkout, sinon les paiements seront refusés.
+                </div>
+              </div>
+            )}
+
+            <div className="flex justify-between gap-2 mt-5 pt-4 border-t border-gray-100">
+              <button onClick={effacerHelloAsso} disabled={saving || haLoading} className="btn-secondary btn-sm text-red-500 border-red-200 hover:bg-red-50">
+                Effacer la configuration
+              </button>
+              <div className="flex gap-2">
+                <button onClick={() => setHaFor(null)} className="btn-secondary btn-sm">Annuler</button>
+                <button onClick={saveHelloAsso} disabled={saving || haLoading} className="btn-primary btn-sm">
+                  {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : null} Enregistrer et vérifier
+                </button>
+              </div>
             </div>
           </div>
         </div>

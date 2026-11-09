@@ -83,9 +83,14 @@ try {
   console.log(`\nAdmin d'un club de test connecté · tentative d'accès aux données de « ${cible.nom} »\n`);
 
   // ── Lecture ────────────────────────────────────────────────────
-  for (const table of ["eleves", "etablissements", "creneaux", "reservations", "vols_effectues", "aeronefs", "parametres", "annees", "email_logs", "subventions", "aeronef_tarifs"]) {
+  for (const table of ["eleves", "etablissements", "creneaux", "reservations", "vols_effectues", "aeronefs", "parametres", "annees", "email_logs", "subventions", "aeronef_tarifs", "cours", "cours_vus", "paiements"]) {
     const { data, error } = await user.from(table).select("organisation_id").eq("organisation_id", cible.id).limit(1);
     check(`Lecture ${table} de l'autre club bloquée`, !error ? (data?.length ?? 0) === 0 : true, error?.message);
+  }
+  {
+    // Les clés de paiement ne doivent être lisibles par personne depuis le navigateur, même pour son propre club
+    const { data, error } = await user.from("organisation_secrets").select("helloasso_client_id").limit(1);
+    check("Clés HelloAsso illisibles depuis le navigateur", !!error || (data?.length ?? 0) === 0, error?.message);
   }
   {
     const { data } = await user.from("profiles").select("id").eq("organisation_id", cible.id).limit(1);
@@ -153,6 +158,19 @@ try {
     }
     const plat = await get("/api/plateforme/clubs");
     check("API console propriétaire refusée à un admin de club", plat.status === 403, `HTTP ${plat.status}`);
+
+    const ha = await get(`/api/plateforme/clubs/${cible.id}/helloasso`);
+    check("API clés HelloAsso refusée à un admin de club", ha.status === 403, `HTTP ${ha.status}`);
+
+    if (eleve?.id) {
+      const paiement = await fetch(`${SITE}/api/paiement/checkout`, {
+        method: "POST",
+        headers: { ...headers, "Content-Type": "application/json" },
+        body: JSON.stringify({ eleve_id: eleve.id }),
+        redirect: "manual",
+      });
+      check("API paiement d'un élève de l'autre club refusée", paiement.status >= 400, `HTTP ${paiement.status}`);
+    }
   } else {
     console.log("\nℹ️  Routes API non testées : relancer avec SITE_URL=https://acba.biamanager.com");
   }

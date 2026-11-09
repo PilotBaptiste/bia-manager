@@ -30,6 +30,9 @@ Tarifs indicatifs relevés en 2026 : à vérifier au moment de souscrire.
    4. `supabase-tarifs-modification-2026-09.sql`
    5. `supabase-subventions-2026-09.sql`
    6. `supabase-multiclubs-2026-09.sql` : toutes les données existantes deviennent celles de l'ACBA (club `acba`)
+   7. `supabase-modules-2026-09.sql` puis `supabase-modules-acba-2026-09.sql`
+   8. `supabase-emails-desabonnement-2026-09.sql`
+   9. `supabase-evolutions-2026-11.sql` : second parent, cours, posés en campagne, HelloAsso, règles du vol 2
 4. Se donner le rôle propriétaire, avec votre adresse :
    ```sql
    UPDATE public.profiles SET roles = array_append(roles, 'proprietaire')
@@ -81,6 +84,8 @@ Vous hébergez des données de mineurs pour le compte des clubs :
 - **Isolation** : elle est garantie par la base elle-même (règles de sécurité et déclencheurs), pas seulement par l'interface.
 - **Un compte appartient à un seul club.** Un pilote ou un parent présent dans deux clubs aura besoin de deux adresses email pendant le pilote.
 - **Codes d'inscription** : ils restent uniques sur toute la plateforme, et l'inscription publique rattache automatiquement l'élève au club de l'établissement.
+- **Deux responsables légaux** (module *Deuxième parent*) : les deux reçoivent les emails, peuvent réserver et annuler, et chacun est prévenu de ce que fait l'autre. Chacun se désabonne séparément. Le second parent crée son accès avec « Mot de passe oublié », ou reçoit une invitation depuis la fiche de l'élève.
+- **Vol 2 sans le BIA** : par défaut, un élève non admis perd l'autorisation du vol 2. Paramètres › Règles des vols permet à un club de la maintenir au cas par cas. Un élève peut aussi être marqué « ne souhaite pas faire le vol 2 » : il sort alors des listes et des relances.
 
 ## 5. Suivi des erreurs (Sentry)
 1. Créez un compte sur sentry.io et choisissez la région de données **EU** à la création de l'organisation.
@@ -98,9 +103,31 @@ Vous hébergez des données de mineurs pour le compte des clubs :
 
 Aucune donnée personnelle n'est envoyée : ni cookies, ni en-têtes, ni contenu des formulaires, ni paramètres d'URL.
 
-## 6. Club de démonstration
+## 6. Paiement en ligne (HelloAsso)
+
+Chaque aéroclub encaisse sur **son propre compte HelloAsso** : aucune somme ne transite par BIA Manager, et aucune clé n'est en variable d'environnement.
+
+1. Dans la console propriétaire, activez le module **Paiement en ligne (HelloAsso)** pour le club.
+2. Le club vous communique ses clés d'API : HelloAsso › Mon compte › Intégrations › API (`client_id`, `client_secret`) ainsi que le nom de son organisation (le `slug` visible dans `helloasso.com/associations/<slug>`).
+3. Console propriétaire › icône carte bancaire sur la ligne du club : saisissez les trois valeurs puis **Enregistrer et vérifier**. La clé secrète est stockée côté serveur et ne ressort jamais.
+4. Prérequis côté HelloAsso : le compte de l'association doit être **validé** et disposer de l'autorisation **Checkout**, sinon les paiements sont refusés (erreur 409 ou 403).
+
+Côté familles, un bouton « Payer en ligne » apparaît sur le tableau de bord parent quand le paiement est en attente. Le montant est le **prix d'inscription** du club (Paramètres › Tarification). Le règlement n'est marqué payé qu'après vérification du paiement directement auprès de HelloAsso.
+
+En cas de besoin, un paiement peut toujours être saisi à la main dans la fiche de l'élève (chèque, virement, espèces) : le module ne remplace rien, il ajoute une possibilité.
+
+## 7. SMS et WhatsApp
+
+**SMS — pas retenu pour le pilote.** Comptez 0,05 à 0,08 € par SMS en France (Brevo, OVH, Twilio — tarifs à revérifier au moment de souscrire). Pour 600 clubs, le coût devient significatif et impose une mention « STOP » ainsi qu'un recueil de consentement distinct de celui des emails. À réévaluer après le pilote, en comparant les fournisseurs.
+
+**WhatsApp Business Platform — déconseillé.** L'envoi automatisé exige la vérification de l'entreprise auprès de Meta, la validation de chaque modèle de message, et une facturation à la conversation. Le lien `wa.me` déjà en place (Paramètres › Support aux familles) couvre le besoin réel sans aucune de ces contraintes : la famille écrit, le club répond depuis son téléphone.
+
+## 8. Club de démonstration
 `aeroclub-test.biamanager.com` sert de démo et d'environnement d'essai.
 - **Remplir ou remettre à zéro** : `npm run seed:demo -- --reset`. Le script refuse tout club dont l'adresse ne contient pas « test » ou « demo », et vérifie que les autres clubs n'ont pas bougé.
 - **Comptes** : `demo.pilote1@example.com`, `demo.coordinateur@example.com`, `demo.parent01@example.com`… Mot de passe commun : `admin123` (modifiable avec la variable `DEMO_PASSWORD`).
 - **Emails** : aucun email n'est jamais envoyé aux adresses `@example.com`. Les envois sont enregistrés avec le statut « demo ».
 - **Isolation** : `npm run test:isolation` (ajouter `CLUB_CIBLE=aeroclub-test` pour viser le club de démo).
+- **Secondes familles** : deux familles de démo ont un second responsable légal (`demo.parent01b@example.com`, `demo.parent03b@example.com`) pour montrer le cas des parents séparés.
+- **Cours** : cinq ressources de démonstration (des liens) sont créées, une par matière du BIA.
+- Pour une démo complète, activez sur ce club les modules **Deuxième parent**, **Cours en ligne** et **Posés en campagne** depuis la console propriétaire.
