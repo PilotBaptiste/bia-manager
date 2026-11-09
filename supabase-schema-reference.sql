@@ -1,6 +1,6 @@
 -- ════════════════════════════════════════════════════════════════
 -- BIA Manager — schéma de référence généré depuis la base réelle
--- Généré le 2026-09-14 par scripts/generate-schema-reference.mjs
+-- Généré le 2026-11-09 par scripts/generate-schema-reference.mjs
 -- Ne pas modifier à la main : relancer « npm run db:schema ».
 -- Contient tables, colonnes, types, NOT NULL, valeurs par défaut, clés primaires et étrangères.
 -- Politiques RLS, fonctions et triggers : voir supabase-introspection.sql.
@@ -14,8 +14,25 @@ CREATE TABLE public.activity_logs (
   record_id uuid,
   details jsonb,
   created_at timestamp with time zone DEFAULT now(),
+  organisation_id uuid NOT NULL DEFAULT public.current_org_id(),
   PRIMARY KEY (id),
-  FOREIGN KEY (user_id) REFERENCES profiles(id)
+  FOREIGN KEY (user_id) REFERENCES profiles(id),
+  FOREIGN KEY (organisation_id) REFERENCES organisations(id)
+);
+
+CREATE TABLE public.aeronef_tarifs (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  aeronef_id uuid NOT NULL,
+  prix_heure numeric NOT NULL,
+  date_effet date NOT NULL,
+  note text,
+  cree_par uuid,
+  created_at timestamp with time zone DEFAULT now(),
+  organisation_id uuid NOT NULL DEFAULT public.current_org_id(),
+  PRIMARY KEY (id),
+  FOREIGN KEY (aeronef_id) REFERENCES aeronefs(id),
+  FOREIGN KEY (cree_par) REFERENCES profiles(id),
+  FOREIGN KEY (organisation_id) REFERENCES organisations(id)
 );
 
 CREATE TABLE public.aeronefs (
@@ -28,7 +45,9 @@ CREATE TABLE public.aeronefs (
   created_at timestamp with time zone DEFAULT now(),
   updated_at timestamp with time zone DEFAULT now(),
   prix_heure_historique jsonb,
-  PRIMARY KEY (id)
+  organisation_id uuid NOT NULL DEFAULT public.current_org_id(),
+  PRIMARY KEY (id),
+  FOREIGN KEY (organisation_id) REFERENCES organisations(id)
 );
 
 CREATE TABLE public.annees (
@@ -38,7 +57,77 @@ CREATE TABLE public.annees (
   date_fin date NOT NULL,
   active boolean DEFAULT true,
   created_at timestamp with time zone DEFAULT now(),
-  PRIMARY KEY (id)
+  date_examen_bia date,
+  organisation_id uuid NOT NULL DEFAULT public.current_org_id(),
+  PRIMARY KEY (id),
+  FOREIGN KEY (organisation_id) REFERENCES organisations(id)
+);
+
+CREATE TABLE public.cours (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  organisation_id uuid NOT NULL DEFAULT public.current_org_id(),
+  titre text NOT NULL,
+  description text,
+  matiere text NOT NULL DEFAULT 'Général',
+  type text NOT NULL DEFAULT 'fichier',
+  fichier_path text,
+  fichier_nom text,
+  fichier_taille bigint,
+  url text,
+  ordre integer NOT NULL DEFAULT 0,
+  publie boolean NOT NULL DEFAULT true,
+  cree_par uuid,
+  created_at timestamp with time zone DEFAULT now(),
+  updated_at timestamp with time zone DEFAULT now(),
+  PRIMARY KEY (id),
+  FOREIGN KEY (organisation_id) REFERENCES organisations(id),
+  FOREIGN KEY (cree_par) REFERENCES profiles(id)
+);
+
+CREATE TABLE public.cours_ressources (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  organisation_id uuid NOT NULL DEFAULT public.current_org_id(),
+  cours_id uuid NOT NULL,
+  titre text NOT NULL,
+  type text NOT NULL DEFAULT 'fichier',
+  fichier_path text,
+  fichier_nom text,
+  fichier_taille bigint,
+  url text,
+  ordre integer NOT NULL DEFAULT 0,
+  created_at timestamp with time zone DEFAULT now(),
+  PRIMARY KEY (id),
+  FOREIGN KEY (organisation_id) REFERENCES organisations(id),
+  FOREIGN KEY (cours_id) REFERENCES cours(id)
+);
+
+CREATE TABLE public.cours_ressources_vues (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  organisation_id uuid NOT NULL DEFAULT public.current_org_id(),
+  ressource_id uuid NOT NULL,
+  eleve_id uuid,
+  profile_id uuid NOT NULL,
+  vu_at timestamp with time zone DEFAULT now(),
+  PRIMARY KEY (id),
+  FOREIGN KEY (organisation_id) REFERENCES organisations(id),
+  FOREIGN KEY (ressource_id) REFERENCES cours_ressources(id),
+  FOREIGN KEY (eleve_id) REFERENCES eleves(id),
+  FOREIGN KEY (profile_id) REFERENCES profiles(id)
+);
+
+CREATE TABLE public.cours_vus (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  organisation_id uuid NOT NULL DEFAULT public.current_org_id(),
+  cours_id uuid NOT NULL,
+  profile_id uuid NOT NULL,
+  vu_at timestamp with time zone DEFAULT now(),
+  eleve_id uuid,
+  termine_at timestamp with time zone,
+  PRIMARY KEY (id),
+  FOREIGN KEY (organisation_id) REFERENCES organisations(id),
+  FOREIGN KEY (cours_id) REFERENCES cours(id),
+  FOREIGN KEY (profile_id) REFERENCES profiles(id),
+  FOREIGN KEY (eleve_id) REFERENCES eleves(id)
 );
 
 CREATE TABLE public.creneaux (
@@ -58,11 +147,13 @@ CREATE TABLE public.creneaux (
   eleves_autorises uuid[],
   etablissement_ids text[],
   motif_annulation text,
+  organisation_id uuid NOT NULL DEFAULT public.current_org_id(),
   PRIMARY KEY (id),
   FOREIGN KEY (pilote_id) REFERENCES profiles(id),
   FOREIGN KEY (aeronef_id) REFERENCES aeronefs(id),
   FOREIGN KEY (annee_id) REFERENCES annees(id),
-  FOREIGN KEY (etablissement_id) REFERENCES etablissements(id)
+  FOREIGN KEY (etablissement_id) REFERENCES etablissements(id),
+  FOREIGN KEY (organisation_id) REFERENCES organisations(id)
 );
 
 CREATE TABLE public.eleves (
@@ -117,12 +208,21 @@ CREATE TABLE public.eleves (
   vol_fi_mode boolean DEFAULT false,
   vol1_skippe boolean NOT NULL DEFAULT false,
   bia_mention text,
+  organisation_id uuid NOT NULL DEFAULT public.current_org_id(),
+  parent2_nom text,
+  parent2_prenom text,
+  parent2_email text,
+  parent2_telephone text,
+  parent2_id uuid,
+  vol2_refuse boolean NOT NULL DEFAULT false,
   PRIMARY KEY (id),
   FOREIGN KEY (etablissement_id) REFERENCES etablissements(id),
   FOREIGN KEY (annee_id) REFERENCES annees(id),
   FOREIGN KEY (parent_id) REFERENCES profiles(id),
   FOREIGN KEY (vol1_aeronef_id) REFERENCES aeronefs(id),
-  FOREIGN KEY (vol2_aeronef_id) REFERENCES aeronefs(id)
+  FOREIGN KEY (vol2_aeronef_id) REFERENCES aeronefs(id),
+  FOREIGN KEY (organisation_id) REFERENCES organisations(id),
+  FOREIGN KEY (parent2_id) REFERENCES profiles(id)
 );
 
 CREATE TABLE public.email_logs (
@@ -136,9 +236,11 @@ CREATE TABLE public.email_logs (
   resend_id text,
   statut text NOT NULL DEFAULT 'envoye',
   creneau_id uuid,
+  organisation_id uuid NOT NULL DEFAULT public.current_org_id(),
   PRIMARY KEY (id),
   FOREIGN KEY (eleve_id) REFERENCES eleves(id),
-  FOREIGN KEY (creneau_id) REFERENCES creneaux(id)
+  FOREIGN KEY (creneau_id) REFERENCES creneaux(id),
+  FOREIGN KEY (organisation_id) REFERENCES organisations(id)
 );
 
 CREATE TABLE public.etablissements (
@@ -155,7 +257,9 @@ CREATE TABLE public.etablissements (
   contact_prenom text,
   code_inscription text,
   nb_eleves_attendus integer DEFAULT 0,
-  PRIMARY KEY (id)
+  organisation_id uuid NOT NULL DEFAULT public.current_org_id(),
+  PRIMARY KEY (id),
+  FOREIGN KEY (organisation_id) REFERENCES organisations(id)
 );
 
 CREATE TABLE public.finances_operations (
@@ -170,11 +274,13 @@ CREATE TABLE public.finances_operations (
   etablissement_id uuid,
   date_operation date NOT NULL DEFAULT CURRENT_DATE,
   created_at timestamp with time zone DEFAULT now(),
+  organisation_id uuid NOT NULL DEFAULT public.current_org_id(),
   PRIMARY KEY (id),
   FOREIGN KEY (annee_id) REFERENCES annees(id),
   FOREIGN KEY (eleve_id) REFERENCES eleves(id),
   FOREIGN KEY (vol_effectue_id) REFERENCES vols_effectues(id),
-  FOREIGN KEY (etablissement_id) REFERENCES etablissements(id)
+  FOREIGN KEY (etablissement_id) REFERENCES etablissements(id),
+  FOREIGN KEY (organisation_id) REFERENCES organisations(id)
 );
 
 CREATE TABLE public.notifications (
@@ -188,8 +294,10 @@ CREATE TABLE public.notifications (
   envoye_at timestamp with time zone,
   erreur text,
   created_at timestamp with time zone DEFAULT now(),
+  organisation_id uuid NOT NULL DEFAULT public.current_org_id(),
   PRIMARY KEY (id),
-  FOREIGN KEY (destinataire_id) REFERENCES profiles(id)
+  FOREIGN KEY (destinataire_id) REFERENCES profiles(id),
+  FOREIGN KEY (organisation_id) REFERENCES organisations(id)
 );
 
 CREATE TABLE public.operations_manuelles (
@@ -202,7 +310,45 @@ CREATE TABLE public.operations_manuelles (
   etablissement text,
   mode text,
   created_at timestamp with time zone DEFAULT now(),
+  organisation_id uuid NOT NULL DEFAULT public.current_org_id(),
+  PRIMARY KEY (id),
+  FOREIGN KEY (organisation_id) REFERENCES organisations(id)
+);
+
+CREATE TABLE public.organisation_secrets (
+  organisation_id uuid NOT NULL,
+  helloasso_client_id text,
+  helloasso_client_secret text,
+  helloasso_slug text,
+  updated_at timestamp with time zone DEFAULT now(),
+  PRIMARY KEY (organisation_id),
+  FOREIGN KEY (organisation_id) REFERENCES organisations(id)
+);
+
+CREATE TABLE public.organisations (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  slug text NOT NULL,
+  nom text NOT NULL,
+  actif boolean NOT NULL DEFAULT true,
+  created_at timestamp with time zone DEFAULT now(),
+  modules text[] NOT NULL,
   PRIMARY KEY (id)
+);
+
+CREATE TABLE public.paiements (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  organisation_id uuid NOT NULL DEFAULT public.current_org_id(),
+  eleve_id uuid,
+  reference text NOT NULL,
+  montant numeric NOT NULL,
+  statut text NOT NULL DEFAULT 'en_attente',
+  checkout_id text,
+  payeur_email text,
+  paid_at timestamp with time zone,
+  created_at timestamp with time zone DEFAULT now(),
+  PRIMARY KEY (id),
+  FOREIGN KEY (organisation_id) REFERENCES organisations(id),
+  FOREIGN KEY (eleve_id) REFERENCES eleves(id)
 );
 
 CREATE TABLE public.parametres (
@@ -211,7 +357,9 @@ CREATE TABLE public.parametres (
   valeur text NOT NULL,
   description text,
   updated_at timestamp with time zone DEFAULT now(),
-  PRIMARY KEY (id)
+  organisation_id uuid NOT NULL DEFAULT public.current_org_id(),
+  PRIMARY KEY (id),
+  FOREIGN KEY (organisation_id) REFERENCES organisations(id)
 );
 
 CREATE TABLE public.pilote_etablissements (
@@ -219,9 +367,11 @@ CREATE TABLE public.pilote_etablissements (
   pilote_id uuid NOT NULL,
   etablissement_id uuid NOT NULL,
   created_at timestamp with time zone DEFAULT now(),
+  organisation_id uuid NOT NULL DEFAULT public.current_org_id(),
   PRIMARY KEY (id),
   FOREIGN KEY (pilote_id) REFERENCES profiles(id),
-  FOREIGN KEY (etablissement_id) REFERENCES etablissements(id)
+  FOREIGN KEY (etablissement_id) REFERENCES etablissements(id),
+  FOREIGN KEY (organisation_id) REFERENCES organisations(id)
 );
 
 CREATE TABLE public.pilote_qualifications (
@@ -231,9 +381,22 @@ CREATE TABLE public.pilote_qualifications (
   date_expiration date,
   qualification_type text DEFAULT 'VFR',
   notes text,
+  organisation_id uuid NOT NULL DEFAULT public.current_org_id(),
   PRIMARY KEY (id),
   FOREIGN KEY (pilote_id) REFERENCES profiles(id),
-  FOREIGN KEY (aeronef_id) REFERENCES aeronefs(id)
+  FOREIGN KEY (aeronef_id) REFERENCES aeronefs(id),
+  FOREIGN KEY (organisation_id) REFERENCES organisations(id)
+);
+
+CREATE TABLE public.preferences_email (
+  organisation_id uuid NOT NULL,
+  email text NOT NULL,
+  accepte boolean NOT NULL DEFAULT true,
+  source text,
+  updated_at timestamp with time zone DEFAULT now(),
+  PRIMARY KEY (organisation_id),
+  FOREIGN KEY (organisation_id) REFERENCES organisations(id),
+  PRIMARY KEY (email)
 );
 
 CREATE TABLE public.profiles (
@@ -249,8 +412,10 @@ CREATE TABLE public.profiles (
   updated_at timestamp with time zone DEFAULT now(),
   etablissement_ids uuid[],
   qualification_fi boolean DEFAULT false,
+  organisation_id uuid,
   PRIMARY KEY (id),
-  FOREIGN KEY (etablissement_id) REFERENCES etablissements(id)
+  FOREIGN KEY (etablissement_id) REFERENCES etablissements(id),
+  FOREIGN KEY (organisation_id) REFERENCES organisations(id)
 );
 
 CREATE TABLE public.reservations (
@@ -264,16 +429,37 @@ CREATE TABLE public.reservations (
   motif_annulation text,
   annule_par uuid,
   annule_le timestamp with time zone,
+  organisation_id uuid NOT NULL DEFAULT public.current_org_id(),
   PRIMARY KEY (id),
   FOREIGN KEY (creneau_id) REFERENCES creneaux(id),
   FOREIGN KEY (eleve_id) REFERENCES eleves(id),
-  FOREIGN KEY (annule_par) REFERENCES profiles(id)
+  FOREIGN KEY (annule_par) REFERENCES profiles(id),
+  FOREIGN KEY (organisation_id) REFERENCES organisations(id)
+);
+
+CREATE TABLE public.subventions (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  annee_id uuid NOT NULL,
+  libelle text NOT NULL,
+  financeur text,
+  montant_total numeric NOT NULL,
+  date date NOT NULL DEFAULT CURRENT_DATE,
+  etablissement_ids uuid[] NOT NULL,
+  note text,
+  cree_par uuid,
+  created_at timestamp with time zone DEFAULT now(),
+  updated_at timestamp with time zone DEFAULT now(),
+  organisation_id uuid NOT NULL DEFAULT public.current_org_id(),
+  PRIMARY KEY (id),
+  FOREIGN KEY (annee_id) REFERENCES annees(id),
+  FOREIGN KEY (cree_par) REFERENCES profiles(id),
+  FOREIGN KEY (organisation_id) REFERENCES organisations(id)
 );
 
 CREATE TABLE public.vols_effectues (
   id uuid NOT NULL DEFAULT gen_random_uuid(),
   creneau_id uuid NOT NULL,
-  numero_aerogest text NOT NULL,
+  numero_aerogest text,
   temps_vol_minutes integer NOT NULL,
   nb_eleves integer NOT NULL,
   prix_total numeric NOT NULL,
@@ -281,9 +467,12 @@ CREATE TABLE public.vols_effectues (
   valide_par uuid,
   created_at timestamp with time zone DEFAULT now(),
   numeros_aerogest text[],
+  organisation_id uuid NOT NULL DEFAULT public.current_org_id(),
+  poses jsonb NOT NULL,
   PRIMARY KEY (id),
   FOREIGN KEY (creneau_id) REFERENCES creneaux(id),
-  FOREIGN KEY (valide_par) REFERENCES profiles(id)
+  FOREIGN KEY (valide_par) REFERENCES profiles(id),
+  FOREIGN KEY (organisation_id) REFERENCES organisations(id)
 );
 
 CREATE TABLE public.vols_lignes (
@@ -293,8 +482,10 @@ CREATE TABLE public.vols_lignes (
   temps_minutes integer,
   prix numeric NOT NULL,
   created_at timestamp with time zone DEFAULT now(),
+  organisation_id uuid NOT NULL DEFAULT public.current_org_id(),
   PRIMARY KEY (id),
-  FOREIGN KEY (vol_effectue_id) REFERENCES vols_effectues(id)
+  FOREIGN KEY (vol_effectue_id) REFERENCES vols_effectues(id),
+  FOREIGN KEY (organisation_id) REFERENCES organisations(id)
 );
 
--- Fonctions RPC exposées : has_role, is_superadmin, user_etablissement_id
+-- Fonctions RPC exposées : annuler_reservation, changer_tarif_aeronef, cloturer_vol, current_org_id, est_parent_de, exiger_superadmin, has_role, is_platform_owner, is_superadmin, modifier_tarif_aeronef, recalculer_vols_aeronef, reserver_vol, supprimer_tarif_aeronef, tarif_aeronef, user_etablissement_id

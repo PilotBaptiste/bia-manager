@@ -2920,7 +2920,7 @@ export default function VolsPage() {
         const totalRows = histoToShow.length + manualToShow.length;
 
         function exportComptaCSV() {
-          const headers = ["Date", "Pilote", "Aeronef", "Eleves", "N Aerogest", "Nb partages", "Prix vol total (€)", "Prix par élève (€)", "Temps (min)", "Source"];
+          const headers = ["Date", "Pilote", "Aeronef", "Eleves", "N Aerogest", "Nb partages", "Prix vol total (€)", "Prix par élève (€)", "Temps (min)", "Poses en campagne", "Source"];
           const rows: any[][] = [];
           histoToShow.forEach((v) => {
             const n = v.nb_eleves && v.nb_eleves > 1 ? v.nb_eleves : 1;
@@ -2935,13 +2935,17 @@ export default function VolsPage() {
               v.prix_total || "",
               prixEleve,
               v.temps_vol_minutes || "",
+              // Posés sur d'autres terrains : « LFCH 2T/1C »
+              Array.isArray(v.poses)
+                ? v.poses.map((pose: any) => `${pose.terrain} ${pose.touches || 0}T/${pose.complets || 0}C`).join(" · ")
+                : "",
               "planning",
             ]);
           });
           manualToShow.forEach((g) => {
             const n = g.ids.length;
             const prixEleve = n > 0 ? (g.prix_total / n).toFixed(2) : "";
-            rows.push(["", g.pilote, g.aeronef_label, g.noms.join(", "), g.numero_aerogest, n, g.prix_total.toFixed(2), prixEleve, g.temps || "", "manuel"]);
+            rows.push(["", g.pilote, g.aeronef_label, g.noms.join(", "), g.numero_aerogest, n, g.prix_total.toFixed(2), prixEleve, g.temps || "", "", "manuel"]);
           });
           const csv = [headers, ...rows].map((r) => r.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(";")).join("\n");
           const url = URL.createObjectURL(new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8;" }));
