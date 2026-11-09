@@ -1665,6 +1665,7 @@ export default function VolsPage() {
                             prix_total: "",
                             notes: "",
                             pilote_override: "",
+                            poses: [],
                             nb_eleves: String(
                               showDetail.reservations?.filter(
                                 (r: any) => r.statut !== "annule",
