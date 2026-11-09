@@ -83,7 +83,7 @@ try {
   console.log(`\nAdmin d'un club de test connecté · tentative d'accès aux données de « ${cible.nom} »\n`);
 
   // ── Lecture ────────────────────────────────────────────────────
-  for (const table of ["eleves", "etablissements", "creneaux", "reservations", "vols_effectues", "aeronefs", "parametres", "annees", "email_logs", "subventions", "aeronef_tarifs", "cours", "cours_vus", "paiements"]) {
+  for (const table of ["eleves", "etablissements", "creneaux", "reservations", "vols_effectues", "aeronefs", "parametres", "annees", "email_logs", "subventions", "aeronef_tarifs", "cours", "cours_ressources", "cours_vus", "cours_ressources_vues", "paiements"]) {
     const { data, error } = await user.from(table).select("organisation_id").eq("organisation_id", cible.id).limit(1);
     check(`Lecture ${table} de l'autre club bloquée`, !error ? (data?.length ?? 0) === 0 : true, error?.message);
   }

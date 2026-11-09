@@ -33,6 +33,7 @@ Tarifs indicatifs relevés en 2026 : à vérifier au moment de souscrire.
    7. `supabase-modules-2026-09.sql` puis `supabase-modules-acba-2026-09.sql`
    8. `supabase-emails-desabonnement-2026-09.sql`
    9. `supabase-evolutions-2026-11.sql` : second parent, cours, posés en campagne, HelloAsso, règles du vol 2
+   10. `supabase-cours-lms-2026-11.sql` : plusieurs documents par cours et suivi de lecture par élève
 4. Se donner le rôle propriétaire, avec votre adresse :
    ```sql
    UPDATE public.profiles SET roles = array_append(roles, 'proprietaire')
@@ -103,7 +104,19 @@ Vous hébergez des données de mineurs pour le compte des clubs :
 
 Aucune donnée personnelle n'est envoyée : ni cookies, ni en-têtes, ni contenu des formulaires, ni paramètres d'URL.
 
-## 6. Paiement en ligne (HelloAsso)
+## 6. Cours en ligne
+
+Le module **Cours en ligne** sert de petit espace de révision pour les familles.
+
+**Côté aéroclub** (admin du club ou coordinateur) : un cours est un contenant, auquel on ajoute autant de **documents et de liens** que nécessaire — PDF, présentations, images, vidéos, pages web. Un cours reste en brouillon tant qu'il n'est pas publié. Le bouton **Suivi** d'un cours montre, élève par élève, combien de documents ont été ouverts et si le cours est marqué terminé, avec un export CSV.
+
+**Côté familles** : chaque enfant a sa propre partie, avec son nom et sa progression. Un parent de deux enfants voit donc deux listes distinctes. Les PDF et les images s'affichent directement dans l'application, le reste se télécharge, et la famille marque le cours comme terminé quand il est travaillé.
+
+**La progression appartient à l'élève, pas au compte.** Les deux parents d'un même enfant voient et alimentent la même progression ; deux enfants d'un même parent en ont deux distinctes.
+
+Taille maximale par document : 50 Mo. Les fichiers sont rangés dans un dossier par club et ne sont lisibles que par un lien signé, valable 5 minutes, généré après vérification des droits.
+
+## 7. Paiement en ligne (HelloAsso)
 
 Chaque aéroclub encaisse sur **son propre compte HelloAsso** : aucune somme ne transite par BIA Manager, et aucune clé n'est en variable d'environnement.
 
@@ -116,13 +129,13 @@ Côté familles, un bouton « Payer en ligne » apparaît sur le tableau de bord
 
 En cas de besoin, un paiement peut toujours être saisi à la main dans la fiche de l'élève (chèque, virement, espèces) : le module ne remplace rien, il ajoute une possibilité.
 
-## 7. SMS et WhatsApp
+## 8. SMS et WhatsApp
 
 **SMS — pas retenu pour le pilote.** Comptez 0,05 à 0,08 € par SMS en France (Brevo, OVH, Twilio — tarifs à revérifier au moment de souscrire). Pour 600 clubs, le coût devient significatif et impose une mention « STOP » ainsi qu'un recueil de consentement distinct de celui des emails. À réévaluer après le pilote, en comparant les fournisseurs.
 
 **WhatsApp Business Platform — déconseillé.** L'envoi automatisé exige la vérification de l'entreprise auprès de Meta, la validation de chaque modèle de message, et une facturation à la conversation. Le lien `wa.me` déjà en place (Paramètres › Support aux familles) couvre le besoin réel sans aucune de ces contraintes : la famille écrit, le club répond depuis son téléphone.
 
-## 8. Club de démonstration
+## 9. Club de démonstration
 `aeroclub-test.biamanager.com` sert de démo et d'environnement d'essai.
 - **Remplir ou remettre à zéro** : `npm run seed:demo -- --reset`. Le script refuse tout club dont l'adresse ne contient pas « test » ou « demo », et vérifie que les autres clubs n'ont pas bougé.
 - **Comptes** : `demo.pilote1@example.com`, `demo.coordinateur@example.com`, `demo.parent01@example.com`… Mot de passe commun : `admin123` (modifiable avec la variable `DEMO_PASSWORD`).
