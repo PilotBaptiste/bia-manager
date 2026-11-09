@@ -4,7 +4,9 @@ import { useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { fetchAll } from "@/lib/fetchAll";
 import { useYear } from "@/contexts/YearContext";
-import { Mail, Users, School, Filter, X, Send, ChevronRight, ChevronLeft, Check, AlertCircle, Search } from "lucide-react";
+import { PARENT_COLUMNS, parentsDe } from "@/lib/parents";
+import { toast } from "sonner";
+import { Mail, Users, School, Filter, X, Send, ChevronRight, ChevronLeft, Check, AlertCircle, Search, ClipboardCopy, Download } from "lucide-react";
 
 const supabase = createClient();
 
@@ -54,7 +56,7 @@ export default function MessageriePage() {
 
   // Step 3
   const [sending, setSending] = useState(false);
-  const [result, setResult] = useState<{ sent: number; errors?: string[] } | null>(null);
+  const [result, setResult] = useState<{ sent: number; desabonnes?: number; errors?: string[] } | null>(null);
   const [sendError, setSendError] = useState<string | null>(null);
   const [senderEmail, setSenderEmail] = useState<string>("");
 
@@ -81,7 +83,7 @@ export default function MessageriePage() {
       }
 
       let elevesQuery = supabase.from("eleves")
-        .select("id, prenom, nom, parent_email, parent_prenom, etablissement_id, annee_id, archive, vol1_effectue, vol1_skippe, vol2_effectue, vol2_autorise, paiement_effectue, attestation_signee, bia_passe, bia_resultat")
+        .select(`id, prenom, nom, etablissement_id, annee_id, archive, vol1_effectue, vol1_skippe, vol2_effectue, vol2_autorise, vol2_refuse, paiement_effectue, attestation_signee, bia_passe, bia_resultat, ${PARENT_COLUMNS}`)
         .eq("archive", false)
         .not("parent_email", "is", null)
         .order("nom")
@@ -132,9 +134,9 @@ export default function MessageriePage() {
         case "vol1_manquant":
           return e.paiement_effectue && e.attestation_signee && !e.vol1_effectue && !e.vol1_skippe;
         case "vol2_manquant":
-          return e.vol2_autorise && (e.vol1_effectue || e.vol1_skippe) && !e.vol2_effectue;
+          return e.vol2_autorise && !e.vol2_refuse && (e.vol1_effectue || e.vol1_skippe) && !e.vol2_effectue;
         case "vol2_autorise_pas_effectue":
-          return e.vol2_autorise && !e.vol2_effectue;
+          return e.vol2_autorise && !e.vol2_refuse && !e.vol2_effectue;
         case "bia_reussi":
           return e.bia_resultat === "Admis" || e.bia_resultat === "Mention";
         case "sans_paiement":
@@ -152,13 +154,14 @@ export default function MessageriePage() {
     const list: { email: string; eleve_prenom: string; eleve_nom: string; etab_id: string; eleve_id: string }[] = [];
     const seen = new Set<string>();
 
+    // Les deux responsables légaux de l'élève sont destinataires
     const addEleve = (e: any) => {
-      const email = e.parent_email?.trim();
-      if (!email) return;
-      const key = email.toLowerCase();
-      if (seen.has(key)) return;
-      seen.add(key);
-      list.push({ email, eleve_prenom: e.prenom, eleve_nom: e.nom, etab_id: e.etablissement_id, eleve_id: e.id });
+      for (const p of parentsDe(e)) {
+        const key = p.email.toLowerCase();
+        if (seen.has(key)) continue;
+        seen.add(key);
+        list.push({ email: p.email, eleve_prenom: e.prenom, eleve_nom: e.nom, etab_id: e.etablissement_id, eleve_id: e.id });
+      }
     };
 
     if (mode === "etab") {
@@ -185,6 +188,38 @@ export default function MessageriePage() {
     });
   }, [elevesAnnee, search, filterEtabEleve]);
 
+  // Liste d'adresses séparées par « ; » : le format accepté par Gmail, Outlook et Thunderbird
+  async function copierAdresses() {
+    const liste = recipients.map((r) => r.email).join("; ");
+    try {
+      await navigator.clipboard.writeText(liste);
+      toast.success(`${recipients.length} adresse${recipients.length > 1 ? "s" : ""} copiée${recipients.length > 1 ? "s" : ""}`);
+    } catch {
+      // Navigateur sans accès au presse-papiers : on affiche la liste à copier à la main
+      window.prompt("Copiez les adresses ci-dessous :", liste);
+    }
+  }
+
+  function exporterCsv() {
+    const lignes = [
+      ["Email", "Eleve", "Etablissement"].join(";"),
+      ...recipients.map((r) => {
+        const etab = etablissements.find((e: any) => e.id === r.etab_id)?.nom ?? "";
+        return [r.email, `${r.eleve_prenom} ${r.eleve_nom}`, etab]
+          .map((v) => `"${String(v).replace(/"/g, '""')}"`)
+          .join(";");
+      }),
+    ].join("\n");
+    const blob = new Blob(["﻿" + lignes], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `emails-familles-${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+    toast.success("Liste exportée");
+  }
+
   async function handleSend() {
     if (!subject.trim() || !body.trim() || recipients.length === 0) return;
     setSending(true);
@@ -203,7 +238,11 @@ export default function MessageriePage() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Erreur envoi");
-      setResult({ sent: typeof data.sent === "number" ? data.sent : 0, errors: Array.isArray(data.errors) ? data.errors.map(String) : undefined });
+      setResult({
+        sent: typeof data.sent === "number" ? data.sent : 0,
+        desabonnes: typeof data.desabonnes === "number" ? data.desabonnes : undefined,
+        errors: Array.isArray(data.errors) ? data.errors.map(String) : undefined,
+      });
       setStep(3);
     } catch (e: any) {
       setSendError(e.message);
@@ -434,6 +473,25 @@ export default function MessageriePage() {
             </div>
           )}
 
+          {/* Récupérer la liste pour l'utiliser dans son propre logiciel de messagerie */}
+          {recipients.length > 0 && (
+            <div className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2.5">
+              <p className="text-xs font-semibold text-gray-700 mb-1">Utiliser votre propre messagerie</p>
+              <p className="text-[11px] text-gray-500 mb-2">
+                Récupérez les {recipients.length} adresses pour les coller dans Gmail, Outlook ou Thunderbird.
+                Les désabonnés ne sont pas retirés de cette liste : l&apos;envoi se fait sous votre responsabilité.
+              </p>
+              <div className="flex flex-wrap gap-2">
+                <button onClick={copierAdresses} className="btn-secondary btn-sm">
+                  <ClipboardCopy className="w-3.5 h-3.5" /> Copier les adresses
+                </button>
+                <button onClick={exporterCsv} className="btn-secondary btn-sm">
+                  <Download className="w-3.5 h-3.5" /> Exporter en CSV
+                </button>
+              </div>
+            </div>
+          )}
+
           <div className="flex justify-end pt-2">
             <button
               onClick={() => setStep(2)}
@@ -551,10 +609,16 @@ export default function MessageriePage() {
           <div>
             <h2 className="font-bold text-gray-900 text-lg">{result.sent} email{result.sent > 1 ? "s" : ""} envoyé{result.sent > 1 ? "s" : ""}{result.sent < recipients.length ? ` sur ${recipients.length}` : " !"}</h2>
             <p className="text-sm text-gray-500 mt-1">
-              {result.sent >= recipients.length && !(result.errors && result.errors.length > 0)
-                ? "Tous les destinataires ont été notifiés."
+              {result.sent + (result.desabonnes ?? 0) >= recipients.length && !(result.errors && result.errors.length > 0)
+                ? "Tous les destinataires joignables ont été notifiés."
                 : "Certains destinataires n'ont pas pu être notifiés."}
             </p>
+            {result.desabonnes ? (
+              <p className="text-xs text-gray-400 mt-1">
+                {result.desabonnes} destinataire{result.desabonnes > 1 ? "s" : ""} désabonné{result.desabonnes > 1 ? "s" : ""} —
+                aucun email ne leur a été envoyé.
+              </p>
+            ) : null}
           </div>
           {result.errors && result.errors.length > 0 && (
             <div className="bg-amber-50 border border-amber-100 rounded-lg px-3 py-2.5 text-sm text-amber-700 text-left">

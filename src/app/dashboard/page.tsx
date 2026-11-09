@@ -4,6 +4,7 @@ import { Users, CheckCircle2, Plane, Euro, Calendar, Clock, School, FileSignatur
 import Link from "next/link";
 import ParentOnboarding from "@/components/ParentOnboarding";
 import DashboardSAStats from "@/components/DashboardSAStats";
+import BoutonPaiement from "@/components/BoutonPaiement";
 import { getClubInfo } from "@/lib/club";
 import { inActiveEtab } from "@/lib/etablissements";
 
@@ -292,11 +293,15 @@ async function DashboardGerant({ supabase, profile }: { supabase: any; profile: 
 
 // ─── Parent Dashboard ───────────────────────────────────
 async function DashboardParent({ supabase, profile }: { supabase: any; profile: any }) {
-  const [{ data: mesEnfants }, club] = await Promise.all([
-    supabase.from("eleves").select("*, etablissement:etablissements!inner(nom, actif), reservations(*, creneau:creneaux(date_vol, heure_debut, heure_fin, statut, pilote:profiles!pilote_id(nom, prenom, email, telephone), aeronef:aeronefs(type_aeronef, immatriculation)))").eq("parent_id", profile.id).eq("archive", false).eq("etablissement.actif", true),
+  const [{ data: mesEnfants }, club, { data: prixParam }] = await Promise.all([
+    supabase.from("eleves").select("*, etablissement:etablissements!inner(nom, actif), reservations(*, creneau:creneaux(date_vol, heure_debut, heure_fin, statut, pilote:profiles!pilote_id(nom, prenom, email, telephone), aeronef:aeronefs(type_aeronef, immatriculation)))").or(`parent_id.eq.${profile.id},parent2_id.eq.${profile.id}`).eq("archive", false).eq("etablissement.actif", true),
     getClubInfo(),
+    supabase.from("parametres").select("valeur").eq("cle", "prix_inscription").maybeSingle(),
   ]);
   const enfants = mesEnfants || [];
+  // Paiement en ligne : seulement si le club a activé le module
+  const paiementEnLigne = (profile.modules || []).includes("paiement_en_ligne");
+  const prixInscription = parseFloat(String(prixParam?.valeur ?? "")) || 0;
 
   // Show onboarding modal if profile incomplete
   // Check nom + prenom + telephone — ensures parents who had their account deleted+recreated
@@ -339,7 +344,10 @@ async function DashboardParent({ supabase, profile }: { supabase: any; profile: 
                 {e.paiement_effectue ? (
                   <p className="text-sm font-semibold text-emerald-700">✅ Paye — {e.paiement_montant || 80}€</p>
                 ) : (
-                  <p className="text-sm font-semibold text-red-700">❌ En attente — {e.paiement_montant || 80}€</p>
+                  <>
+                    <p className="text-sm font-semibold text-red-700">❌ En attente{prixInscription ? ` — ${prixInscription}€` : ""}</p>
+                    {paiementEnLigne && <BoutonPaiement eleveId={e.id} />}
+                  </>
                 )}
               </div>
 

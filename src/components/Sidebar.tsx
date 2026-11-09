@@ -32,6 +32,7 @@ import {
   BarChart2,
   Building2,
   FlaskConical,
+  GraduationCap,
 } from "lucide-react";
 import { MODULES, MODULE_BY_NAV_KEY } from "@/lib/modules";
 
@@ -56,6 +57,7 @@ const iconMap: Record<string, any> = {
   BarChart2,
   Building2,
   FlaskConical,
+  GraduationCap,
 };
 
 function getNav(roles: string[]) {

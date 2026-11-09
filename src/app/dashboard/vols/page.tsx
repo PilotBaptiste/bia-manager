@@ -4,7 +4,9 @@ import { createClient } from "@/lib/supabase/client";
 import { fetchAll } from "@/lib/fetchAll";
 import { emailStatus } from "@/lib/emailStatus";
 import { inActiveEtab } from "@/lib/etablissements";
+import { parentsDe } from "@/lib/parents";
 import { useYear } from "@/contexts/YearContext";
+import { useModule } from "@/contexts/ModulesContext";
 import { matchDesiderata } from "@/components/DesiderataGrid";
 import { toast } from "sonner";
 import {
@@ -110,7 +112,10 @@ export default function VolsPage() {
     prix_total: "",
     notes: "",
     pilote_override: "",
+    // Posés sur d'autres terrains pendant un vol instructeur
+    poses: [] as { terrain: string; touches: string; complets: string }[],
   });
+  const hasPoses = useModule("poses_campagne");
 
   async function load() {
     const {
@@ -121,7 +126,7 @@ export default function VolsPage() {
     let creneauxQuery = supabase
       .from("creneaux")
       .select(
-        "*, pilote:profiles!pilote_id(nom,prenom,id,email,telephone), aeronef:aeronefs(*), etablissement:etablissements(nom), reservations(*, eleve:eleves(id,nom,prenom,date_naissance,lieu_naissance,classe,commentaires,vol1_temps_minutes,parent_nom,parent_prenom,parent_email,parent_telephone,etablissement:etablissements(nom)))",
+        "*, pilote:profiles!pilote_id(nom,prenom,id,email,telephone), aeronef:aeronefs(*), etablissement:etablissements(nom), reservations(*, eleve:eleves(id,nom,prenom,date_naissance,lieu_naissance,classe,commentaires,vol1_temps_minutes,parent_nom,parent_prenom,parent_email,parent_telephone,parent2_nom,parent2_prenom,parent2_email,parent2_telephone,etablissement:etablissements(nom)))",
       )
       .order("date_vol", { ascending: true })
       .order("heure_debut", { ascending: true })
@@ -434,6 +439,15 @@ export default function VolsPage() {
       p_nb_eleves: parseInt(closeForm.nb_eleves) || activeRes.length,
       p_notes: closeForm.notes || null,
       p_pilote_nom: piloteNom || null,
+      p_poses: hasPoses
+        ? closeForm.poses
+            .filter((p) => p.terrain.trim())
+            .map((p) => ({
+              terrain: p.terrain.trim().toUpperCase(),
+              touches: parseInt(p.touches) || 0,
+              complets: parseInt(p.complets) || 0,
+            }))
+        : null,
     });
     if (closeErr) {
       setSaving(false);
@@ -451,20 +465,24 @@ export default function VolsPage() {
       prix_total: "",
       notes: "",
       pilote_override: "",
+      poses: [],
     });
     load();
   }
 
+  // Les deux responsables légaux de chaque élève concerné sont notifiés
   function getAffectedParents(creneau: any) {
     return (creneau?.reservations || [])
       .filter((r: any) => r.statut !== "annule" && r.eleve?.parent_email)
-      .map((r: any) => ({
-        email: r.eleve.parent_email,
-        prenom: r.eleve.parent_prenom || "",
-        eleve_prenom: r.eleve.prenom,
-        eleve_nom: r.eleve.nom,
-        eleve_id: r.eleve.id,
-      }));
+      .flatMap((r: any) =>
+        parentsDe(r.eleve).map((p) => ({
+          email: p.email,
+          prenom: p.prenom,
+          eleve_prenom: r.eleve.prenom,
+          eleve_nom: r.eleve.nom,
+          eleve_id: r.eleve.id,
+        })),
+      );
   }
 
   async function doDeleteSlot(id: string, slot: any, motif?: string) {
@@ -683,6 +701,9 @@ export default function VolsPage() {
                 parent_prenom: r.eleve.parent_prenom,
                 parent_email: r.eleve.parent_email,
                 parent_telephone: r.eleve.parent_telephone,
+                parent2_nom: r.eleve.parent2_nom,
+                parent2_prenom: r.eleve.parent2_prenom,
+                parent2_telephone: r.eleve.parent2_telephone,
                 type_vol: r.type_vol,
               })),
             pilote_email: newPilote.email,
@@ -728,6 +749,7 @@ export default function VolsPage() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             type: "booking_confirm",
+            eleve_id: r.eleve.id,
             parent_email: r.eleve.parent_email,
             parent_prenom: r.eleve.parent_prenom || "",
             eleve_prenom: r.eleve.prenom,
@@ -825,7 +847,7 @@ export default function VolsPage() {
     const { data } = await supabase
       .from("creneaux")
       .select(
-        "*, pilote:profiles!pilote_id(nom,prenom,id,email,telephone), aeronef:aeronefs(*), etablissement:etablissements(nom), reservations(*, eleve:eleves(id,nom,prenom,date_naissance,lieu_naissance,classe,commentaires,vol1_temps_minutes,parent_nom,parent_prenom,parent_email,parent_telephone,etablissement:etablissements(nom)))",
+        "*, pilote:profiles!pilote_id(nom,prenom,id,email,telephone), aeronef:aeronefs(*), etablissement:etablissements(nom), reservations(*, eleve:eleves(id,nom,prenom,date_naissance,lieu_naissance,classe,commentaires,vol1_temps_minutes,parent_nom,parent_prenom,parent_email,parent_telephone,parent2_nom,parent2_prenom,parent2_email,parent2_telephone,etablissement:etablissements(nom)))",
       )
       .eq("id", showDetail.id)
       .single();
@@ -879,7 +901,7 @@ export default function VolsPage() {
     // Refresh detail
     const { data } = await supabase
       .from("creneaux")
-      .select("*, pilote:profiles!pilote_id(nom,prenom,id,email,telephone), aeronef:aeronefs(*), etablissement:etablissements(nom), reservations(*, eleve:eleves(id,nom,prenom,date_naissance,lieu_naissance,classe,commentaires,vol1_temps_minutes,parent_nom,parent_prenom,parent_email,parent_telephone,etablissement:etablissements(nom)))")
+      .select("*, pilote:profiles!pilote_id(nom,prenom,id,email,telephone), aeronef:aeronefs(*), etablissement:etablissements(nom), reservations(*, eleve:eleves(id,nom,prenom,date_naissance,lieu_naissance,classe,commentaires,vol1_temps_minutes,parent_nom,parent_prenom,parent_email,parent_telephone,parent2_nom,parent2_prenom,parent2_email,parent2_telephone,etablissement:etablissements(nom)))")
       .eq("id", showDetail.id)
       .single();
     if (data) setShowDetail(data);
@@ -1643,6 +1665,7 @@ export default function VolsPage() {
                             prix_total: "",
                             notes: "",
                             pilote_override: "",
+                            poses: [],
                             nb_eleves: String(
                               showDetail.reservations?.filter(
                                 (r: any) => r.statut !== "annule",
@@ -1915,6 +1938,91 @@ export default function VolsPage() {
                   className="input"
                 />
               </div>
+              {/* Posés en campagne — vols instructeur */}
+              {hasPoses && (
+                <div className="rounded-lg border border-gray-200 p-3">
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="label !mb-0">Posés sur d&apos;autres terrains</label>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setCloseForm({
+                          ...closeForm,
+                          poses: [...closeForm.poses, { terrain: "", touches: "", complets: "" }],
+                        })
+                      }
+                      className="text-xs font-semibold text-brand-500 hover:underline"
+                    >
+                      + Ajouter un terrain
+                    </button>
+                  </div>
+                  <p className="text-[11px] text-gray-400 mb-2">
+                    Facultatif. Touchés (posé-décollé) et posés complets effectués ailleurs qu&apos;au terrain de départ.
+                  </p>
+                  {closeForm.poses.length === 0 ? (
+                    <p className="text-xs text-gray-400">Aucun posé en campagne.</p>
+                  ) : (
+                    <div className="space-y-2">
+                      {closeForm.poses.map((p, i) => (
+                        <div key={i} className="flex items-end gap-2">
+                          <div className="flex-1 min-w-0">
+                            <label className="label text-[10px]">Terrain</label>
+                            <input
+                              value={p.terrain}
+                              onChange={(e) => {
+                                const poses = [...closeForm.poses];
+                                poses[i] = { ...poses[i], terrain: e.target.value };
+                                setCloseForm({ ...closeForm, poses });
+                              }}
+                              className="input text-sm uppercase"
+                              placeholder="LFCH"
+                              maxLength={8}
+                            />
+                          </div>
+                          <div className="w-20">
+                            <label className="label text-[10px]">Touchés</label>
+                            <input
+                              type="number"
+                              min={0}
+                              value={p.touches}
+                              onChange={(e) => {
+                                const poses = [...closeForm.poses];
+                                poses[i] = { ...poses[i], touches: e.target.value };
+                                setCloseForm({ ...closeForm, poses });
+                              }}
+                              className="input text-sm"
+                            />
+                          </div>
+                          <div className="w-20">
+                            <label className="label text-[10px]">Complets</label>
+                            <input
+                              type="number"
+                              min={0}
+                              value={p.complets}
+                              onChange={(e) => {
+                                const poses = [...closeForm.poses];
+                                poses[i] = { ...poses[i], complets: e.target.value };
+                                setCloseForm({ ...closeForm, poses });
+                              }}
+                              className="input text-sm"
+                            />
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setCloseForm({ ...closeForm, poses: closeForm.poses.filter((_, j) => j !== i) })
+                            }
+                            className="mb-1 p-2 text-gray-400 hover:text-red-500"
+                            title="Retirer ce terrain"
+                          >
+                            <X className="w-4 h-4" />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
               <div>
                 <label className="label">Notes</label>
                 <textarea
@@ -2893,7 +3001,17 @@ export default function VolsPage() {
                             <span>{prixEleve % 1 === 0 ? prixEleve : prixEleve.toFixed(2)}€{isShared && <span className="text-[10px] font-normal text-amber-600 ml-1">÷{n}</span>}</span>
                           ) : "—"}
                         </td>
-                        <td className="px-3 py-2.5 text-gray-400 text-xs">{v.notes || "—"}</td>
+                        <td className="px-3 py-2.5 text-gray-400 text-xs">
+                          {/* Posés en campagne : LFCH 2T/1C */}
+                          {hasPoses && Array.isArray(v.poses) && v.poses.length > 0 && (
+                            <span className="block text-[11px] font-medium text-brand-500" title="Posés sur d'autres terrains (T = touchés, C = complets)">
+                              {v.poses
+                                .map((p: any) => `${p.terrain} ${p.touches || 0}T/${p.complets || 0}C`)
+                                .join(" · ")}
+                            </span>
+                          )}
+                          {v.notes || (Array.isArray(v.poses) && v.poses.length > 0 ? "" : "—")}
+                        </td>
                         <td className="px-3 py-2.5">
                           {isSA && (
                             <div className="flex items-center gap-1">

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireRole } from "@/lib/auth";
 import { createServiceClient } from "@/lib/supabase/server";
+import { PARENT_COLUMNS, parentsDe } from "@/lib/parents";
 
 /**
  * POST /api/email/notify-slot
@@ -103,7 +104,7 @@ export async function POST(req: Request) {
   const { data: elevesVol1 } = await applyYear(applyScope(
     supabase
       .from("eleves")
-      .select("id, prenom, nom, parent_email, parent_prenom, etablissement_id, bia_resultat, reservations(id, statut, type_vol)")
+      .select(`id, prenom, nom, etablissement_id, bia_resultat, ${PARENT_COLUMNS}, reservations(id, statut, type_vol)`)
       .eq("organisation_id", orgId)
       .eq("archive", false)
       .eq("abandonne", false)
@@ -131,11 +132,12 @@ export async function POST(req: Request) {
   const { data: elevesVol2 } = await applyYear(applyScope(
     supabase
       .from("eleves")
-      .select("id, prenom, nom, parent_email, parent_prenom, etablissement_id, reservations(id, statut, type_vol)")
+      .select(`id, prenom, nom, etablissement_id, ${PARENT_COLUMNS}, reservations(id, statut, type_vol)`)
       .eq("organisation_id", orgId)
       .eq("archive", false)
       .eq("abandonne", false)
       .eq("vol2_autorise", true)
+      .eq("vol2_refuse", false)
       .or("vol1_effectue.eq.true,vol1_skippe.eq.true")
       .eq("vol2_effectue", false)
       .not("parent_email", "is", null)
@@ -159,17 +161,19 @@ export async function POST(req: Request) {
   const parents: { email: string; prenom: string; eleve_prenom: string; eleve_nom: string; eleve_id: string }[] = [];
 
   for (const e of elevesCibles) {
-    if (!e.parent_email) continue;
-    const key = `${e.parent_email.toLowerCase()}|${e.id}`; // per parent+élève (a parent can have 2 kids)
-    if (seen.has(key)) continue;
-    seen.add(key);
-    parents.push({
-      email: e.parent_email,
-      prenom: e.parent_prenom || "",
-      eleve_prenom: e.prenom,
-      eleve_nom: e.nom,
-      eleve_id: e.id,
-    });
+    // Les deux responsables légaux sont prévenus
+    for (const p of parentsDe(e)) {
+      const key = `${p.email.toLowerCase()}|${e.id}`; // per parent+élève (a parent can have 2 kids)
+      if (seen.has(key)) continue;
+      seen.add(key);
+      parents.push({
+        email: p.email,
+        prenom: p.prenom,
+        eleve_prenom: e.prenom,
+        eleve_nom: e.nom,
+        eleve_id: e.id,
+      });
+    }
   }
 
   if (parents.length === 0) {

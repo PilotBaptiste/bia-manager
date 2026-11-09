@@ -65,7 +65,8 @@ export default function ReservationPage() {
         .select(
           "*, etablissement:etablissements!inner(nom, actif), reservations(*, creneau:creneaux(date_vol, heure_debut, heure_fin, statut, pilote:profiles!pilote_id(nom, prenom, email, telephone), aeronef:aeronefs(type_aeronef, immatriculation)))",
         )
-        .eq("parent_id", user.id)
+        // Les deux responsables légaux voient l'élève
+        .or(`parent_id.eq.${user.id},parent2_id.eq.${user.id}`)
         .eq("archive", false)
         .eq("etablissement.actif", true),
       supabase

@@ -1,7 +1,7 @@
 "use client";
 import { useState, useEffect } from "react";
 import { createClient } from "@/lib/supabase/client";
-import { Settings2, Save, Loader2, FileSignature, Download, Eye, Info, CalendarDays, Plus, CheckCircle2, AlertTriangle, Edit, X, LockKeyhole, LockKeyholeOpen } from "lucide-react";
+import { Settings2, Save, Loader2, FileSignature, Download, Eye, Info, CalendarDays, Plus, CheckCircle2, AlertTriangle, Edit, X, LockKeyhole, LockKeyholeOpen, MessageCircle } from "lucide-react";
 import { toast } from "sonner";
 import { useYear } from "@/contexts/YearContext";
 
@@ -170,8 +170,13 @@ export default function ParametresPage() {
     lieu_vol: "Lieu des vols (une information par ligne)",
     whatsapp_support: "WhatsApp du support (format international, ex. 33612345678)",
     telephone_support: "Téléphone du support affiché",
+    email_support: "Email du support affiché aux familles",
+    message_support: "Message affiché aux familles (horaires, consignes…)",
+    vol2_sans_bia: "Autoriser le vol 2 même sans le BIA",
   };
-  const CLUB_KEYS = ["nom_aeroclub", "sigle_aeroclub", "email_aeroclub", "telephone_aeroclub", "lieu_vol", "whatsapp_support", "telephone_support"];
+  const CLUB_KEYS = ["nom_aeroclub", "sigle_aeroclub", "email_aeroclub", "telephone_aeroclub", "lieu_vol"];
+  const SUPPORT_KEYS = ["email_support", "telephone_support", "whatsapp_support", "message_support"];
+  const REGLES_KEYS = ["vol2_sans_bia"];
 
   const variables = [
     { var: "{PARENT_NOM}", desc: "Prénom + Nom du parent" },
@@ -248,6 +253,47 @@ export default function ParametresPage() {
               </div>
             ))}
             <p className="text-[11px] text-gray-400">Ces informations apparaissent dans les emails, les attestations et les écrans de connexion.</p>
+          </div>
+          <div className="card">
+            <h2 className="text-sm font-semibold text-gray-900 mb-4 flex items-center gap-2">
+              <MessageCircle className="w-4 h-4 text-brand-400" /> Support aux familles
+            </h2>
+            {SUPPORT_KEYS.map(cle => params.find(p => p.cle === cle)).filter(Boolean).map((p: any) => (
+              <div key={p.cle} className="mb-3">
+                <label className="label">{labels[p.cle] || p.cle}</label>
+                {p.cle === "message_support" ? (
+                  <textarea value={p.valeur} onChange={e => updateParam(p.cle, e.target.value)} className="input min-h-[64px]" rows={3}
+                    placeholder="Ex. : Pour toute question sur les vols, contactez-nous du lundi au vendredi." />
+                ) : (
+                  <input value={p.valeur} onChange={e => updateParam(p.cle, e.target.value)} className="input" />
+                )}
+              </div>
+            ))}
+            <p className="text-[11px] text-gray-400">
+              Ce que les familles voient dans l&apos;onglet Support de leur espace. Laissez vide pour masquer une ligne.
+            </p>
+          </div>
+          <div className="card">
+            <h2 className="text-sm font-semibold text-gray-900 mb-4 flex items-center gap-2">
+              <Settings2 className="w-4 h-4 text-brand-400" /> Règles des vols
+            </h2>
+            {REGLES_KEYS.map(cle => params.find(p => p.cle === cle)).filter(Boolean).map((p: any) => (
+              <div key={p.cle} className="mb-3">
+                <label className="flex items-start gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    className="mt-0.5"
+                    checked={p.valeur === "true"}
+                    onChange={e => updateParam(p.cle, e.target.checked ? "true" : "false")}
+                  />
+                  <span className="text-sm font-medium text-gray-700">{labels[p.cle] || p.cle}</span>
+                </label>
+                <p className="text-[11px] text-gray-400 mt-1 ml-6">
+                  Par défaut, un élève non admis au BIA perd l&apos;autorisation du vol 2. Avec ce réglage,
+                  l&apos;aéroclub peut la maintenir au cas par cas depuis la fiche de l&apos;élève.
+                </p>
+              </div>
+            ))}
           </div>
           <div className="card">
             <h2 className="text-sm font-semibold text-gray-900 mb-4 flex items-center gap-2">

@@ -69,6 +69,12 @@ export interface Eleve {
   parent_prenom: string;
   parent_email: string;
   parent_telephone: string;
+  // Second parent (familles séparées) : facultatif
+  parent2_id: string | null;
+  parent2_nom: string | null;
+  parent2_prenom: string | null;
+  parent2_email: string | null;
+  parent2_telephone: string | null;
   paiement_effectue: boolean;
   paiement_mode: string | null;
   paiement_montant: number | null;
@@ -86,6 +92,7 @@ export interface Eleve {
   vol1_temps_minutes: number | null;
   vol2_autorise: boolean;
   vol2_effectue: boolean;
+  vol2_refuse: boolean;
   vol2_temps_minutes: number | null;
   adresse: string | null;
   vol1_numero_aerogest: string | null;
@@ -136,6 +143,42 @@ export interface VolEffectue {
   nb_eleves: number;
   prix_total: number;
   notes: string | null;
+  poses?: Pose[];
+}
+
+/** Posé sur un autre terrain pendant un vol instructeur. */
+export interface Pose {
+  terrain: string;
+  touches: number;
+  complets: number;
+}
+
+export interface Cours {
+  id: string;
+  titre: string;
+  description: string | null;
+  matiere: string;
+  type: "fichier" | "lien";
+  fichier_path: string | null;
+  fichier_nom: string | null;
+  fichier_taille: number | null;
+  url: string | null;
+  ordre: number;
+  publie: boolean;
+  cree_par: string | null;
+  created_at: string;
+}
+
+export interface Paiement {
+  id: string;
+  eleve_id: string | null;
+  reference: string;
+  montant: number;
+  statut: "en_attente" | "paye" | "echoue" | "annule";
+  checkout_id: string | null;
+  payeur_email: string | null;
+  paid_at: string | null;
+  created_at: string;
 }
 
 export interface Parametre {

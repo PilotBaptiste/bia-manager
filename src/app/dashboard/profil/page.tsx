@@ -256,7 +256,8 @@ export default function ProfilPage() {
         supabase
           .from("eleves")
           .select("id,nom,prenom,date_naissance,lieu_naissance,adresse_rue,adresse_cp,adresse_ville,desiderata")
-          .eq("parent_id", user.id)
+          // Les deux responsables légaux voient l'élève
+          .or(`parent_id.eq.${user.id},parent2_id.eq.${user.id}`)
           .eq("archive", false),
       ]);
       if (prof) {

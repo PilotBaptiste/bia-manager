@@ -23,6 +23,10 @@ export default function InscriptionCodePage() {
   });
   const [showPw, setShowPw] = useState(false);
 
+  // Second responsable légal (facultatif) — familles séparées
+  const [showParent2, setShowParent2] = useState(false);
+  const [parent2, setParent2] = useState({ nom: "", prenom: "", email: "", telephone: "" });
+
   // Children
   const [enfants, setEnfants] = useState([{ ...emptyEnfant }]);
 
@@ -95,6 +99,17 @@ export default function InscriptionCodePage() {
       setFormError("Les mots de passe ne correspondent pas.");
       return;
     }
+    const email2 = parent2.email.trim().toLowerCase();
+    if (showParent2 && email2) {
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email2)) {
+        setFormError("Adresse email du second parent invalide.");
+        return;
+      }
+      if (email2 === parent.email.trim().toLowerCase()) {
+        setFormError("Les deux parents doivent avoir des adresses email différentes.");
+        return;
+      }
+    }
     for (const [i, e] of enfants.entries()) {
       if (!e.nom.trim() || !e.prenom.trim()) {
         setFormError(`Prénom et nom obligatoires pour l'enfant ${i + 1}.`);
@@ -119,6 +134,9 @@ export default function InscriptionCodePage() {
           prenom: parent.prenom.trim(),
           telephone: parent.telephone.trim(),
         },
+        parent2: showParent2 && email2
+          ? { email: email2, nom: parent2.nom.trim(), prenom: parent2.prenom.trim(), telephone: parent2.telephone.trim() }
+          : null,
         accepteEmails,
         enfants: enfants.map((e) => ({
           nom: e.nom.trim(),
@@ -281,6 +299,62 @@ export default function InscriptionCodePage() {
                   className={`input-field ${parent.passwordConfirm && parent.password !== parent.passwordConfirm ? "border-red-400" : ""}`}
                   required />
               </div>
+            </div>
+
+            {/* Second responsable légal — familles séparées */}
+            <div className="mt-4">
+              {!showParent2 ? (
+                <button
+                  type="button"
+                  onClick={() => setShowParent2(true)}
+                  className="text-xs font-semibold text-brand-500 hover:underline"
+                >
+                  + Ajouter un second responsable légal
+                </button>
+              ) : (
+                <div className="rounded-xl border border-gray-200 bg-gray-50 p-3">
+                  <div className="flex items-center justify-between mb-2">
+                    <p className="text-xs font-bold text-gray-900">Second responsable légal</p>
+                    <button
+                      type="button"
+                      onClick={() => { setShowParent2(false); setParent2({ nom: "", prenom: "", email: "", telephone: "" }); }}
+                      className="text-xs text-gray-400 hover:text-red-500"
+                    >
+                      Retirer
+                    </button>
+                  </div>
+                  <p className="text-[11px] text-gray-500 mb-3">
+                    Facultatif. Les deux responsables recevront les emails et pourront réserver les vols.
+                    Le second parent créera son accès avec « Mot de passe oublié » sur la page de connexion.
+                  </p>
+                  <div className="grid grid-cols-2 gap-3 mb-3">
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-500 mb-1">Prénom</label>
+                      <input type="text" value={parent2.prenom}
+                        onChange={(e) => { setParent2((p) => ({ ...p, prenom: e.target.value })); setFormError(null); }}
+                        className="input-field" />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-500 mb-1">Nom</label>
+                      <input type="text" value={parent2.nom}
+                        onChange={(e) => { setParent2((p) => ({ ...p, nom: e.target.value })); setFormError(null); }}
+                        className="input-field" />
+                    </div>
+                  </div>
+                  <div className="mb-3">
+                    <label className="block text-xs font-semibold text-gray-500 mb-1">Email</label>
+                    <input type="email" value={parent2.email}
+                      onChange={(e) => { setParent2((p) => ({ ...p, email: e.target.value })); setFormError(null); }}
+                      className="input-field" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-500 mb-1">Téléphone</label>
+                    <input type="tel" value={parent2.telephone}
+                      onChange={(e) => { setParent2((p) => ({ ...p, telephone: e.target.value })); setFormError(null); }}
+                      className="input-field" />
+                  </div>
+                </div>
+              )}
             </div>
 
             <label className="mt-4 flex items-start gap-3 rounded-xl border border-gray-200 bg-gray-50 p-3 cursor-pointer">

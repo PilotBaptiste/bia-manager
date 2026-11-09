@@ -60,9 +60,14 @@ if (existing && !RESET) {
   process.exit(1);
 }
 if (RESET) {
-  for (const t of ["vols_lignes", "vols_effectues", "reservations", "creneaux", "subventions", "eleves", "pilote_qualifications",
-    "pilote_etablissements", "aeronef_tarifs", "aeronefs", "etablissements", "email_logs", "activity_logs"]) {
-    await db.from(t).delete().eq("organisation_id", ORG).then(must(`Remise à zéro ${t}`));
+  for (const t of ["cours_vus", "cours", "paiements", "vols_lignes", "vols_effectues", "reservations", "creneaux", "subventions",
+    "eleves", "pilote_qualifications", "pilote_etablissements", "aeronef_tarifs", "aeronefs", "etablissements",
+    "email_logs", "activity_logs"]) {
+    // Les tables arrivées avec un script SQL plus récent peuvent ne pas exister encore
+    const { error } = await db.from(t).delete().eq("organisation_id", ORG);
+    if (error && !/does not exist|schema cache/i.test(error.message)) {
+      throw new Error(`Remise à zéro ${t} : ${error.message}`);
+    }
   }
   const { data: demoProfiles } = await db.from("profiles").select("id, email").eq("organisation_id", ORG).like("email", "%@example.com");
   for (const p of demoProfiles ?? []) await db.auth.admin.deleteUser(p.id);
@@ -132,10 +137,11 @@ await db.from("pilote_etablissements").insert(
 // ── Familles et élèves ───────────────────────────────────────────
 // Stades : done = Vol 1 effectué · booked = réservé · ready = payé + attestation · attest = payé sans attestation
 //          new = rien · quit = abandonné
+// `parent2` : famille séparée, deux responsables légaux qui reçoivent les emails
 const FAMILLES = [
-  { parent: ["Nathalie", "Bernard"], enfants: [["Lucas", 0, "done"], ["Emma", 1, "booked"]] },
+  { parent: ["Nathalie", "Bernard"], parent2: ["Pascal", "Bernard"], enfants: [["Lucas", 0, "done"], ["Emma", 1, "booked"]] },
   { parent: ["Olivier", "Petit"], enfants: [["Hugo", 0, "done"]] },
-  { parent: ["Sandrine", "Moreau"], enfants: [["Léa", 0, "done"], ["Nathan", 1, "ready"]] },
+  { parent: ["Sandrine", "Moreau"], parent2: ["Karim", "Haddad"], enfants: [["Léa", 0, "done"], ["Nathan", 1, "ready"]] },
   { parent: ["Thomas", "Laurent"], enfants: [["Chloé", 2, "done"]] },
   { parent: ["Isabelle", "Simon"], enfants: [["Louis", 0, "booked"]] },
   { parent: ["Frédéric", "Michel"], enfants: [["Manon", 2, "booked"]] },
@@ -156,6 +162,13 @@ for (const fam of FAMILLES) {
   const [pp, pn] = fam.parent;
   const email = `demo.parent${String(n).padStart(2, "0")}@example.com`;
   const parent = await account(email, pp, pn, ["parent"]);
+  // Second responsable légal : son propre compte, sa propre adresse
+  let parent2 = null;
+  let email2 = null;
+  if (fam.parent2) {
+    email2 = `demo.parent${String(n).padStart(2, "0")}b@example.com`;
+    parent2 = await account(email2, fam.parent2[0], fam.parent2[1], ["parent"]);
+  }
   for (const [prenom, etabIndex, stade] of fam.enfants) {
     const paid = ["done", "booked", "ready", "attest"].includes(stade);
     const attested = ["done", "booked", "ready"].includes(stade);
@@ -173,6 +186,11 @@ for (const fam of FAMILLES) {
       parent_prenom: pp,
       parent_email: email,
       parent_telephone: "06 00 00 00 00",
+      parent2_id: parent2?.id ?? null,
+      parent2_nom: fam.parent2?.[1] ?? null,
+      parent2_prenom: fam.parent2?.[0] ?? null,
+      parent2_email: email2,
+      parent2_telephone: fam.parent2 ? "06 00 00 00 01" : null,
       paiement_effectue: paid,
       paiement_montant: paid ? 60 : null,
       paiement_mode: paid ? (n % 2 ? "Chèque" : "Virement") : null,
@@ -234,11 +252,31 @@ await db.from("subventions").insert({
   montant_total: 900, date: "2026-09-10", etablissement_ids: [etabs[0].id, etabs[1].id], note: "Subvention fictive de démonstration",
 }).then(must("Subvention"));
 
+// ── Cours de démonstration ──────────────────────────────────────
+// Uniquement des liens : pas de fichier à envoyer dans l'espace de stockage.
+const COURS_DEMO = [
+  ["Les nuages et leur formation", "Météorologie et aérologie", "https://fr.wikipedia.org/wiki/Nuage", 1],
+  ["Portance et traînée : les bases", "Aérodynamique, aérostatique et principes du vol", "https://fr.wikipedia.org/wiki/Portance_(m%C3%A9canique_des_fluides)", 1],
+  ["Les parties d'un avion léger", "Étude des aéronefs et des engins spatiaux", "https://fr.wikipedia.org/wiki/Avion", 1],
+  ["Espaces aériens et classes", "Navigation, réglementation, sécurité des vols", "https://fr.wikipedia.org/wiki/Espace_a%C3%A9rien", 1],
+  ["Les grandes dates de l'aviation", "Histoire de l'aéronautique et de l'espace", "https://fr.wikipedia.org/wiki/Histoire_de_l%27aviation", 1],
+];
+const { error: coursError } = await db.from("cours").insert(
+  COURS_DEMO.map(([titre, matiere, url, ordre]) => ({
+    organisation_id: ORG, titre, matiere, url, ordre, type: "lien", publie: true,
+    description: "Ressource de démonstration — à remplacer par vos propres documents.",
+  })),
+);
+if (coursError && !/does not exist|schema cache/i.test(coursError.message)) {
+  throw new Error(`Cours de démo : ${coursError.message}`);
+}
+const coursAjoutes = coursError ? 0 : COURS_DEMO.length;
+
 // ── Vérification : les autres clubs n'ont pas bougé ──────────────
 const after = await snapshotOthers(ORG);
 const changed = TABLES.filter((t) => before[t] !== after[t]);
 
-console.log(`\n✅ « ${org.nom} » rempli : ${etabs.length} établissements, ${avions.length} avions, ${eleves.length} élèves, 6 créneaux, 2 vols clôturés, 1 subvention.`);
+console.log(`\n✅ « ${org.nom} » rempli : ${etabs.length} établissements, ${avions.length} avions, ${eleves.length} élèves, 6 créneaux, 2 vols clôturés, 1 subvention, ${coursAjoutes} cours.`);
 console.log("\nCodes d'inscription :");
 for (const e of etabs) console.log(`  ${e.nom} → ${e.code_inscription}`);
 console.log(`\nComptes de démo (mot de passe commun : ${password}) :`);

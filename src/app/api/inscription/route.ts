@@ -70,10 +70,21 @@ export async function GET(req: Request) {
 
 // POST — create user + profile + eleves
 export async function POST(req: Request) {
-  const { code, parent, enfants, accepteEmails = true } = await req.json();
+  const { code, parent, parent2, enfants, accepteEmails = true } = await req.json();
 
   if (!code || !parent?.email || !parent?.password || !parent?.nom || !parent?.prenom) {
     return NextResponse.json({ error: "Données parent incomplètes" }, { status: 400 });
+  }
+  // Second responsable légal (facultatif) : un contact, sans création de compte.
+  // Il accède à l'espace familles via « Mot de passe oublié » ou une invitation du club.
+  const parent2Email = String(parent2?.email ?? "").trim().toLowerCase();
+  if (parent2Email) {
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(parent2Email)) {
+      return NextResponse.json({ error: "Format d'email du second parent invalide" }, { status: 400 });
+    }
+    if (parent2Email === String(parent.email).trim().toLowerCase()) {
+      return NextResponse.json({ error: "Les deux parents doivent avoir des adresses email différentes" }, { status: 400 });
+    }
   }
   if (!Array.isArray(enfants) || !enfants.length) {
     return NextResponse.json({ error: "Au moins un enfant requis" }, { status: 400 });
@@ -168,6 +179,11 @@ export async function POST(req: Request) {
   }
 
   // 6. Create eleves
+  // Le second parent est rattaché s'il possède déjà un compte dans ce club
+  const { data: parent2Profile } = parent2Email
+    ? await supabase.from("profiles").select("id").ilike("email", parent2Email).eq("organisation_id", orgId).maybeSingle()
+    : { data: null };
+
   const elevesPayload = enfants.map((e: any) => ({
     organisation_id: orgId,
     nom: e.nom.trim(),
@@ -182,6 +198,11 @@ export async function POST(req: Request) {
     parent_prenom: parent.prenom.trim(),
     parent_telephone: parent.telephone?.trim() || null,
     parent_id: userId,
+    parent2_email: parent2Email || null,
+    parent2_nom: parent2Email ? (parent2?.nom?.trim() || null) : null,
+    parent2_prenom: parent2Email ? (parent2?.prenom?.trim() || null) : null,
+    parent2_telephone: parent2Email ? (parent2?.telephone?.trim() || null) : null,
+    parent2_id: parent2Profile?.id ?? null,
     archive: false,
   }));
 
