@@ -5,6 +5,7 @@ import { fetchAll } from "@/lib/fetchAll";
 import { emailStatus } from "@/lib/emailStatus";
 import { inActiveEtab } from "@/lib/etablissements";
 import { parentsDe } from "@/lib/parents";
+import SaisieDirecte from "./SaisieDirecte";
 import { useYear } from "@/contexts/YearContext";
 import { useModule } from "@/contexts/ModulesContext";
 import { matchDesiderata } from "@/components/DesiderataGrid";
@@ -30,6 +31,7 @@ import {
   Trash2,
   BarChart2,
   School,
+  ClipboardCheck,
 } from "lucide-react";
 import ConfirmModal from "@/components/ConfirmModal";
 
@@ -116,6 +118,8 @@ export default function VolsPage() {
     poses: [] as { terrain: string; touches: string; complets: string }[],
   });
   const hasPoses = useModule("poses_campagne");
+  const hasSaisieDirecte = useModule("saisie_directe_vols");
+  const [showSaisieDirecte, setShowSaisieDirecte] = useState(false);
 
   async function load() {
     const {
@@ -135,7 +139,7 @@ export default function VolsPage() {
 
     let elevesQuery = supabase
       .from("eleves")
-      .select("id, nom, prenom, etablissement_id, etablissement:etablissements!inner(actif), desiderata, abandonne, bia_resultat, vol2_autorise, vol1_effectue, vol1_skippe, vol1_numero_aerogest, vol1_prix, vol1_temps_minutes, vol1_pilote_nom, vol1_aeronef_id, vol2_effectue, vol2_numero_aerogest, vol2_prix, vol2_temps_minutes, vol2_pilote_nom, vol2_aeronef_id")
+      .select("id, nom, prenom, etablissement_id, etablissement:etablissements!inner(actif), desiderata, abandonne, bia_resultat, vol2_autorise, vol2_refuse, vol1_effectue, vol1_skippe, vol1_numero_aerogest, vol1_prix, vol1_temps_minutes, vol1_pilote_nom, vol1_aeronef_id, vol2_effectue, vol2_numero_aerogest, vol2_prix, vol2_temps_minutes, vol2_pilote_nom, vol2_aeronef_id")
       .eq("archive", false)
       .eq("etablissement.actif", true)
       .order("nom")
@@ -2456,8 +2460,24 @@ export default function VolsPage() {
               <Plus className="w-3.5 h-3.5" /> Nouveau créneau
             </button>
           )}
+          {/* Saisie d'un vol déjà fait, sans créneau ni email */}
+          {hasSaisieDirecte && (isSA || isCoord) && (
+            <button onClick={() => setShowSaisieDirecte(true)} className="btn-secondary btn-sm">
+              <ClipboardCheck className="w-3.5 h-3.5" /> Saisir un vol
+            </button>
+          )}
         </div>
       </div>
+
+      {showSaisieDirecte && (
+        <SaisieDirecte
+          aeronefs={aeronefs}
+          pilotes={pilotes}
+          eleves={eleves}
+          onFermer={() => setShowSaisieDirecte(false)}
+          onEnregistre={load}
+        />
+      )}
 
       {/* FILTERS — visible to SA/coordinateur/gérant */}
       {(isSA || isCoord || isGerant) && (
