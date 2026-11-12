@@ -1,7 +1,10 @@
 const { withSentryConfig } = require("@sentry/nextjs");
 
 /** @type {import('next').NextConfig} */
-const nextConfig = {};
+const nextConfig = {
+  // SheetJS est chargé tel quel côté serveur (lecture des .xls FFA) : pas de bundling.
+  serverExternalPackages: ["xlsx"],
+};
 
 module.exports = withSentryConfig(nextConfig, {
   org: process.env.SENTRY_ORG,

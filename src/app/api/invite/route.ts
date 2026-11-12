@@ -100,6 +100,11 @@ export async function POST(req: Request) {
       .is("organisation_id", null);
   }
 
+  // Un compte créé par l'import FFA existe déjà mais n'a jamais servi : on lui parle de
+  // premier accès, pas de réinitialisation.
+  const jamaisConnecte = !linkData?.user?.last_sign_in_at;
+  const premierAcces = !isRecovery || jamaisConnecte;
+
   const resetLink = linkData.properties.action_link;
   const displayName = nom && prenom ? `${prenom} ${nom}` : escHtml(email);
 
@@ -116,11 +121,11 @@ export async function POST(req: Request) {
           </div>`
     : "";
 
-  const subject = isRecovery
-    ? "BIA Manager — Réinitialisez votre mot de passe"
-    : "Accès BIA Manager — Définissez votre mot de passe";
+  const subject = premierAcces
+    ? "Accès BIA Manager — Définissez votre mot de passe"
+    : "BIA Manager — Réinitialisez votre mot de passe";
 
-  let bodyHtml = isRecovery
+  let bodyHtml = !premierAcces
     ? `<h2 style="margin:0 0 8px;font-size:22px;color:#111">Bonjour ${displayName},</h2>
           <p style="color:#555;margin:0 0 24px">
             Vous avez demandé la réinitialisation de votre mot de passe BIA Manager.
@@ -181,7 +186,7 @@ export async function POST(req: Request) {
     try {
       if (targetOrgId) await supabase.from("email_logs").insert({
         organisation_id: targetOrgId,
-        type: isRecovery ? "reset_password" : "invite",
+        type: premierAcces ? "invite" : "reset_password",
         to_email: email,
         subject,
         eleve_id: null,

@@ -88,7 +88,34 @@ Vous hébergez des données de mineurs pour le compte des clubs :
 - **Deux responsables légaux** (module *Deuxième parent*) : les deux reçoivent les emails, peuvent réserver et annuler, et chacun est prévenu de ce que fait l'autre. Chacun se désabonne séparément. Le second parent crée son accès avec « Mot de passe oublié », ou reçoit une invitation depuis la fiche de l'élève.
 - **Vol 2 sans le BIA** : par défaut, un élève non admis perd l'autorisation du vol 2. Paramètres › Règles des vols permet à un club de la maintenir au cas par cas. Un élève peut aussi être marqué « ne souhaite pas faire le vol 2 » : il sort alors des listes et des relances.
 
-## 5. Suivi des erreurs (Sentry)
+## 5. Import des élèves depuis la FFA (SMILE)
+Module **Import des élèves** › onglet **Export FFA (SMILE)**.
+
+1. Sur SMILE FFA, ouvrez la liste des adhérents du club et exportez-la au format Excel (`Liste_Adherent.xls`). N'en modifiez pas l'en-tête.
+2. Déposez le fichier dans l'onglet *Export FFA*. Le fichier est lu côté serveur : `.xls` (format ancien) comme `.xlsx` sont acceptés, jusqu'à 8 Mo.
+3. L'écran d'aperçu est **modifiable**. L'export contient tous les adhérents du club : cochez les seuls élèves BIA (le bouton *Cocher les 13–20 ans* fait le premier tri à partir de la date de naissance), corrigez les cellules en rouge, et utilisez *Établissement à appliquer* pour renseigner d'un coup l'établissement et la classe des lignes cochées.
+4. Lancez l'import. Les lignes incomplètes bloquent le bouton : nom, prénom, date de naissance au format `jj/mm/aaaa` et établissement sont obligatoires.
+
+**Correspondance des colonnes**
+
+| Colonne FFA | Champ BIA Manager |
+|---|---|
+| Nom, Prénom | nom, prénom de l'élève |
+| DDN | date de naissance |
+| Adresse + Adresse 2, Code postal, Ville | adresse de l'élève |
+| Email | **adresse du responsable légal** |
+| Portable, sinon Téléphone | téléphone du responsable légal |
+| BIA Obtenu, Mention | BIA passé, résultat et mention |
+| Etablissement | établissement (créé s'il n'existe pas) |
+| Civilité, Nb. min AV, Nb. min AR, Responsable CAEA | *non importés* |
+
+L'export FFA ne contient pas l'identité du responsable légal : l'import propose le nom de l'élève et le prénom « Parent », à corriger dans l'aperçu.
+
+**Comptes des familles.** La case *Créer les comptes des responsables légaux* (cochée par défaut) crée les comptes manquants et les rattache à leurs enfants. **Aucun email n'est envoyé pendant l'import** — ni par cette case, ni par la création des élèves. L'accès est transmis plus tard, quand le club le décide, par **Utilisateurs et rôles › Inviter les parents** : ce bouton n'écrit qu'aux adresses des deux responsables légaux des élèves de l'année active, et propose « Définissez votre mot de passe » aux comptes qui ne se sont jamais connectés.
+
+Le même écran garde l'onglet **Fichier CSV** (template téléchargeable) pour les clubs qui préparent leur liste à la main.
+
+## 6. Suivi des erreurs (Sentry)
 1. Créez un compte sur sentry.io et choisissez la région de données **EU** à la création de l'organisation.
 2. Créez un projet **Next.js**, puis copiez son **DSN** (Settings › Client Keys).
 3. Dans Vercel › Environment Variables :
@@ -104,7 +131,7 @@ Vous hébergez des données de mineurs pour le compte des clubs :
 
 Aucune donnée personnelle n'est envoyée : ni cookies, ni en-têtes, ni contenu des formulaires, ni paramètres d'URL.
 
-## 6. Cours en ligne
+## 7. Cours en ligne
 
 Le module **Cours en ligne** sert de petit espace de révision pour les familles.
 
@@ -116,7 +143,7 @@ Le module **Cours en ligne** sert de petit espace de révision pour les familles
 
 Taille maximale par document : 50 Mo. Les fichiers sont rangés dans un dossier par club et ne sont lisibles que par un lien signé, valable 5 minutes, généré après vérification des droits.
 
-## 7. Paiement en ligne (HelloAsso)
+## 8. Paiement en ligne (HelloAsso)
 
 Chaque aéroclub encaisse sur **son propre compte HelloAsso** : aucune somme ne transite par BIA Manager, et aucune clé n'est en variable d'environnement.
 
@@ -129,13 +156,13 @@ Côté familles, un bouton « Payer en ligne » apparaît sur le tableau de bord
 
 En cas de besoin, un paiement peut toujours être saisi à la main dans la fiche de l'élève (chèque, virement, espèces) : le module ne remplace rien, il ajoute une possibilité.
 
-## 8. SMS et WhatsApp
+## 9. SMS et WhatsApp
 
 **SMS — pas retenu pour le pilote.** Comptez 0,05 à 0,08 € par SMS en France (Brevo, OVH, Twilio — tarifs à revérifier au moment de souscrire). Pour 600 clubs, le coût devient significatif et impose une mention « STOP » ainsi qu'un recueil de consentement distinct de celui des emails. À réévaluer après le pilote, en comparant les fournisseurs.
 
 **WhatsApp Business Platform — déconseillé.** L'envoi automatisé exige la vérification de l'entreprise auprès de Meta, la validation de chaque modèle de message, et une facturation à la conversation. Le lien `wa.me` déjà en place (Paramètres › Support aux familles) couvre le besoin réel sans aucune de ces contraintes : la famille écrit, le club répond depuis son téléphone.
 
-## 9. Club de démonstration
+## 10. Club de démonstration
 `aeroclub-test.biamanager.com` sert de démo et d'environnement d'essai.
 - **Remplir ou remettre à zéro** : `npm run seed:demo -- --reset`. Le script refuse tout club dont l'adresse ne contient pas « test » ou « demo », et vérifie que les autres clubs n'ont pas bougé.
 - **Comptes** : `demo.pilote1@example.com`, `demo.coordinateur@example.com`, `demo.parent01@example.com`… Mot de passe commun : `admin123` (modifiable avec la variable `DEMO_PASSWORD`).
