@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { toast } from "sonner";
-import { Settings, Plus, Edit, Loader2, X, History, ChevronDown, ChevronUp, Euro, AlertTriangle } from "lucide-react";
+import { Settings, Plus, Edit, Loader2, X, History, ChevronDown, ChevronUp, Euro, AlertTriangle, Trash2, PowerOff } from "lucide-react";
 import type { Aeronef } from "@/types";
 
 type Tarif = { id: string; aeronef_id: string; prix_heure: number; date_effet: string; note: string | null; created_at: string };
@@ -32,6 +32,10 @@ export default function AeronefsPage() {
   const [tarifForm, setTarifForm] = useState({ prix_heure: "", date_effet: todayParis(), note: "", inclure_sans_date: false });
   const [simulation, setSimulation] = useState<Simulation | null>(null);
   const [simulating, setSimulating] = useState(false);
+  // Suppression d'un aéronef : refusée s'il a déjà servi, pour ne pas casser l'historique
+  const [suppressionFor, setSuppressionFor] = useState<Aeronef | null>(null);
+  const [usages, setUsages] = useState<{ creneaux: number; eleves: number } | null>(null);
+  const [suppression, setSuppression] = useState(false);
   const [applying, setApplying] = useState(false);
 
   async function load() {
@@ -58,6 +62,45 @@ export default function AeronefsPage() {
     setEditing(a);
     setForm({ immatriculation: a.immatriculation, type_aeronef: a.type_aeronef, nb_places_eleves: String(a.nb_places_eleves), prix_heure: String(a.prix_heure), actif: a.actif });
     setShowForm(true);
+  }
+
+  async function openSuppression(a: Aeronef) {
+    setSuppressionFor(a);
+    setUsages(null);
+    // Un aéronef référencé par un créneau ou par un vol d'élève ne peut pas être supprimé
+    const [cR, e1, e2] = await Promise.all([
+      supabase.from("creneaux").select("id", { count: "exact", head: true }).eq("aeronef_id", a.id),
+      supabase.from("eleves").select("id", { count: "exact", head: true }).eq("vol1_aeronef_id", a.id),
+      supabase.from("eleves").select("id", { count: "exact", head: true }).eq("vol2_aeronef_id", a.id),
+    ]);
+    setUsages({ creneaux: cR.count ?? 0, eleves: (e1.count ?? 0) + (e2.count ?? 0) });
+  }
+
+  async function confirmerSuppression() {
+    if (!suppressionFor) return;
+    setSuppression(true);
+    const { error } = await supabase.from("aeronefs").delete().eq("id", suppressionFor.id);
+    setSuppression(false);
+    if (error) {
+      toast.error(`Suppression impossible : ${error.message}`);
+      return;
+    }
+    toast.success(`${suppressionFor.immatriculation} supprimé`);
+    setSuppressionFor(null);
+    load();
+  }
+
+  async function desactiver(a: Aeronef) {
+    setSuppression(true);
+    const { error } = await supabase.from("aeronefs").update({ actif: false }).eq("id", a.id);
+    setSuppression(false);
+    if (error) {
+      toast.error(`Désactivation impossible : ${error.message}`);
+      return;
+    }
+    toast.success(`${a.immatriculation} retiré de la flotte active`);
+    setSuppressionFor(null);
+    load();
   }
 
   async function handleSave() {
@@ -446,11 +489,74 @@ export default function AeronefsPage() {
               <div className="pt-3 mt-2 border-t border-gray-100 grid grid-cols-2 gap-2">
                 <button onClick={() => openEdit(a)} className="btn-secondary btn-sm"><Edit className="w-3 h-3" /> Modifier</button>
                 <button onClick={() => openTarif(a)} className="btn-secondary btn-sm"><Euro className="w-3 h-3" /> Changer le tarif</button>
+                <button onClick={() => openSuppression(a)} className="btn-secondary btn-sm col-span-2 text-red-500 border-red-200 hover:bg-red-50">
+                  <Trash2 className="w-3 h-3" /> Supprimer
+                </button>
               </div>
             </div>
           );
         })}
       </div>
+
+      {/* Suppression d'un aéronef */}
+      {suppressionFor && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-xl w-full max-w-md p-5">
+            <div className="flex items-center justify-between mb-1">
+              <h2 className="font-bold text-gray-900">Supprimer {suppressionFor.immatriculation} ?</h2>
+              <button onClick={() => setSuppressionFor(null)} className="text-gray-400 hover:text-gray-600"><X className="w-5 h-5" /></button>
+            </div>
+
+            {usages === null ? (
+              <div className="flex items-center gap-2 py-6 text-sm text-gray-500">
+                <Loader2 className="w-4 h-4 animate-spin text-brand-400" /> Vérification de l'utilisation de cet aéronef…
+              </div>
+            ) : usages.creneaux + usages.eleves === 0 ? (
+              <>
+                <p className="text-sm text-gray-600 mt-1 mb-4">
+                  Cet aéronef n'a jamais été utilisé : aucun créneau, aucun vol d'élève. Il sera supprimé
+                  définitivement, avec son historique de tarifs et les qualifications des pilotes qui s'y rapportent.
+                </p>
+                <div className="flex justify-end gap-2">
+                  <button onClick={() => setSuppressionFor(null)} className="btn-secondary">Annuler</button>
+                  <button onClick={confirmerSuppression} disabled={suppression} className="btn-danger">
+                    {suppression ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />} Supprimer définitivement
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="flex items-start gap-2 rounded-lg bg-amber-50 border border-amber-200 p-3 mt-2 mb-3">
+                  <AlertTriangle className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
+                  <div className="text-sm text-amber-800">
+                    <p className="font-semibold">Suppression impossible</p>
+                    <p className="mt-0.5">
+                      Cet aéronef est utilisé par{" "}
+                      {usages.creneaux > 0 && <strong>{usages.creneaux} créneau{usages.creneaux > 1 ? "x" : ""}</strong>}
+                      {usages.creneaux > 0 && usages.eleves > 0 && " et "}
+                      {usages.eleves > 0 && <strong>{usages.eleves} vol{usages.eleves > 1 ? "s" : ""} d'élève</strong>}
+                      . Le supprimer effacerait ces vols de l'historique et fausserait les finances et les statistiques des années passées.
+                    </p>
+                  </div>
+                </div>
+                <p className="text-sm text-gray-600 mb-4">
+                  {suppressionFor.actif
+                    ? "Désactivez-le plutôt : il disparaît des listes de choix pour les nouveaux créneaux, et tout l'historique reste juste."
+                    : "Il est déjà désactivé : il n'apparaît plus dans les listes de choix, et son historique reste consultable."}
+                </p>
+                <div className="flex justify-end gap-2">
+                  <button onClick={() => setSuppressionFor(null)} className="btn-secondary">Fermer</button>
+                  {suppressionFor.actif && (
+                    <button onClick={() => desactiver(suppressionFor)} disabled={suppression} className="btn-primary">
+                      {suppression ? <Loader2 className="w-4 h-4 animate-spin" /> : <PowerOff className="w-4 h-4" />} Désactiver
+                    </button>
+                  )}
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -115,7 +115,7 @@ export default function UtilisateursPage() {
         .order("nom"),
       fetchAll((from, to) => supabase
         .from("eleves")
-        .select("prenom, nom, parent_email, parent_nom, parent_prenom, etablissement_id, archive, annee_id")
+        .select("prenom, nom, parent_email, parent_nom, parent_prenom, parent2_email, parent2_nom, parent2_prenom, etablissement_id, archive, annee_id")
         .order("id")
         .range(from, to)),
       user
@@ -136,10 +136,13 @@ export default function UtilisateursPage() {
     if (coord && cEtabIds.length === 0) {
       usersFiltered = [];
     } else if (coord) {
+      // Les deux responsables légaux comptent pour la visibilité d'un coordinateur
       const parentEmailsInEtabs = new Set(
         (elevesRes.data || [])
-          .filter((e: any) => cEtabIds.includes(e.etablissement_id) && e.parent_email)
-          .map((e: any) => e.parent_email.toLowerCase())
+          .filter((e: any) => cEtabIds.includes(e.etablissement_id))
+          .flatMap((e: any) => [e.parent_email, e.parent2_email])
+          .filter(Boolean)
+          .map((email: string) => email.toLowerCase())
       );
       usersFiltered = usersFiltered.filter((u: any) =>
         u.roles?.includes("parent") && parentEmailsInEtabs.has(u.email?.toLowerCase())
@@ -175,17 +178,23 @@ export default function UtilisateursPage() {
     load();
   }, []);
 
+  // Les deux responsables légaux de chaque élève, sans doublon d'adresse
   const parentEmails = useMemo(() => {
     if (!activeAnneeId) return [];
     const seen = new Set<string>();
     const pList: { email: string; nom: string; prenom: string }[] = [];
+    const ajouter = (email: any, nom: any, prenom: any) => {
+      const adresse = String(email ?? "").trim();
+      if (!adresse) return;
+      const key = adresse.toLowerCase();
+      if (seen.has(key)) return;
+      seen.add(key);
+      pList.push({ email: adresse, nom: nom || "", prenom: prenom || "" });
+    };
     for (const e of allEleves) {
-      if (!e.parent_email || e.archive || e.annee_id !== activeAnneeId) continue;
-      const key = e.parent_email.trim().toLowerCase();
-      if (!seen.has(key)) {
-        seen.add(key);
-        pList.push({ email: e.parent_email.trim(), nom: e.parent_nom || "", prenom: e.parent_prenom || "" });
-      }
+      if (e.archive || e.annee_id !== activeAnneeId) continue;
+      ajouter(e.parent_email, e.parent_nom, e.parent_prenom);
+      ajouter(e.parent2_email, e.parent2_nom, e.parent2_prenom);
     }
     return pList;
   }, [allEleves, activeAnneeId]);

@@ -235,11 +235,11 @@ export default function FinancesPage() {
   eleves.forEach(e => {
     if (e.vol1_effectue && isManualFlight(e.vol1_numero_aerogest)) {
       const n = (e.vol1_numero_aerogest && aerogestCountAll[e.vol1_numero_aerogest]) || 1;
-      operations.push({ id: `${e.id}_vol1`, source: "vol_manuel", date: e.updated_at, type: "Vol", sens: "depense", montant: e.vol1_prix ? parseFloat(e.vol1_prix) / n : null, description: `${e.prenom} ${e.nom} — Vol 1 (${e.vol1_numero_aerogest || "sans n° Aérogest"}${n > 1 ? ` ×${n}` : ""})`, etablissement: e.etablissement?.nom, pilote: e.vol1_pilote_nom || "", aeronef: e.vol1_aeronef?.type_aeronef || "", temps: e.vol1_temps_minutes != null ? Math.round(e.vol1_temps_minutes / n) : null });
+      operations.push({ id: `${e.id}_vol1`, source: "vol_manuel", date: e.updated_at, type: "Vol", sens: "depense", montant: e.vol1_prix ? parseFloat(e.vol1_prix) / n : null, description: `${e.prenom} ${e.nom} — Vol 1 (${e.vol1_numero_aerogest || "sans n° de vol"}${n > 1 ? ` ×${n}` : ""})`, etablissement: e.etablissement?.nom, pilote: e.vol1_pilote_nom || "", aeronef: e.vol1_aeronef?.type_aeronef || "", temps: e.vol1_temps_minutes != null ? Math.round(e.vol1_temps_minutes / n) : null });
     }
     if (e.vol2_effectue && isManualFlight(e.vol2_numero_aerogest)) {
       const n = (e.vol2_numero_aerogest && aerogestCountAll[e.vol2_numero_aerogest]) || 1;
-      operations.push({ id: `${e.id}_vol2`, source: "vol_manuel", date: e.updated_at, type: "Vol", sens: "depense", montant: e.vol2_prix ? parseFloat(e.vol2_prix) / n : null, description: `${e.prenom} ${e.nom} — Vol 2 (${e.vol2_numero_aerogest || "sans n° Aérogest"}${n > 1 ? ` ×${n}` : ""})`, etablissement: e.etablissement?.nom, pilote: e.vol2_pilote_nom || "", aeronef: e.vol2_aeronef?.type_aeronef || "", temps: e.vol2_temps_minutes != null ? Math.round(e.vol2_temps_minutes / n) : null });
+      operations.push({ id: `${e.id}_vol2`, source: "vol_manuel", date: e.updated_at, type: "Vol", sens: "depense", montant: e.vol2_prix ? parseFloat(e.vol2_prix) / n : null, description: `${e.prenom} ${e.nom} — Vol 2 (${e.vol2_numero_aerogest || "sans n° de vol"}${n > 1 ? ` ×${n}` : ""})`, etablissement: e.etablissement?.nom, pilote: e.vol2_pilote_nom || "", aeronef: e.vol2_aeronef?.type_aeronef || "", temps: e.vol2_temps_minutes != null ? Math.round(e.vol2_temps_minutes / n) : null });
     }
   });
   const dateMs = (d: any) => { const t = new Date(d || "").getTime(); return Number.isFinite(t) ? t : 0; };
@@ -742,7 +742,7 @@ export default function FinancesPage() {
                   <div className="border-t border-gray-100 overflow-auto">
                     <table className="w-full text-xs min-w-[500px]">
                       <thead><tr className="bg-gray-50">
-                        {["Date", "N° Aérogest", "Nb pax", "Tps/élève", "Coût"].map(h => <th key={h} className="px-3 py-2 text-left text-[10px] font-semibold uppercase text-gray-400">{h}</th>)}
+                        {["Date", "N° de vol", "Nb pax", "Tps/élève", "Coût"].map(h => <th key={h} className="px-3 py-2 text-left text-[10px] font-semibold uppercase text-gray-400">{h}</th>)}
                       </tr></thead>
                       <tbody>
                         {p.flights.sort((a, b) => (b.date || "").localeCompare(a.date || "")).map((f, j) => {
@@ -789,11 +789,11 @@ export default function FinancesPage() {
         return (
           <div className="space-y-4">
             <div className="text-sm text-gray-500">
-              <p>Chaque numéro Aérogest inclut <strong>8 min de roulage</strong>. Pour un vol de 3 pax (3 numéros), le roulage réel est compté <strong>2×8 min</strong> au lieu de 3×8 min.</p>
+              <p>Chaque numéro de vol inclut <strong>8 min de roulage</strong>. Pour un vol de 3 pax (3 numéros), le roulage réel est compté <strong>2×8 min</strong> au lieu de 3×8 min.</p>
             </div>
             {roulageVols.length === 0 ? (
               <div className="card py-12 text-center space-y-2">
-                <p className="text-gray-400 font-medium">Aucun vol multi-numéros Aérogest</p>
+                <p className="text-gray-400 font-medium">Aucun vol multi-numéros</p>
                 <p className="text-xs text-gray-400">Les vols clôturés avec l'option "Numéros individuels" (3 pax) apparaîtront ici.</p>
               </div>
             ) : (
@@ -806,7 +806,7 @@ export default function FinancesPage() {
                 <div className="card p-0 overflow-auto">
                   <table className="w-full text-sm min-w-[640px]">
                     <thead><tr className="bg-gray-50">
-                      {["Date", "Aéronef", "Numéros Aérogest", "Pax", "Temps vol", "Roulage facturé", "Roulage réel", "Économie"].map(h => <th key={h} className="px-3 py-2 text-left text-[10px] font-semibold uppercase text-gray-400">{h}</th>)}
+                      {["Date", "Aéronef", "Numéros de vol", "Pax", "Temps vol", "Roulage facturé", "Roulage réel", "Économie"].map(h => <th key={h} className="px-3 py-2 text-left text-[10px] font-semibold uppercase text-gray-400">{h}</th>)}
                     </tr></thead>
                     <tbody>
                       {roulageVols.map((v: any, i: number) => {
