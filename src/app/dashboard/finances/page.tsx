@@ -3,13 +3,15 @@ import { useState, useEffect } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { fetchAll } from "@/lib/fetchAll";
 import { inActiveEtab } from "@/lib/etablissements";
-import { Euro, Plane, Users, School, TrendingUp, Loader2, Edit, Save, X, Clock, History, UserCheck, Plus, Trash2, Check, Download, HandCoins } from "lucide-react";
+import { Euro, Plane, Users, School, TrendingUp, Loader2, Edit, Save, X, Clock, History, UserCheck, Plus, Trash2, Check, Download, HandCoins, Receipt } from "lucide-react";
 import { useYear } from "@/contexts/YearContext";
 import { useModule } from "@/contexts/ModulesContext";
 import { toast } from "sonner";
 
 const PAYMENT_MODES = ["Espèces", "Chèque", "Virement", "CB", "Autre"];
-const OP_TYPES = ["Inscription", "Subvention BIA", "Vol", "Remboursement", "Dépense", "Autre"];
+const OP_TYPES = ["Inscription", "Subvention BIA", "Vol", "Remboursement", "Dépense", "Frais supplémentaire", "Autre"];
+// Frais hors vols imputés au budget BIA : cocktail, dîner, fournitures…
+const TYPE_FRAIS = "Frais supplémentaire";
 
 const todayParis = () => new Date().toLocaleDateString("en-CA", { timeZone: "Europe/Paris" });
 const emptySubForm = { libelle: "", financeur: "", montant_total: "", date: "", etablissement_ids: [] as string[], note: "" };
@@ -22,9 +24,10 @@ export default function FinancesPage() {
   const hasSubventions = useModule("subventions");
   const hasReleve = useModule("releve_compte");
   const hasRoulage = useModule("roulage");
+  const hasFrais = useModule("frais_supplementaires");
   const anneeLabel = annees.find((a: any) => a.id === selectedAnneeId)?.label || "";
   const [loading, setLoading] = useState(true);
-  const [tab, setTab] = useState<"overview" | "paiements" | "subventions" | "operations" | "pilotes" | "roulage" | "logs">("overview");
+  const [tab, setTab] = useState<"overview" | "paiements" | "subventions" | "operations" | "frais" | "pilotes" | "roulage" | "logs">("overview");
   const [expandedPilote, setExpandedPilote] = useState<string | null>(null);
   const [paiementFilter, setPaiementFilter] = useState<"tous" | "payes" | "non_payes">("tous");
   const [filterPaiementEtab, setFilterPaiementEtab] = useState("");
@@ -495,6 +498,7 @@ export default function FinancesPage() {
           { key: "paiements", label: "Paiements", icon: Users },
           ...(hasSubventions ? [{ key: "subventions", label: "Subventions", icon: HandCoins }] : []),
           { key: "operations", label: "Opérations", icon: Euro },
+          ...(hasFrais ? [{ key: "frais", label: "Frais supplémentaires", icon: Receipt }] : []),
           { key: "pilotes", label: "Par pilote", icon: UserCheck },
           ...(hasRoulage ? [{ key: "roulage", label: "Roulage", icon: Clock }] : []),
           { key: "logs", label: "Logs", icon: History },
@@ -513,6 +517,19 @@ export default function FinancesPage() {
             <div className="card flex-1 min-w-[160px]"><p className="text-xs text-gray-500 mb-1">Subventions fede</p><p className="text-2xl font-bold text-emerald-600">{recettesFede}€</p><p className="text-[11px] text-gray-400">{totalBia} x {subFede}€</p></div>
             {hasSubventions && <button onClick={() => setTab("subventions")} className="card flex-1 min-w-[160px] text-left hover:border-brand-200"><p className="text-xs text-gray-500 mb-1">Subventions locales</p><p className="text-2xl font-bold text-emerald-600">{recettesSubventions.toFixed(2)}€</p><p className="text-[11px] text-gray-400">{subventions.length} subvention{subventions.length > 1 ? "s" : ""}</p></button>}
             <div className="card flex-1 min-w-[160px]"><p className="text-xs text-gray-500 mb-1">Cout vols</p><p className="text-2xl font-bold text-red-600">{coutVolsTotal.toFixed(2)}€</p><p className="text-[11px] text-gray-400">{totalVol1 + totalVol2} vols</p></div>
+            {hasFrais && (() => {
+              const fraisOps = manualOps.filter((o: any) => o.type === TYPE_FRAIS);
+              const net = fraisOps.reduce((a: number, o: any) => a + (o.sens === "recette" ? 1 : -1) * parseFloat(o.montant || 0), 0);
+              return (
+                <button onClick={() => setTab("frais")} className="card flex-1 min-w-[160px] text-left hover:border-brand-200">
+                  <p className="text-xs text-gray-500 mb-1">Frais supplémentaires</p>
+                  <p className={`text-2xl font-bold ${net < 0 ? "text-red-600" : "text-emerald-600"}`}>
+                    {net >= 0 ? "+" : "−"}{Math.abs(net).toFixed(2)}€
+                  </p>
+                  <p className="text-[11px] text-gray-400">{fraisOps.length} frais</p>
+                </button>
+              );
+            })()}
             <div className="card flex-1 min-w-[160px]"><p className="text-xs text-gray-500 mb-1">Solde</p><p className={`text-2xl font-bold ${solde >= 0 ? "text-emerald-600" : "text-red-600"}`}>{solde >= 0 ? "+" : ""}{solde.toFixed(2)}€</p></div>
           </div>
 
@@ -713,6 +730,83 @@ export default function FinancesPage() {
       )}
 
       {/* PAR PILOTE */}
+      {tab === "frais" && hasFrais && (() => {
+        // Seules les opérations manuelles de la catégorie dédiée
+        const frais = operations.filter((o: any) => o.type === TYPE_FRAIS);
+        const sorties = frais.filter((o: any) => o.sens === "depense").reduce((a: number, o: any) => a + parseFloat(o.montant || 0), 0);
+        const entrees = frais.filter((o: any) => o.sens === "recette").reduce((a: number, o: any) => a + parseFloat(o.montant || 0), 0);
+        return (
+          <div>
+            <div className="flex flex-wrap gap-3 mb-4">
+              <div className="card flex-1 min-w-[160px]">
+                <p className="text-xs text-gray-500 mb-1">Dépenses</p>
+                <p className="text-2xl font-bold text-red-600">−{sorties.toFixed(2)}€</p>
+                <p className="text-[11px] text-gray-400">{frais.filter((o: any) => o.sens === "depense").length} frais</p>
+              </div>
+              <div className="card flex-1 min-w-[160px]">
+                <p className="text-xs text-gray-500 mb-1">Recettes associées</p>
+                <p className="text-2xl font-bold text-emerald-600">+{entrees.toFixed(2)}€</p>
+                <p className="text-[11px] text-gray-400">participations, dons…</p>
+              </div>
+              <div className="card flex-1 min-w-[160px]">
+                <p className="text-xs text-gray-500 mb-1">Effet net sur le budget BIA</p>
+                <p className={`text-2xl font-bold ${entrees - sorties < 0 ? "text-red-600" : "text-emerald-600"}`}>
+                  {entrees - sorties >= 0 ? "+" : "−"}{Math.abs(entrees - sorties).toFixed(2)}€
+                </p>
+                <p className="text-[11px] text-gray-400">déjà compté dans le solde</p>
+              </div>
+            </div>
+
+            <div className="flex justify-between items-center mb-3 gap-3 flex-wrap">
+              <p className="text-sm text-gray-500">
+                Dépenses et recettes hors vols imputées au budget BIA : cocktail, dîner, fournitures, déplacements…
+              </p>
+              <button
+                onClick={() => { setAddForm({ ...emptyAddForm, type: TYPE_FRAIS, sens: "depense", date: todayParis() }); setShowAdd(true); }}
+                className="btn-primary btn-sm"
+              >
+                <Plus className="w-3.5 h-3.5" /> Ajouter un frais
+              </button>
+            </div>
+
+            <div className="card p-0 overflow-auto">
+              <table className="w-full text-sm min-w-[720px]"><thead><tr className="bg-gray-50">
+                {["Date", "Sens", "Montant", "Description", "Etabl.", "Mode", ""].map((h, i) => (
+                  <th key={i} className="px-3 py-2 text-left text-[10px] font-semibold uppercase text-gray-400">{h}</th>
+                ))}
+              </tr></thead><tbody>
+                {frais.length === 0 ? (
+                  <tr><td colSpan={7} className="px-3 py-12 text-center text-gray-400">
+                    Aucun frais supplémentaire enregistré
+                  </td></tr>
+                ) : frais.map((op: any, i: number) => (
+                  <tr key={op.id ?? i} className="border-t border-gray-100 hover:bg-gray-50 group">
+                    <td className="px-3 py-2.5 text-gray-500 text-xs">{op.date ? new Date(op.date).toLocaleDateString("fr-FR") : "—"}</td>
+                    <td className="px-3 py-2.5">
+                      <span className={`text-xs font-semibold ${op.sens === "recette" ? "text-emerald-600" : "text-red-600"}`}>
+                        {op.sens === "recette" ? "+" : "−"}
+                      </span>
+                    </td>
+                    <td className={`px-3 py-2.5 font-semibold ${op.sens === "recette" ? "text-emerald-600" : "text-red-600"}`}>
+                      {op.sens === "recette" ? "+" : "−"}{op.montant?.toFixed(2)}€
+                    </td>
+                    <td className="px-3 py-2.5 text-gray-700 text-xs">{op.description || "—"}</td>
+                    <td className="px-3 py-2.5 text-gray-500 text-xs">{op.etablissement || "—"}</td>
+                    <td className="px-3 py-2.5 text-gray-500 text-xs">{op.mode || "—"}</td>
+                    <td className="px-3 py-2.5">
+                      <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <button onClick={() => openEdit(op)} className="p-1 rounded hover:bg-gray-200 text-gray-400 hover:text-gray-700" title="Modifier"><Edit className="w-3.5 h-3.5" /></button>
+                        <button onClick={() => setConfirmDelete(op)} className="p-1 rounded hover:bg-red-50 text-gray-400 hover:text-red-600" title="Supprimer"><Trash2 className="w-3.5 h-3.5" /></button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody></table>
+            </div>
+          </div>
+        );
+      })()}
+
       {tab === "pilotes" && (
         <div className="space-y-3">
           {Object.values(piloteStats).length === 0 ? (
