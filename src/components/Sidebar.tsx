@@ -111,7 +111,7 @@ function getNav(roles: string[]) {
   add("parametres", "Paramètres", "Settings2", "/dashboard/parametres", [
     "superadmin",
   ]);
-  add("import", "Import CSV", "Upload", "/dashboard/import", ["superadmin"]);
+  add("import", "Import des élèves", "Upload", "/dashboard/import", ["superadmin"]);
   add("messagerie", "Messagerie", "Mail", "/dashboard/messagerie", ["superadmin", "coordinateur"]);
   add("archives", "Archives", "Archive", "/dashboard/archives", ["superadmin"]);
 

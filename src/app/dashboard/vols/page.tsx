@@ -5,6 +5,7 @@ import { fetchAll } from "@/lib/fetchAll";
 import { emailStatus } from "@/lib/emailStatus";
 import { inActiveEtab } from "@/lib/etablissements";
 import { parentsDe } from "@/lib/parents";
+import SaisieDirecte from "./SaisieDirecte";
 import { useYear } from "@/contexts/YearContext";
 import { useModule } from "@/contexts/ModulesContext";
 import { matchDesiderata } from "@/components/DesiderataGrid";
@@ -30,6 +31,7 @@ import {
   Trash2,
   BarChart2,
   School,
+  ClipboardCheck,
 } from "lucide-react";
 import ConfirmModal from "@/components/ConfirmModal";
 
@@ -116,6 +118,8 @@ export default function VolsPage() {
     poses: [] as { terrain: string; touches: string; complets: string }[],
   });
   const hasPoses = useModule("poses_campagne");
+  const hasSaisieDirecte = useModule("saisie_directe_vols");
+  const [showSaisieDirecte, setShowSaisieDirecte] = useState(false);
 
   async function load() {
     const {
@@ -135,7 +139,7 @@ export default function VolsPage() {
 
     let elevesQuery = supabase
       .from("eleves")
-      .select("id, nom, prenom, etablissement_id, etablissement:etablissements!inner(actif), desiderata, abandonne, bia_resultat, vol2_autorise, vol1_effectue, vol1_skippe, vol1_numero_aerogest, vol1_prix, vol1_temps_minutes, vol1_pilote_nom, vol1_aeronef_id, vol2_effectue, vol2_numero_aerogest, vol2_prix, vol2_temps_minutes, vol2_pilote_nom, vol2_aeronef_id")
+      .select("id, nom, prenom, etablissement_id, etablissement:etablissements!inner(actif), desiderata, abandonne, bia_resultat, vol2_autorise, vol2_refuse, vol1_effectue, vol1_skippe, vol1_numero_aerogest, vol1_prix, vol1_temps_minutes, vol1_pilote_nom, vol1_aeronef_id, vol2_effectue, vol2_numero_aerogest, vol2_prix, vol2_temps_minutes, vol2_pilote_nom, vol2_aeronef_id")
       .eq("archive", false)
       .eq("etablissement.actif", true)
       .order("nom")
@@ -1003,10 +1007,10 @@ export default function VolsPage() {
       if (orig?.reservation_id) {
         await supabase.from("reservations").update({ type_vol: newTypeVol }).eq("id", orig.reservation_id);
       }
-      // Récupérer l'état actuel de l'élève pour comparer les numéros Aérogest
+      // Récupérer l'état actuel de l'élève pour comparer les numéros de vol
       const eleveState = eleves.find((el: any) => el.id === e.id);
       // Effacer les anciens champs UNIQUEMENT si c'est ce vol qui les a écrits
-      // (identifié par le numéro Aérogest correspondant à ce vol)
+      // (identifié par le numéro de vol correspondant à ce vol)
       if (oldTypeVol === 2) {
         const wasThisFlight = numAerogest && eleveState?.vol2_numero_aerogest === numAerogest;
         if (wasThisFlight) {
@@ -1815,15 +1819,15 @@ export default function VolsPage() {
                   </select>
                 </div>
               )}
-              {/* Aérogest — simple ou individuel */}
+              {/* Numéro de vol — simple ou individuel */}
               {(() => {
                 const activeRes = (showClose?.reservations || []).filter((r: any) => r.statut !== "annule");
                 const canMulti = activeRes.length >= 2;
                 return (
                   <div className="space-y-2">
-                    <label className="label !mb-0">N° Aérogest *</label>
+                    <label className="label !mb-0">N° de vol *</label>
                     {canMulti && !is2027Plus && (
-                      <div className="grid grid-cols-2 gap-1 rounded-lg bg-gray-100 p-1" role="radiogroup" aria-label="Mode de saisie du numéro Aérogest">
+                      <div className="grid grid-cols-2 gap-1 rounded-lg bg-gray-100 p-1" role="radiogroup" aria-label="Mode de saisie du numéro de vol">
                         {[
                           { indiv: true, label: "Un numéro par élève", sub: `${activeRes.length} numéros` },
                           { indiv: false, label: "Numéro unique", sub: "pour tout le vol" },
@@ -1867,7 +1871,7 @@ export default function VolsPage() {
                                 arr[idx] = e.target.value;
                                 setCloseForm({ ...closeForm, numeros_aerogest: arr });
                               }}
-                              placeholder={`N° Aérogest pax ${idx + 1}`}
+                              placeholder={`N° de vol pax ${idx + 1}`}
                               className="input flex-1 text-sm"
                             />
                           </div>
@@ -2233,7 +2237,7 @@ export default function VolsPage() {
             </div>
             <div className="space-y-3">
               <div>
-                <label className="label">N Aerogest</label>
+                <label className="label">N° de vol</label>
                 <input
                   value={editHisto.numero_aerogest}
                   onChange={(e) =>
@@ -2456,8 +2460,24 @@ export default function VolsPage() {
               <Plus className="w-3.5 h-3.5" /> Nouveau créneau
             </button>
           )}
+          {/* Saisie d'un vol déjà fait, sans créneau ni email */}
+          {hasSaisieDirecte && (isSA || isCoord) && (
+            <button onClick={() => setShowSaisieDirecte(true)} className="btn-secondary btn-sm">
+              <ClipboardCheck className="w-3.5 h-3.5" /> Saisir un vol
+            </button>
+          )}
         </div>
       </div>
+
+      {showSaisieDirecte && (
+        <SaisieDirecte
+          aeronefs={aeronefs}
+          pilotes={pilotes}
+          eleves={eleves}
+          onFermer={() => setShowSaisieDirecte(false)}
+          onEnregistre={load}
+        />
+      )}
 
       {/* FILTERS — visible to SA/coordinateur/gérant */}
       {(isSA || isCoord || isGerant) && (
@@ -2920,7 +2940,7 @@ export default function VolsPage() {
         const totalRows = histoToShow.length + manualToShow.length;
 
         function exportComptaCSV() {
-          const headers = ["Date", "Pilote", "Aeronef", "Eleves", "N Aerogest", "Nb partages", "Prix vol total (€)", "Prix par élève (€)", "Temps (min)", "Poses en campagne", "Source"];
+          const headers = ["Date", "Pilote", "Aeronef", "Eleves", "N de vol", "Nb partages", "Prix vol total (€)", "Prix par élève (€)", "Temps (min)", "Poses en campagne", "Source"];
           const rows: any[][] = [];
           histoToShow.forEach((v) => {
             const n = v.nb_eleves && v.nb_eleves > 1 ? v.nb_eleves : 1;
@@ -2960,7 +2980,7 @@ export default function VolsPage() {
             <p className="text-xs text-gray-500">
               {totalShared > 0 && (
                 <span className="inline-flex items-center gap-1 bg-amber-50 text-amber-700 px-2 py-0.5 rounded-full text-[11px] font-medium">
-                  ⚠ {totalShared} N° Aérogest partagé(s) — prix divisé par élève
+                  ⚠ {totalShared} n° de vol partagé(s) — prix divisé par élève
                 </span>
               )}
             </p>
@@ -2972,7 +2992,7 @@ export default function VolsPage() {
           <table className="w-full text-sm min-w-[900px]">
             <thead>
               <tr className="bg-gray-50">
-                {["Date", "Pilote", "Aeronef", "Eleves", "N Aerogest", "Temps", "Prix vol", "Prix/élève", "Notes", ""].map((h) => (
+                {["Date", "Pilote", "Aeronef", "Eleves", "N de vol", "Temps", "Prix vol", "Prix/élève", "Notes", ""].map((h) => (
                   <th key={h} className="px-3 py-2.5 text-left text-[10px] font-semibold uppercase text-gray-400">{h}</th>
                 ))}
               </tr>

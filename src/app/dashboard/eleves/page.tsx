@@ -1430,7 +1430,7 @@ export default function ElevesPage() {
                     </select>
                   </div>
                   <div className="mb-2">
-                    <label className="label">N° Aerogest</label>
+                    <label className="label">N° de vol</label>
                     <input
                       value={form.vol1_numero_aerogest}
                       onChange={(e) =>
@@ -1567,7 +1567,7 @@ export default function ElevesPage() {
                     </select>
                   </div>
                   <div className="mb-2">
-                    <label className="label">N° Aerogest</label>
+                    <label className="label">N° de vol</label>
                     <input
                       value={form.vol2_numero_aerogest}
                       onChange={(e) =>

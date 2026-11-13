@@ -25,7 +25,7 @@ const AUDIENCES = [
 const FEATURES = [
   { icon: School, title: "Inscriptions par code", text: "Chaque établissement reçoit son code. Les parents inscrivent leurs enfants eux-mêmes, avec quota par établissement." },
   { icon: FileSignature, title: "Attestations signées en ligne", text: "L'autorisation parentale est signée sur téléphone, générée en PDF et archivée automatiquement." },
-  { icon: CalendarDays, title: "Planning des vols", text: "Créneaux par pilote et par avion, places contrôlées, réservation des familles et clôture avec numéro Aérogest." },
+  { icon: CalendarDays, title: "Planning des vols", text: "Créneaux par pilote et par avion, places contrôlées, réservation des familles et clôture avec numéro de vol." },
   { icon: Euro, title: "Finances claires", text: "Paiements, coût réel des vols, tarifs horaires datés, subventions par établissement et relevé de compte." },
   { icon: BarChart2, title: "Statistiques", text: "Coût moyen par élève, biplace ou quadriplace, taux de réussite au BIA et suivi par établissement." },
   { icon: Mail, title: "Emails automatiques", text: "Confirmations, rappels, changements de pilote : chaque famille est prévenue au bon moment." },
