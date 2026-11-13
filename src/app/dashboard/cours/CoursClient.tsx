@@ -18,7 +18,7 @@ function ordonner(ressources: any[] | null | undefined) {
   return [...(ressources ?? [])].sort((a, b) => (a.ordre ?? 0) - (b.ordre ?? 0));
 }
 
-export default function CoursClient({ peutGerer }: { peutGerer: boolean }) {
+export default function CoursClient({ peutGerer, estEquipe }: { peutGerer: boolean; estEquipe?: boolean }) {
   const [cours, setCours] = useState<any[]>([]);
   const [enfants, setEnfants] = useState<any[]>([]);
   const [vus, setVus] = useState<any[]>([]);
@@ -214,11 +214,47 @@ export default function CoursClient({ peutGerer }: { peutGerer: boolean }) {
           ))}
         </div>
       ) : enfants.length === 0 ? (
-        <div className="card text-center py-12">
-          <GraduationCap className="w-10 h-10 text-gray-300 mx-auto mb-3" />
-          <p className="text-sm font-semibold text-gray-700">Aucun élève rattaché à votre compte</p>
-          <p className="text-sm text-gray-500 mt-1">Contactez votre aéroclub pour rattacher votre enfant à votre espace.</p>
-        </div>
+        estEquipe ? (
+          /* ── Pilote ou gérant : consultation, sans progression ── */
+          <div className="space-y-5">
+            {parMatiere(visibles).map(([matiere, liste]) => (
+              <div key={matiere}>
+                <h2 className="text-xs font-bold uppercase tracking-wider text-gray-400 mb-2">
+                  {matiere} <span className="text-gray-300">· {liste.length}</span>
+                </h2>
+                <div className="space-y-2">
+                  {liste.map((c) => (
+                    <button
+                      key={c.id}
+                      onClick={() => setLecture({ cours: c, eleve: null })}
+                      className="card w-full text-left flex items-center gap-3 hover:border-brand-200 transition-colors"
+                    >
+                      <div className="w-9 h-9 rounded-lg bg-brand-50 text-brand-500 flex items-center justify-center shrink-0">
+                        <GraduationCap className="w-4 h-4" />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-semibold text-gray-900 truncate">{c.titre}</p>
+                        {c.description && <p className="text-xs text-gray-500 mt-0.5 line-clamp-1">{c.description}</p>}
+                        <p className="text-[11px] text-gray-400 mt-1">
+                          {c.ressources.length === 0
+                            ? "Aucun document"
+                            : `${c.ressources.length} document${c.ressources.length > 1 ? "s" : ""}`}
+                        </p>
+                      </div>
+                      <ChevronRight className="w-4 h-4 text-gray-300 shrink-0" />
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="card text-center py-12">
+            <GraduationCap className="w-10 h-10 text-gray-300 mx-auto mb-3" />
+            <p className="text-sm font-semibold text-gray-700">Aucun élève rattaché à votre compte</p>
+            <p className="text-sm text-gray-500 mt-1">Contactez votre aéroclub pour rattacher votre enfant à votre espace.</p>
+          </div>
+        )
       ) : (
         /* ── Vue des familles : une partie par enfant ── */
         <div className="space-y-8">

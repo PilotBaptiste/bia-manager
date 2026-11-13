@@ -9,6 +9,7 @@ const CSV_HEADERS = [
   "adresse_rue", "adresse_cp", "adresse_ville",
   "etablissement", "classe",
   "parent_nom", "parent_prenom", "parent_email", "parent_telephone",
+  "parent2_nom", "parent2_prenom", "parent2_email", "parent2_telephone",
   "paiement_effectue", "paiement_montant", "paiement_mode",
   "attestation_signee",
   "vol1_effectue", "vol2_autorise", "vol2_effectue",
@@ -23,6 +24,8 @@ const HEADER_ALIASES: Record<string, CsvKey> = {
   lieudenaissance: "lieu_naissance",
   emailparent: "parent_email",
   telephoneparent: "parent_telephone",
+  emailparent2: "parent2_email",
+  telephoneparent2: "parent2_telephone",
 };
 
 const REQUIRED_HEADERS: CsvKey[] = ["nom", "prenom"];
@@ -32,6 +35,7 @@ const CSV_SAMPLE = [
   "5 rue des Lilas", "33000", "Bordeaux",
   "Lycée Victor Hugo", "2nde",
   "DUPONT", "Pierre", "pierre.dupont@email.com", "0612345678",
+  "MARTIN", "Sophie", "sophie.martin@email.com", "0698765432",
   "Oui", "80", "CB",
   "Oui",
   "Non", "Non", "Non",
@@ -54,6 +58,10 @@ interface ParsedRow {
   parent_prenom: string;
   parent_email: string;
   parent_telephone: string;
+  parent2_nom: string;
+  parent2_prenom: string;
+  parent2_email: string;
+  parent2_telephone: string;
   paiement_effectue: boolean | null;
   paiement_montant: number | null;
   paiement_mode: string;
@@ -198,6 +206,10 @@ function parseCSV(text: string): { rows: ParsedRow[]; error?: string } {
       parent_prenom: get("parent_prenom"),
       parent_email: get("parent_email"),
       parent_telephone: get("parent_telephone"),
+      parent2_nom: get("parent2_nom"),
+      parent2_prenom: get("parent2_prenom"),
+      parent2_email: get("parent2_email"),
+      parent2_telephone: get("parent2_telephone"),
       paiement_effectue: parseBool(get("paiement_effectue")),
       paiement_montant: parseMontant(get("paiement_montant")),
       paiement_mode: get("paiement_mode"),
@@ -330,6 +342,11 @@ export default function ImportPage() {
           if (r.parent_prenom) upd.parent_prenom = r.parent_prenom;
           if (r.parent_email) upd.parent_email = r.parent_email;
           if (r.parent_telephone) upd.parent_telephone = r.parent_telephone;
+          // Second responsable légal : rempli seulement si la colonne est renseignée
+          if (r.parent2_nom) upd.parent2_nom = r.parent2_nom;
+          if (r.parent2_prenom) upd.parent2_prenom = r.parent2_prenom;
+          if (r.parent2_email) upd.parent2_email = r.parent2_email.toLowerCase();
+          if (r.parent2_telephone) upd.parent2_telephone = r.parent2_telephone;
           if (r.paiement_effectue !== null) upd.paiement_effectue = r.paiement_effectue;
           if (r.paiement_montant !== null) upd.paiement_montant = r.paiement_montant;
           if (r.paiement_mode) upd.paiement_mode = r.paiement_mode;
@@ -373,6 +390,10 @@ export default function ImportPage() {
             parent_prenom: r.parent_prenom || "Parent",
             parent_email: r.parent_email || null,
             parent_telephone: r.parent_telephone || "",
+            parent2_nom: r.parent2_nom || null,
+            parent2_prenom: r.parent2_prenom || null,
+            parent2_email: r.parent2_email ? r.parent2_email.toLowerCase() : null,
+            parent2_telephone: r.parent2_telephone || null,
             paiement_effectue: paye,
             paiement_montant: paye ? r.paiement_montant ?? 80 : null,
             paiement_mode: paye ? r.paiement_mode || "Import CSV" : null,
