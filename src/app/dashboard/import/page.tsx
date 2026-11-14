@@ -1,11 +1,12 @@
 "use client";
 import { useState, useRef, useMemo, useEffect } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { useYear } from "@/contexts/YearContext";
 import {
   CSV_HEADERS, CSV_SAMPLE, decodeFile, normalizeText, parseCSV, parseDate,
   type ParsedRow,
 } from "@/lib/importEleves";
-import { Upload, Loader2, Check, AlertCircle, FileSpreadsheet, X, Download, Users, Wand2 } from "lucide-react";
+import { Upload, Loader2, Check, AlertCircle, FileSpreadsheet, X, Download, Users, Wand2, CalendarDays } from "lucide-react";
 
 type Source = "ffa" | "csv";
 
@@ -14,6 +15,8 @@ interface ImportResult {
   updated: number;
   failed: { line: number | null; message: string }[];
   comptes: { crees: number; existants: number; lies: number } | null;
+  /** Libellé de l'année sur laquelle l'import a écrit, rappelé dans le bilan. */
+  annee: string;
 }
 
 const PAR_PAGE = 50;
@@ -54,6 +57,10 @@ async function fetchAll<T>(page: (from: number, to: number) => PromiseLike<{ dat
 
 export default function ImportPage() {
   const supabase = createClient();
+  // L'import écrit sur l'année choisie dans le sélecteur du menu, pas sur l'année en cours :
+  // un club prépare ainsi l'année suivante sans toucher à celle qui tourne.
+  const { anneeDeTravail, annees, loading: anneesLoading } = useYear();
+  const anneeCible = annees.find((a) => a.id === anneeDeTravail) ?? null;
   const fileRef = useRef<HTMLInputElement>(null);
   const [tab, setTab] = useState<Source>("ffa");
   const [rows, setRows] = useState<ParsedRow[]>([]);
@@ -249,13 +256,13 @@ export default function ImportPage() {
     setImporting(true);
     setProgress(0);
     setEtape("");
-    const res: ImportResult = { created: 0, updated: 0, failed: [], comptes: null };
+    const res: ImportResult = { created: 0, updated: 0, failed: [], comptes: null, annee: anneeCible?.label ?? "" };
     const fail = (line: number | null, message: string) => res.failed.push({ line, message });
     const importees: ParsedRow[] = [];
 
     try {
-      const { data: annee } = await supabase.from("annees").select("id").eq("active", true).single();
-      if (!annee) { fail(null, "Aucune année active trouvée."); return; }
+      if (!anneeDeTravail) { fail(null, "Aucune année scolaire sélectionnée dans le menu."); return; }
+      const annee = { id: anneeDeTravail };
 
       const etabList = await fetchAll<{ id: string; nom: string }>((from, to) => supabase.from("etablissements").select("id, nom").range(from, to));
       const etabMap: Record<string, string> = {};
@@ -422,6 +429,23 @@ export default function ImportPage() {
   const succeeded = result ? result.created + result.updated : 0;
   const resultTone = failedCount === 0 ? "success" : succeeded === 0 ? "error" : "warning";
 
+  const BandeauAnnee = () => (
+    <div className={`mb-4 p-3 rounded-lg border flex items-start gap-2 ${anneeCible ? "border-brand-100 bg-brand-50" : "border-red-200 bg-red-50"}`}>
+      <CalendarDays className={`w-4 h-4 mt-0.5 shrink-0 ${anneeCible ? "text-brand-500" : "text-red-600"}`} />
+      {anneeCible ? (
+        <p className="text-sm text-gray-700">
+          Les élèves seront rattachés à l&apos;année <strong className="text-brand-600">{anneeCible.label}</strong>
+          {!anneeCible.active && <span className="text-gray-500"> (l&apos;année en cours du club est une autre)</span>}.
+          Pour changer, utilisez le sélecteur <strong>Année scolaire</strong> du menu avant de déposer le fichier.
+        </p>
+      ) : (
+        <p className="text-sm text-red-700">
+          {anneesLoading ? "Chargement des années scolaires…" : "Aucune année scolaire sélectionnée : choisissez-en une dans le menu avant d'importer."}
+        </p>
+      )}
+    </div>
+  );
+
   const cellClass = (ko: boolean) =>
     `w-full rounded border px-1.5 py-1 text-xs outline-none focus:border-brand-400 ${ko ? "border-red-400 bg-red-50" : "border-gray-200 bg-white"}`;
 
@@ -443,6 +467,8 @@ export default function ImportPage() {
               </button>
             ))}
           </div>
+
+          <BandeauAnnee />
 
           <div className="card">
             {parseError && (
@@ -501,6 +527,7 @@ export default function ImportPage() {
       {/* Aperçu modifiable */}
       {preview && !result && (
         <div>
+          <BandeauAnnee />
           {parseError && (
             <div className="mb-4 p-3 rounded-lg border border-amber-200 bg-amber-50 flex items-start gap-2">
               <AlertCircle className="w-4 h-4 text-amber-600 mt-0.5 shrink-0" />
@@ -608,10 +635,10 @@ export default function ImportPage() {
           )}
 
           <div className="flex gap-2">
-            <button onClick={handleImport} disabled={importing || aImporter.length === 0 || bloquantes > 0} className="btn-primary">
+            <button onClick={handleImport} disabled={importing || aImporter.length === 0 || bloquantes > 0 || !anneeCible} className="btn-primary">
               {importing
                 ? <><Loader2 className="w-4 h-4 animate-spin" /> {etape || `Import en cours (${progress}%)`}</>
-                : <><Upload className="w-4 h-4" /> Importer {aImporter.length} élève{aImporter.length > 1 ? "s" : ""}</>}
+                : <><Upload className="w-4 h-4" /> Importer {aImporter.length} élève{aImporter.length > 1 ? "s" : ""}{anneeCible ? ` sur ${anneeCible.label}` : ""}</>}
             </button>
             <button onClick={reinit} disabled={importing} className="btn-secondary">
               <X className="w-4 h-4" /> Annuler
@@ -634,6 +661,7 @@ export default function ImportPage() {
             </div>
             <p className="text-sm text-gray-700">
               {result.created} élève{result.created > 1 ? "s" : ""} créé{result.created > 1 ? "s" : ""} · {result.updated} mis à jour · <span className={failedCount > 0 ? "font-semibold text-red-700" : ""}>{failedCount} en échec</span>
+              {result.annee && <> · année <strong className="text-brand-600">{result.annee}</strong></>}
             </p>
             {result.comptes && (
               <p className="text-sm text-gray-700 mt-1">

@@ -87,19 +87,30 @@ export async function POST(req: Request) {
     return query; // all
   }
 
-  const [{ data: activeAnnee }, { data: activeEtabs }] = await Promise.all([
+  // L'année visée est celle du créneau, pas l'année en cours du club : un club qui prépare
+  // l'année suivante ouvre des créneaux sur cette année-là, et ce sont ses familles qu'il faut prévenir.
+  const [{ data: creneauAnnee }, { data: activeAnnee }, { data: activeEtabs }] = await Promise.all([
+    creneau_id
+      ? supabase
+          .from("creneaux")
+          .select("annee:annees(id, date_examen_bia)")
+          .eq("organisation_id", orgId)
+          .eq("id", creneau_id)
+          .maybeSingle()
+      : Promise.resolve({ data: null }),
     supabase.from("annees").select("id, date_examen_bia").eq("organisation_id", orgId).eq("active", true).maybeSingle(),
     supabase.from("etablissements").select("id").eq("organisation_id", orgId).eq("actif", true),
   ]);
+  const anneeVisee = (creneauAnnee as any)?.annee ?? activeAnnee ?? null;
   const activeEtabIds = new Set((activeEtabs ?? []).map((e: any) => e.id));
   const inScope = (e: any) => activeEtabIds.has(e.etablissement_id);
   function applyYear(query: any) {
-    return activeAnnee?.id ? query.eq("annee_id", activeAnnee.id) : query;
+    return anneeVisee?.id ? query.eq("annee_id", anneeVisee.id) : query;
   }
 
   // ── Vol 1 eligible ──────────────────────────────────
 
-  const biaExamDate: string = activeAnnee?.date_examen_bia || "";
+  const biaExamDate: string = anneeVisee?.date_examen_bia || "";
 
   const { data: elevesVol1 } = await applyYear(applyScope(
     supabase

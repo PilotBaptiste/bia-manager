@@ -240,9 +240,11 @@ export default function Sidebar({ profile }: { profile: any }) {
             </select>
             <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400 pointer-events-none" />
           </div>
-          {selectedAnnee && selectedAnnee.id !== activeAnneeId && (
-            <p className="text-[10px] text-amber-600 font-medium mt-1 px-2">
-              Navigation archive · Création → année ★
+          {selectedAnnee && (
+            <p className={`text-[10px] font-medium mt-1 px-2 ${selectedAnnee.id === activeAnneeId ? "text-gray-400" : "text-amber-600"}`}>
+              {selectedAnnee.id === activeAnneeId
+                ? "★ Année en cours du club"
+                : "Inscriptions, imports et créneaux → cette année"}
             </p>
           )}
         </div>
