@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { X, Loader2, CheckCircle2, Download, Users } from "lucide-react";
 import { fetchAll } from "@/lib/fetchAll";
+import { useYear } from "@/contexts/YearContext";
 
 const supabase = createClient();
 
@@ -24,21 +25,26 @@ export default function SuiviCours({
   const [vus, setVus] = useState<any[]>([]);
   const [vuesRessources, setVuesRessources] = useState<any[]>([]);
   const [filtre, setFiltre] = useState<"tous" | "commence" | "termine" | "jamais">("tous");
+  // Le suivi porte sur l'année choisie dans le menu : sans ce filtre, les élèves de
+  // 2026 et de 2027 se mélangent et « jamais ouvert » compte des élèves d'une autre année.
+  const { selectedAnneeId, annees } = useYear();
+  const anneeLabel = annees.find((a: any) => a.id === selectedAnneeId)?.label ?? "";
 
   useEffect(() => {
     async function load() {
       setLoading(true);
       const ressourceIds = cours.ressources.map((r) => r.id);
       const [elevesR, vusR, vrR] = await Promise.all([
-        fetchAll((from, to) =>
-          supabase
+        fetchAll((from, to) => {
+          const q = supabase
             .from("eleves")
             .select("id, nom, prenom, archive, abandonne, etablissement:etablissements(nom)")
-            .eq("archive", false)
+            .eq("archive", false);
+          return (selectedAnneeId ? q.eq("annee_id", selectedAnneeId) : q)
             .order("nom")
             .order("id")
-            .range(from, to),
-        ),
+            .range(from, to);
+        }),
         supabase.from("cours_vus").select("eleve_id, vu_at, termine_at").eq("cours_id", cours.id),
         ressourceIds.length > 0
           ? supabase.from("cours_ressources_vues").select("ressource_id, eleve_id").in("ressource_id", ressourceIds)
@@ -50,7 +56,7 @@ export default function SuiviCours({
       setLoading(false);
     }
     load();
-  }, [cours.id, cours.ressources]);
+  }, [cours.id, cours.ressources, selectedAnneeId]);
 
   const lignes = useMemo(() => {
     const total = cours.ressources.length;
@@ -119,7 +125,9 @@ export default function SuiviCours({
       <div className="bg-white rounded-xl w-full max-w-2xl my-8">
         <div className="flex items-start justify-between gap-3 p-5 border-b border-gray-100">
           <div className="min-w-0">
-            <p className="text-[11px] font-semibold uppercase tracking-wider text-gray-400">Suivi de lecture</p>
+            <p className="text-[11px] font-semibold uppercase tracking-wider text-gray-400">
+              Suivi de lecture{anneeLabel ? ` · ${anneeLabel}` : ""}
+            </p>
             <h2 className="font-bold text-gray-900 text-lg truncate">{cours.titre}</h2>
           </div>
           <button onClick={onFermer} className="text-gray-400 hover:text-gray-600 shrink-0"><X className="w-5 h-5" /></button>

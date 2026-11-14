@@ -7,6 +7,7 @@ import DashboardSAStats from "@/components/DashboardSAStats";
 import BoutonPaiement from "@/components/BoutonPaiement";
 import { getClubInfo } from "@/lib/club";
 import { inActiveEtab } from "@/lib/etablissements";
+import { anneeAffichee, type AnneeAffichee } from "@/lib/annee";
 
 // ─── Stat Card ──────────────────────────────────────────
 function Stat({ icon: Icon, label, value, sub, color = "bg-brand-50 text-brand-500" }: any) {
@@ -25,12 +26,14 @@ function Stat({ icon: Icon, label, value, sub, color = "bg-brand-50 text-brand-5
 }
 
 // ─── Coordinateur Dashboard ─────────────────────────────
-async function DashboardCoordinateur({ supabase, profile }: { supabase: any; profile: any }) {
+async function DashboardCoordinateur({ supabase, profile, annee }: { supabase: any; profile: any; annee: AnneeAffichee }) {
   const coordEtabIds: string[] = profile?.etablissement_ids?.length > 0
     ? profile.etablissement_ids
     : profile?.etablissement_id ? [profile.etablissement_id] : [];
 
-  const { data: anData } = await supabase.from("annees").select("id").eq("active", true).maybeSingle();
+  // Année du sélecteur du menu, pas l'année en cours du club : préparer 2027
+  // pendant que 2026 tourne doit afficher les chiffres de 2027.
+  const anData = annee;
   const scopeIds = coordEtabIds.length > 0 ? coordEtabIds : ["00000000-0000-0000-0000-000000000000"];
   const eleveBase = () => {
     const q = supabase
@@ -75,7 +78,7 @@ async function DashboardCoordinateur({ supabase, profile }: { supabase: any; pro
     <div>
       <div className="mb-6">
         <h1 className="text-xl font-bold text-gray-900">Tableau de bord — Coordinateur</h1>
-        <p className="text-sm text-gray-500 mt-1">{`${(etabs || []).length} établissement${(etabs || []).length > 1 ? "s" : ""}`} · {new Date().getFullYear()}</p>
+        <p className="text-sm text-gray-500 mt-1">{`${(etabs || []).length} établissement${(etabs || []).length > 1 ? "s" : ""}`}{annee ? ` · ${annee.label}${annee.active ? " ★" : ""}` : ""}</p>
       </div>
       <div className="flex gap-3 flex-wrap mb-6">
         <Stat icon={Users} label="Élèves" value={total} />
@@ -144,9 +147,13 @@ async function DashboardCoordinateur({ supabase, profile }: { supabase: any; pro
 }
 
 // ─── Pilote Dashboard ───────────────────────────────────
-async function DashboardPilote({ supabase, profile }: { supabase: any; profile: any }) {
+async function DashboardPilote({ supabase, profile, annee }: { supabase: any; profile: any; annee: AnneeAffichee }) {
   const [{ data: tousCreneaux }, { data: etabsActifs }] = await Promise.all([
-    supabase.from("creneaux").select("*, aeronef:aeronefs(type_aeronef, immatriculation), reservations(*, eleve:eleves(nom, prenom, commentaires, vol1_temps_minutes))").eq("pilote_id", profile.id).order("date_vol"),
+    (() => {
+      // Les créneaux de 2026 et de 2027 ne se mélangent pas : on suit le sélecteur du menu.
+      const q = supabase.from("creneaux").select("*, aeronef:aeronefs(type_aeronef, immatriculation), reservations(*, eleve:eleves(nom, prenom, commentaires, vol1_temps_minutes))").eq("pilote_id", profile.id).order("date_vol");
+      return annee ? q.eq("annee_id", annee.id) : q;
+    })(),
     supabase.from("etablissements").select("id").eq("actif", true),
   ]);
   const piloteActiveIds = new Set<string>((etabsActifs || []).map((e: any) => e.id));
@@ -158,7 +165,7 @@ async function DashboardPilote({ supabase, profile }: { supabase: any; profile: 
     <div>
       <div className="mb-6">
         <h1 className="text-xl font-bold text-gray-900">Mon espace pilote</h1>
-        <p className="text-sm text-gray-500 mt-1">{profile.prenom} {profile.nom}</p>
+        <p className="text-sm text-gray-500 mt-1">{profile.prenom} {profile.nom}{annee ? ` · ${annee.label}${annee.active ? " ★" : ""}` : ""}</p>
       </div>
       <div className="flex gap-3 flex-wrap mb-6">
         <Stat icon={Calendar} label="Créneaux à venir" value={aVenir.length} color="bg-amber-50 text-amber-600" />
@@ -208,7 +215,7 @@ async function DashboardPilote({ supabase, profile }: { supabase: any; profile: 
 }
 
 // ─── Gérant Dashboard ───────────────────────────────────
-async function DashboardGerant({ supabase, profile }: { supabase: any; profile: any }) {
+async function DashboardGerant({ supabase, profile, annee }: { supabase: any; profile: any; annee: AnneeAffichee }) {
   const etabId = profile.etablissement_id;
 
   // Guard: gérant without établissement assigned
@@ -238,14 +245,17 @@ async function DashboardGerant({ supabase, profile }: { supabase: any; profile: 
       </div>
     );
   }
-  const { data: mesEleves } = await supabase.from("eleves").select("*").eq("etablissement_id", etabId).eq("archive", false).order("nom");
+  // Sans ce filtre, les élèves de 2026 et de 2027 apparaissent côte à côte, chaque
+  // famille en double, et les compteurs comptent deux fois le même enfant.
+  const elevesQ = supabase.from("eleves").select("*").eq("etablissement_id", etabId).eq("archive", false).order("nom");
+  const { data: mesEleves } = await (annee ? elevesQ.eq("annee_id", annee.id) : elevesQ);
   const eleves = mesEleves || [];
 
   return (
     <div>
       <div className="mb-6">
         <h1 className="text-xl font-bold text-gray-900">{etab?.nom || "Mon établissement"}</h1>
-        <p className="text-sm text-gray-500 mt-1">Espace gérant · {eleves.length} élève{eleves.length > 1 ? "s" : ""}</p>
+        <p className="text-sm text-gray-500 mt-1">Espace gérant · {eleves.length} élève{eleves.length > 1 ? "s" : ""}{annee ? ` · ${annee.label}${annee.active ? " ★" : ""}` : ""}</p>
       </div>
       {(() => {
         const vol1Eff = eleves.filter((e: any) => e.vol1_effectue).length;
@@ -445,9 +455,13 @@ export default async function DashboardPage() {
   const roles = profile.roles || [];
 
   if (roles.includes("superadmin")) return <DashboardSAStats />;
-  if (roles.includes("coordinateur")) return <DashboardCoordinateur supabase={supabase} profile={profile} />;
-  if (roles.includes("pilote")) return <DashboardPilote supabase={supabase} profile={profile} />;
-  if (roles.includes("gerant")) return <DashboardGerant supabase={supabase} profile={profile} />;
+
+  // Un parent n'a pas de sélecteur d'année : son espace reste centré sur ses enfants.
+  const annee = roles.includes("parent") && roles.length === 1 ? null : await anneeAffichee(supabase);
+
+  if (roles.includes("coordinateur")) return <DashboardCoordinateur supabase={supabase} profile={profile} annee={annee} />;
+  if (roles.includes("pilote")) return <DashboardPilote supabase={supabase} profile={profile} annee={annee} />;
+  if (roles.includes("gerant")) return <DashboardGerant supabase={supabase} profile={profile} annee={annee} />;
   if (roles.includes("parent")) return <DashboardParent supabase={supabase} profile={profile} />;
 
   return (

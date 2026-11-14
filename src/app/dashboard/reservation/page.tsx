@@ -244,6 +244,9 @@ export default function ReservationPage() {
     const today = parisToday();
     return creneaux.filter((c) => {
       if (c.date_vol < today) return false;
+      // Un enfant inscrit sur 2026 ne réserve pas un créneau ouvert pour 2027, et
+      // inversement : l'année de l'élève et celle du créneau doivent concorder.
+      if (c.annee_id && enfant.annee_id && c.annee_id !== enfant.annee_id) return false;
       // Use live aeronef capacity, not the stale stored places_disponibles
       const capacity = c.aeronef?.nb_places_eleves ?? c.places_disponibles ?? 1;
       const activeBookings = (c.reservations || []).filter(

@@ -28,6 +28,7 @@ import {
   Phone,
 } from "lucide-react";
 import ConfirmModal from "@/components/ConfirmModal";
+import InvitationParentsModal, { regrouperParents, type ParentInvitable } from "@/components/InvitationParentsModal";
 import { fromDb } from "@/components/DesiderataGrid";
 
 function Dot({ ok }: { ok: boolean }) {
@@ -193,6 +194,10 @@ export default function ElevesPage() {
   const [fetching, setFetching] = useState(false);
   // undefined = not loaded yet, null = no établissement restriction
   const [scopeEtabIds, setScopeEtabIds] = useState<string[] | null | undefined>(undefined);
+  const [inviteOuvert, setInviteOuvert] = useState(false);
+  const [inviteCible, setInviteCible] = useState<"sansAcces" | "selection">("sansAcces");
+  const [inviteCandidats, setInviteCandidats] = useState<ParentInvitable[]>([]);
+  const [inviteChargement, setInviteChargement] = useState(false);
   const requestIdRef = useRef(0);
 
   const filterKey = JSON.stringify([selectedAnneeId, debouncedQ, fEtab, fPaiement, fAttest, fVol1, fBia]);
@@ -352,6 +357,8 @@ export default function ElevesPage() {
   const isPiloteOnly = !!profile && profile.roles?.includes("pilote") && !profile.roles?.includes("superadmin") && !profile.roles?.includes("coordinateur") && !profile.roles?.includes("gerant");
   const isSuperadmin = !!profile?.roles?.includes("superadmin");
   const canBulk = isSuperadmin || !!profile?.roles?.includes("gerant");
+  // Qui peut envoyer un email d'accès : les mêmes rôles que /api/invite accepte.
+  const canInviter = isSuperadmin || !!profile?.roles?.includes("coordinateur") || !!profile?.roles?.includes("gerant");
   // Bulk actions only ever touch rows the user can currently see.
   const visibleSelected = filtered.filter((e) => selectedIds.has(e.id));
 
@@ -2298,6 +2305,57 @@ export default function ElevesPage() {
     );
   }
 
+  // ══════════════════════════════════════════════════
+  // INVITATIONS PARENTS
+  // ══════════════════════════════════════════════════
+  function parentsDesEleves(rows: any[]): ParentInvitable[] {
+    const lignes: ParentInvitable[] = [];
+    for (const e of rows) {
+      const enfant = `${e.prenom ?? ""} ${e.nom ?? ""}`.trim();
+      if (e.parent_email) {
+        lignes.push({
+          email: String(e.parent_email).trim().toLowerCase(),
+          nom: e.parent_nom || "",
+          prenom: e.parent_prenom || "",
+          enfants: enfant ? [enfant] : [],
+        });
+      }
+      if (e.parent2_email) {
+        lignes.push({
+          email: String(e.parent2_email).trim().toLowerCase(),
+          nom: e.parent2_nom || "",
+          prenom: e.parent2_prenom || "",
+          enfants: enfant ? [enfant] : [],
+        });
+      }
+    }
+    return regrouperParents(lignes);
+  }
+
+  const inviteSelection = parentsDesEleves(visibleSelected);
+
+  async function ouvrirInvitations(cible: "sansAcces" | "selection") {
+    setInviteCible(cible);
+    setInviteOuvert(true);
+    if (scopeEtabIds === undefined || !selectedAnneeId) return;
+    // Les parents « sans accès » se cherchent sur toute l'année, pas sur la page affichée.
+    setInviteChargement(true);
+    const rows = await fetchAll((from, to) =>
+      applyFilters(
+        supabase
+          .from("eleves")
+          .select("id, nom, prenom, parent_nom, parent_prenom, parent_email, parent2_nom, parent2_prenom, parent2_email, etablissement:etablissements!inner(actif)"),
+      ).range(from, to),
+    );
+    setInviteChargement(false);
+    if (rows.error) {
+      toast.error(`Impossible de lister les parents : ${rows.error.message}`);
+      setInviteCandidats([]);
+      return;
+    }
+    setInviteCandidats(parentsDesEleves(rows.data || []));
+  }
+
   async function handleBulkPaid() {
     const targets = visibleSelected.filter((e) => !e.paiement_effectue);
     if (targets.length === 0) { toast.info("Tous les élèves sélectionnés ont déjà payé"); return; }
@@ -2345,31 +2403,22 @@ export default function ElevesPage() {
     });
   }
 
-  async function handleBulkInvite() {
-    const targets = visibleSelected.filter((e) => e.parent_email);
-    if (targets.length === 0) { toast.error("Aucun élève sélectionné n'a d'email parent"); return; }
-    // Deduplicate by parent_email — a parent with multiple children only gets one invite
-    const unique = Array.from(new Map(targets.map(e => [e.parent_email.toLowerCase(), e])).values());
-    setBulkBusy(true);
-    const tid = toast.loading(`Envoi de ${unique.length} invitation${unique.length > 1 ? "s" : ""}…`);
-    let ok = 0;
-    for (const e of unique) {
-      const res = await fetch("/api/invite", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email: e.parent_email, nom: e.parent_nom, prenom: e.parent_prenom }) });
-      if (res.ok) ok++;
-    }
-    toast.dismiss(tid);
-    if (ok < unique.length) toast.warning(`${ok} invitation${ok > 1 ? "s" : ""} envoyée${ok > 1 ? "s" : ""}, ${unique.length - ok} en échec`);
-    else toast.success(`${ok} invitation${ok > 1 ? "s" : ""} envoyée${ok > 1 ? "s" : ""}`);
-    setSelectedIds(new Set());
-    setBulkBusy(false);
-  }
-
   // ══════════════════════════════════════════════════
   // TABLE — list view
   // ══════════════════════════════════════════════════
   return (
     <div>
       {formModal}
+
+      <InvitationParentsModal
+        ouvert={inviteOuvert}
+        onClose={() => setInviteOuvert(false)}
+        anneeLabel={anneeLabel}
+        candidats={inviteCandidats}
+        selection={inviteSelection}
+        cibleInitiale={inviteCible}
+        chargementCandidats={inviteChargement}
+      />
 
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-5">
         <div>
@@ -2385,6 +2434,15 @@ export default function ElevesPage() {
           {!isPiloteOnly && hasExportFFA && (
             <button onClick={exportFFA} className="btn-secondary btn-sm" title="Export PDF liste BIA pour la FFA">
               <Download className="w-3.5 h-3.5" /> FFA
+            </button>
+          )}
+          {canInviter && (
+            <button
+              onClick={() => ouvrirInvitations("sansAcces")}
+              className="btn-secondary btn-sm"
+              title="Envoyer l'email d'activation du compte famille, avec un mot d'introduction"
+            >
+              <Mail className="w-3.5 h-3.5" /> Invitation parent
             </button>
           )}
           {!isPiloteOnly && (
@@ -2509,8 +2567,8 @@ export default function ElevesPage() {
           <button onClick={handleBulkPaid} disabled={bulkBusy} className="btn-primary btn-sm">
             {bulkBusy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />} Marquer payé
           </button>
-          <button onClick={handleBulkInvite} disabled={bulkBusy} className="btn-secondary btn-sm">
-            {bulkBusy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Mail className="w-3.5 h-3.5" />} Envoyer invitation
+          <button onClick={() => ouvrirInvitations("selection")} disabled={bulkBusy} className="btn-secondary btn-sm">
+            <Mail className="w-3.5 h-3.5" /> Envoyer invitation
           </button>
           <button
             onClick={() => {

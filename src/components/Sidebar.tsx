@@ -229,7 +229,12 @@ export default function Sidebar({ profile }: { profile: any }) {
           <div className="relative">
             <select
               value={selectedAnneeId}
-              onChange={(e) => setSelectedAnneeId(e.target.value)}
+              onChange={(e) => {
+                setSelectedAnneeId(e.target.value);
+                // Le tableau de bord d'accueil est rendu côté serveur : il faut le
+                // redemander pour qu'il reparte sur la nouvelle année.
+                router.refresh();
+              }}
               className="w-full appearance-none pl-3 pr-8 py-2 rounded-lg border border-gray-200 bg-gray-50 text-[13px] font-semibold text-gray-800 focus:outline-none focus:ring-2 focus:ring-brand-300 cursor-pointer"
             >
               {annees.map((a) => (
