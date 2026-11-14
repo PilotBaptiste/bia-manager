@@ -34,6 +34,7 @@ Tarifs indicatifs relevés en 2026 : à vérifier au moment de souscrire.
    8. `supabase-emails-desabonnement-2026-09.sql`
    9. `supabase-evolutions-2026-11.sql` : second parent, cours, posés en campagne, HelloAsso, règles du vol 2
    10. `supabase-cours-lms-2026-11.sql` : plusieurs documents par cours et suivi de lecture par élève
+   11. `supabase-invitations-2026-11.sql` : statut d'activation des comptes parents, pour le bouton *Invitation parent*
 4. Se donner le rôle propriétaire, avec votre adresse :
    ```sql
    UPDATE public.profiles SET roles = array_append(roles, 'proprietaire')
@@ -98,6 +99,8 @@ Concrètement, pour inscrire les élèves de 2027-2028 pendant que 2026-2027 tou
 
 **Utilisateurs et rôles suit l'année.** Un compte qui n'est **que** parent n'apparaît que sur les années où il a un enfant inscrit : en 2026 vous voyez les familles de 2026, en 2027 celles de 2027. Tout compte portant un autre rôle — admin du club, coordinateur, pilote, gérant, propriétaire — reste visible sur toutes les années, même s'il est aussi parent. La case *Toutes les années* lève le filtre quand il faut retrouver un compte dont l'élève a été supprimé. Le bouton *Inviter les parents* n'écrit qu'aux familles de l'année affichée : vérifiez le sélecteur avant de l'utiliser.
 
+**Le tableau de bord d'accueil suit aussi le sélecteur**, pour le coordinateur, le pilote et le gérant : les compteurs, les prochains vols et la liste des élèves sont ceux de l'année choisie, et l'année est rappelée sous le titre. Le suivi de lecture des cours et la liste des attestations signées (*Paramètres*) sont également filtrés. L'espace **parent** n'a pas de sélecteur : il montre les enfants, toutes années confondues, mais un enfant ne peut réserver qu'un créneau de **son** année.
+
 **Un élève peut exister sur deux années.** Rien n'empêche de réinscrire un élève de 2026 en 2027 ; ce sont deux fiches distinctes, et la détection de doublon de l'import ne regarde que l'année visée.
 
 **Les frais supplémentaires sont datés, pas rattachés à une année.** Une dépense saisie dans Finances est comptée sur l'année scolaire de sa date (1er septembre → 31 août). Le formulaire prévient si la date sort de l'année affichée.
@@ -125,11 +128,24 @@ Module **Import des élèves** › onglet **Export FFA (SMILE)**.
 
 L'export FFA ne contient pas l'identité du responsable légal : l'import propose le nom de l'élève et le prénom « Parent », à corriger dans l'aperçu.
 
-**Comptes des familles.** La case *Créer les comptes des responsables légaux* (cochée par défaut) crée les comptes manquants et les rattache à leurs enfants. **Aucun email n'est envoyé pendant l'import** — ni par cette case, ni par la création des élèves. L'accès est transmis plus tard, quand le club le décide, par **Utilisateurs et rôles › Inviter les parents** : ce bouton n'écrit qu'aux adresses des deux responsables légaux des élèves de l'année active, et propose « Définissez votre mot de passe » aux comptes qui ne se sont jamais connectés.
+**Comptes des familles.** La case *Créer les comptes des responsables légaux* (cochée par défaut) crée les comptes manquants et les rattache à leurs enfants. **Aucun email n'est envoyé pendant l'import** — ni par cette case, ni par la création des élèves. L'accès est transmis plus tard, quand le club le décide, par le bouton **Invitation parent** de la page Élèves (section 7) ou par **Utilisateurs et rôles › Inviter les parents** : ces boutons n'écrivent qu'aux adresses des deux responsables légaux des élèves de l'année affichée, et proposent « Définissez votre mot de passe » aux comptes qui ne se sont jamais connectés.
 
 Le même écran garde l'onglet **Fichier CSV** (template téléchargeable) pour les clubs qui préparent leur liste à la main.
 
-## 7. Suivi des erreurs (Sentry)
+## 7. Inviter les familles (bouton *Invitation parent*)
+Page **Élèves** › bouton **Invitation parent** (admin du club, coordinateur, gérant). C'est l'email qui donne aux familles l'accès à leur espace : suivi du dossier, attestation, réservation des vols.
+
+1. Choisissez les destinataires :
+   - **Parents sans accès** — ceux qui n'ont pas de compte, et ceux dont le compte a été créé par l'import mais jamais activé. C'est le cas courant après un import FFA.
+   - **Élèves sélectionnés** — les parents des élèves cochés dans la liste, pour une relance ciblée.
+2. Écrivez le **mot d'introduction** (optionnel, 2 000 caractères). Il apparaît en tête de l'email, avant le bouton d'activation : c'est là que le responsable BIA se présente au club. Il est facultatif, l'email reste complet sans lui.
+3. La liste des destinataires s'affiche avant l'envoi, avec le nom des enfants rattachés. Un parent de deux élèves ne reçoit qu'un email, et les deux responsables légaux sont servis.
+
+Les destinataires sont toujours ceux de **l'année choisie dans le sélecteur** et des filtres actifs de la liste : vérifiez les deux avant d'envoyer. Un parent qui s'est désabonné des emails ne reçoit rien, y compris ce lien. Chaque envoi est tracé dans l'historique des emails de la fiche élève.
+
+Pour un seul parent, le bouton *Invitation parent* de la fiche élève envoie l'email sans mot d'introduction.
+
+## 8. Suivi des erreurs (Sentry)
 1. Créez un compte sur sentry.io et choisissez la région de données **EU** à la création de l'organisation.
 2. Créez un projet **Next.js**, puis copiez son **DSN** (Settings › Client Keys).
 3. Dans Vercel › Environment Variables :
@@ -145,7 +161,7 @@ Le même écran garde l'onglet **Fichier CSV** (template téléchargeable) pour 
 
 Aucune donnée personnelle n'est envoyée : ni cookies, ni en-têtes, ni contenu des formulaires, ni paramètres d'URL.
 
-## 8. Cours en ligne
+## 9. Cours en ligne
 
 Le module **Cours en ligne** sert de petit espace de révision pour les familles.
 
@@ -157,7 +173,7 @@ Le module **Cours en ligne** sert de petit espace de révision pour les familles
 
 Taille maximale par document : 50 Mo. Les fichiers sont rangés dans un dossier par club et ne sont lisibles que par un lien signé, valable 5 minutes, généré après vérification des droits.
 
-## 9. Paiement en ligne (HelloAsso)
+## 10. Paiement en ligne (HelloAsso)
 
 Chaque aéroclub encaisse sur **son propre compte HelloAsso** : aucune somme ne transite par BIA Manager, et aucune clé n'est en variable d'environnement.
 
@@ -170,13 +186,13 @@ Côté familles, un bouton « Payer en ligne » apparaît sur le tableau de bord
 
 En cas de besoin, un paiement peut toujours être saisi à la main dans la fiche de l'élève (chèque, virement, espèces) : le module ne remplace rien, il ajoute une possibilité.
 
-## 10. SMS et WhatsApp
+## 11. SMS et WhatsApp
 
 **SMS — pas retenu pour le pilote.** Comptez 0,05 à 0,08 € par SMS en France (Brevo, OVH, Twilio — tarifs à revérifier au moment de souscrire). Pour 600 clubs, le coût devient significatif et impose une mention « STOP » ainsi qu'un recueil de consentement distinct de celui des emails. À réévaluer après le pilote, en comparant les fournisseurs.
 
 **WhatsApp Business Platform — déconseillé.** L'envoi automatisé exige la vérification de l'entreprise auprès de Meta, la validation de chaque modèle de message, et une facturation à la conversation. Le lien `wa.me` déjà en place (Paramètres › Support aux familles) couvre le besoin réel sans aucune de ces contraintes : la famille écrit, le club répond depuis son téléphone.
 
-## 11. Club de démonstration
+## 12. Club de démonstration
 `aeroclub-test.biamanager.com` sert de démo et d'environnement d'essai.
 - **Remplir ou remettre à zéro** : `npm run seed:demo -- --reset`. Le script refuse tout club dont l'adresse ne contient pas « test » ou « demo », et vérifie que les autres clubs n'ont pas bougé.
 - **Comptes** : `demo.pilote1@example.com`, `demo.coordinateur@example.com`, `demo.parent01@example.com`… Mot de passe commun : `admin123` (modifiable avec la variable `DEMO_PASSWORD`).

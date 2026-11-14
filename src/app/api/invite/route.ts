@@ -8,6 +8,9 @@ import { getOrgById } from "@/lib/org";
 import { clubUrl } from "@/lib/tenant";
 
 const STAFF_ROLES = ["superadmin", "coordinateur", "gerant"];
+// Mot d'introduction libre écrit par le club (« Bonjour, je suis le responsable BIA… »).
+// Réservé à l'équipe, échappé, et borné pour que l'email reste lisible.
+const MESSAGE_MAX = 2000;
 const escHtml = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 
 export async function POST(req: Request) {
@@ -31,6 +34,10 @@ export async function POST(req: Request) {
   }
   const nom = isStaff && payload.nom ? escHtml(String(payload.nom)) : "";
   const prenom = isStaff && payload.prenom ? escHtml(String(payload.prenom)) : "";
+  const messageBrut = isStaff ? String(payload.message ?? "").trim().slice(0, MESSAGE_MAX) : "";
+  const blocMessage = messageBrut
+    ? `<div style="margin:0 0 24px;padding:14px 16px;background:#f4f7fa;border-left:3px solid #1b3a5c;border-radius:6px;color:#333;font-size:14px;line-height:1.6">${escHtml(messageBrut).replace(/\r?\n/g, "<br />")}</div>`
+    : "";
 
   if (!process.env.SUPABASE_SERVICE_ROLE_KEY) {
     return NextResponse.json({ error: "SUPABASE_SERVICE_ROLE_KEY manquant dans les variables d'environnement Vercel" }, { status: 500 });
@@ -127,6 +134,7 @@ export async function POST(req: Request) {
 
   let bodyHtml = !premierAcces
     ? `<h2 style="margin:0 0 8px;font-size:22px;color:#111">Bonjour ${displayName},</h2>
+          ${blocMessage}
           <p style="color:#555;margin:0 0 24px">
             Vous avez demandé la réinitialisation de votre mot de passe BIA Manager.
             Cliquez sur le bouton ci-dessous pour définir un nouveau mot de passe.
@@ -136,6 +144,7 @@ export async function POST(req: Request) {
           </a>
           <p style="color:#aaa;font-size:12px;margin-top:24px">Ce lien est valable 24 heures. Si vous n'avez pas demandé cette réinitialisation, ignorez cet email.</p>`
     : `<h2 style="margin:0 0 8px;font-size:22px;color:#111">Bonjour ${displayName},</h2>
+          ${blocMessage}
           <p style="color:#555;margin:0 0 24px">
             Vous avez été invité(e) sur la plateforme BIA Manager${clubNom ? ` — ${clubNom}` : ""}.
             Cliquez sur le bouton ci-dessous pour définir votre mot de passe et accéder à votre espace.

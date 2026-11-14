@@ -14,7 +14,8 @@ Je déclare avoir pris connaissance des conditions de vol et des mesures de séc
 Fait à {LIEU_SIGNATURE}, le {DATE_SIGNATURE}`;
 
 export default function ParametresPage() {
-  const { refreshAnnees, activeExamDate } = useYear();
+  const { refreshAnnees, activeExamDate, selectedAnneeId, annees: anneesContexte } = useYear();
+  const anneeLabel = anneesContexte.find((a: any) => a.id === selectedAnneeId)?.label ?? "";
   const supabase = createClient();
   const [params, setParams] = useState<any[]>([]);
   const [templateText, setTemplateText] = useState(DEFAULT_TEMPLATE);
@@ -37,7 +38,11 @@ export default function ParametresPage() {
     async function load() {
       const [pR, eR, anR] = await Promise.all([
         supabase.from("parametres").select("*").order("cle"),
-        supabase.from("eleves").select("nom, prenom, attestation_signee, attestation_date, attestation_parent_signataire, attestation_url, etablissement:etablissements(nom)").eq("attestation_signee", true).order("attestation_date", { ascending: false }),
+        (() => {
+          // Les attestations se lisent année par année, comme le reste du tableau de bord.
+          const q = supabase.from("eleves").select("nom, prenom, attestation_signee, attestation_date, attestation_parent_signataire, attestation_url, etablissement:etablissements(nom)").eq("attestation_signee", true);
+          return (selectedAnneeId ? q.eq("annee_id", selectedAnneeId) : q).order("attestation_date", { ascending: false });
+        })(),
         supabase.from("annees").select("*").order("date_debut", { ascending: false }),
       ]);
       setParams(pR.data || []);
@@ -48,7 +53,7 @@ export default function ParametresPage() {
       setLoading(false);
     }
     load();
-  }, []);
+  }, [selectedAnneeId]);
 
   async function handleCreateAnnee() {
     if (!newAnnee.label.trim() || !newAnnee.date_debut || !newAnnee.date_fin) {
@@ -561,7 +566,9 @@ export default function ParametresPage() {
 
       {tab === "attestations" && (
         <div className="card">
-          <h2 className="text-sm font-semibold text-gray-900 mb-3">Attestations signées ({attestations.length})</h2>
+          <h2 className="text-sm font-semibold text-gray-900 mb-3">
+            Attestations signées ({attestations.length}){anneeLabel ? <span className="font-normal text-gray-400"> · {anneeLabel}</span> : null}
+          </h2>
           {attestations.length === 0 ? (
             <p className="text-sm text-gray-400 py-6 text-center">Aucune attestation signée pour le moment.</p>
           ) : (

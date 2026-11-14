@@ -152,6 +152,10 @@ BEGIN
   IF COALESCE(array_length(c.eleves_autorises, 1), 0) > 0 AND NOT (p_eleve_id = ANY (c.eleves_autorises)) THEN
     RAISE EXCEPTION 'Ce créneau est réservé à d''autres élèves';
   END IF;
+  -- Multi-année : un élève inscrit sur 2026 ne réserve pas un créneau de 2027.
+  IF c.annee_id IS NOT NULL AND e.annee_id IS NOT NULL AND c.annee_id <> e.annee_id THEN
+    RAISE EXCEPTION 'Ce créneau appartient à une autre année scolaire que celle de l''élève';
+  END IF;
 
   IF p_type_vol = 1 THEN
     IF NOT (COALESCE(e.paiement_effectue, false) AND COALESCE(e.attestation_signee, false)) THEN

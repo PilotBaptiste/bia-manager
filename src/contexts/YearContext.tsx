@@ -44,6 +44,15 @@ const YearContext = createContext<YearContextType>({
 });
 
 const LS_KEY = "bia_selected_annee";
+// Le sélecteur vit dans le navigateur, mais le tableau de bord d'accueil est rendu
+// côté serveur : il lit l'année choisie dans ce cookie. Sans lui, un coordinateur
+// placé sur 2027 verrait les chiffres de l'année en cours du club.
+const COOKIE_KEY = "bia_annee";
+
+function ecrireCookie(id: string) {
+  if (typeof document === "undefined" || !id) return;
+  document.cookie = `${COOKIE_KEY}=${encodeURIComponent(id)}; path=/; max-age=31536000; samesite=lax`;
+}
 
 export function YearProvider({ children }: { children: React.ReactNode }) {
   const supabase = createClient();
@@ -68,6 +77,7 @@ export function YearProvider({ children }: { children: React.ReactNode }) {
       const storedValid = stored && list.find((a) => a.id === stored);
       if (storedValid) {
         setSelectedAnneeIdState(stored);
+        ecrireCookie(stored);
       } else {
         // Default to active year (or first in list)
         const defaultId = active?.id || list[0]?.id || "";
@@ -75,6 +85,7 @@ export function YearProvider({ children }: { children: React.ReactNode }) {
         if (defaultId && typeof window !== "undefined") {
           localStorage.setItem(LS_KEY, defaultId);
         }
+        ecrireCookie(defaultId);
       }
       setLoading(false);
   }
@@ -86,6 +97,7 @@ export function YearProvider({ children }: { children: React.ReactNode }) {
   function setSelectedAnneeId(id: string) {
     setSelectedAnneeIdState(id);
     if (typeof window !== "undefined") localStorage.setItem(LS_KEY, id);
+    ecrireCookie(id);
   }
 
   const selectedAnnee = annees.find((a) => a.id === selectedAnneeId) ?? null;
