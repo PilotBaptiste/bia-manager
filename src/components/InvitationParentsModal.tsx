@@ -2,7 +2,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { toast } from "sonner";
-import { Loader2, Mail, X, AlertCircle, Check } from "lucide-react";
+import { Loader2, KeyRound, X, AlertCircle, Check } from "lucide-react";
 
 export type ParentInvitable = {
   email: string;
@@ -11,8 +11,6 @@ export type ParentInvitable = {
   /** Prénom + nom des enfants rattachés à cette adresse, pour que l'équipe se repère. */
   enfants: string[];
 };
-
-type Cible = "sansAcces" | "selection";
 
 type Statut = { aCompte: boolean; dejaConnecte: boolean };
 
@@ -41,49 +39,49 @@ export function regrouperParents(lignes: ParentInvitable[]): ParentInvitable[] {
   );
 }
 
+/**
+ * Envoie aux parents des élèves cochés l'email qui leur fait définir leur mot de
+ * passe. Par défaut les familles déjà actives sont écartées : une fiche créée à
+ * la main ne doit pas servir à réexpédier un lien à toute la promo.
+ */
 export default function InvitationParentsModal({
   ouvert,
   onClose,
   anneeLabel,
-  candidats,
-  selection,
-  cibleInitiale,
-  chargementCandidats,
+  parents,
+  nbEleves,
 }: {
   ouvert: boolean;
   onClose: () => void;
   anneeLabel: string;
-  /** Tous les parents des élèves actuellement filtrés (toutes les pages). */
-  candidats: ParentInvitable[];
-  /** Parents des élèves cochés dans la liste. */
-  selection: ParentInvitable[];
-  cibleInitiale: Cible;
-  chargementCandidats: boolean;
+  /** Parents des élèves cochés dans la liste, dédoublonnés. */
+  parents: ParentInvitable[];
+  nbEleves: number;
 }) {
   const supabase = createClient();
-  const [cible, setCible] = useState<Cible>(cibleInitiale);
   const [message, setMessage] = useState("");
+  const [sauterActifs, setSauterActifs] = useState(true);
   const [envoi, setEnvoi] = useState<{ faits: number; total: number } | null>(null);
   const [statuts, setStatuts] = useState<Record<string, Statut> | null>(null);
   const [statutsIndispo, setStatutsIndispo] = useState(false);
-  const [chargementStatuts, setChargementStatuts] = useState(false);
+  const [chargement, setChargement] = useState(false);
 
-  useEffect(() => {
-    if (ouvert) setCible(cibleInitiale);
-  }, [ouvert, cibleInitiale]);
+  // Dépendance stable : la liste des parents est recalculée à chaque rendu de la
+  // page, son identité ne peut pas servir de déclencheur.
+  const cleEmails = parents.map((p) => p.email).sort().join(",");
 
-  // Qui n'a jamais ouvert son espace ? auth.users n'est pas lisible depuis le
+  // Qui a déjà ouvert son espace ? auth.users n'est pas lisible depuis le
   // navigateur : la réponse vient de la fonction statut_acces_parents.
   useEffect(() => {
-    if (!ouvert || candidats.length === 0) return;
+    if (!ouvert || !cleEmails) return;
     let annule = false;
     (async () => {
-      setChargementStatuts(true);
+      setChargement(true);
       const { data, error } = await supabase.rpc("statut_acces_parents", {
-        p_emails: candidats.map((p) => p.email),
+        p_emails: cleEmails.split(","),
       });
       if (annule) return;
-      setChargementStatuts(false);
+      setChargement(false);
       if (error) {
         setStatuts(null);
         setStatutsIndispo(true);
@@ -102,24 +100,19 @@ export default function InvitationParentsModal({
     return () => {
       annule = true;
     };
-  }, [ouvert, candidats]);
+  }, [ouvert, cleEmails]);
 
-  const sansAcces = useMemo(() => {
-    if (!statuts) return [];
-    // Pas de compte, ou compte créé par l'import mais jamais activé : dans les deux
-    // cas la famille n'a pas encore d'accès et l'email d'activation a du sens.
-    return candidats.filter((p) => {
-      const s = statuts[p.email];
-      return !s || !s.aCompte || !s.dejaConnecte;
-    });
-  }, [candidats, statuts]);
+  // Un compte créé par l'import FFA existe sans avoir jamais servi : tant que
+  // personne ne s'est connecté, la famille n'a pas d'accès.
+  const estActif = (email: string) => !!statuts?.[email]?.aCompte && !!statuts?.[email]?.dejaConnecte;
+  const nbActifs = useMemo(
+    () => (statuts ? parents.filter((p) => estActif(p.email)).length : 0),
+    [parents, statuts],
+  );
 
-  const destinataires = cible === "selection" ? selection : sansAcces;
+  const peutFiltrer = !!statuts && !statutsIndispo;
+  const destinataires = peutFiltrer && sauterActifs ? parents.filter((p) => !estActif(p.email)) : parents;
   const occupe = envoi !== null;
-  // Tant que la liste des parents ou leur statut d'activation n'est pas revenue, on
-  // affiche « … » plutôt qu'un zéro trompeur.
-  const enAttente =
-    chargementCandidats || chargementStatuts || (candidats.length > 0 && statuts === null && !statutsIndispo);
 
   async function envoyer() {
     if (destinataires.length === 0) return;
@@ -148,36 +141,17 @@ export default function InvitationParentsModal({
     }
     setEnvoi(null);
     if (echecs.length === 0) {
-      toast.success(`${ok} invitation${ok > 1 ? "s" : ""} envoyée${ok > 1 ? "s" : ""}`);
+      toast.success(`${ok} email${ok > 1 ? "s" : ""} d'activation envoyé${ok > 1 ? "s" : ""}`);
       setMessage("");
       onClose();
       return;
     }
     toast.warning(
-      `${ok} invitation${ok > 1 ? "s" : ""} envoyée${ok > 1 ? "s" : ""}, ${echecs.length} en échec : ${echecs.slice(0, 5).join(", ")}${echecs.length > 5 ? "…" : ""}`,
+      `${ok} email${ok > 1 ? "s" : ""} envoyé${ok > 1 ? "s" : ""}, ${echecs.length} en échec : ${echecs.slice(0, 5).join(", ")}${echecs.length > 5 ? "…" : ""}`,
     );
   }
 
   if (!ouvert) return null;
-
-  const Option = ({ valeur, titre, detail, nombre, desactive }: { valeur: Cible; titre: string; detail: string; nombre: number | null; desactive?: boolean }) => (
-    <button
-      type="button"
-      disabled={desactive || occupe}
-      onClick={() => setCible(valeur)}
-      className={`flex-1 min-w-[200px] text-left p-3 rounded-xl border transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
-        cible === valeur ? "border-brand-400 bg-brand-50 ring-2 ring-brand-300/40" : "border-gray-200 hover:bg-gray-50"
-      }`}
-    >
-      <div className="flex items-center justify-between gap-2">
-        <span className="text-sm font-semibold text-gray-900">{titre}</span>
-        <span className={`text-sm font-bold ${cible === valeur ? "text-brand-600" : "text-gray-500"}`}>
-          {nombre === null ? "…" : nombre}
-        </span>
-      </div>
-      <p className="text-[11px] text-gray-500 mt-0.5 leading-snug">{detail}</p>
-    </button>
-  );
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
@@ -188,12 +162,12 @@ export default function InvitationParentsModal({
       >
         <div className="flex items-start justify-between mb-5">
           <div>
-            <h3 className="text-lg font-bold text-gray-900">Invitation des parents</h3>
+            <h3 className="text-lg font-bold text-gray-900">Activer les comptes famille</h3>
             <p className="text-xs text-gray-500 mt-0.5">
-              Email d&apos;activation du compte famille
+              Chaque parent reçoit un lien pour choisir son mot de passe et ouvrir son espace
               {anneeLabel ? (
                 <>
-                  {" "}— année <strong className="text-brand-600">{anneeLabel}</strong>, celle choisie dans le sélecteur du menu
+                  {" "}— année <strong className="text-brand-600">{anneeLabel}</strong>
                 </>
               ) : null}
               .
@@ -204,33 +178,55 @@ export default function InvitationParentsModal({
           </button>
         </div>
 
-        <label className="label">Destinataires</label>
-        <div className="flex gap-2 flex-wrap mb-1">
-          <Option
-            valeur="sansAcces"
-            titre="Parents sans accès"
-            detail={statutsIndispo ? "Statut d'activation indisponible" : "Aucun compte, ou compte jamais activé"}
-            nombre={enAttente ? null : statutsIndispo ? 0 : sansAcces.length}
-            desactive={statutsIndispo || (!enAttente && sansAcces.length === 0)}
-          />
-          <Option
-            valeur="selection"
-            titre="Élèves sélectionnés"
-            detail={selection.length > 0 ? "Les parents des élèves cochés dans la liste" : "Cochez des élèves dans la liste d'abord"}
-            nombre={selection.length}
-            desactive={selection.length === 0}
-          />
+        <div className="rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 mb-4">
+          <p className="text-sm text-gray-800">
+            <strong>{parents.length}</strong> parent{parents.length > 1 ? "s" : ""} pour {nbEleves} élève
+            {nbEleves > 1 ? "s" : ""} sélectionné{nbEleves > 1 ? "s" : ""}
+          </p>
+          <p className="text-[11px] text-gray-500 mt-0.5">
+            {chargement
+              ? "Vérification des comptes déjà actifs…"
+              : statutsIndispo
+                ? "Impossible de savoir qui a déjà activé son compte."
+                : nbActifs > 0
+                  ? `${parents.length - nbActifs} n'${parents.length - nbActifs > 1 ? "ont" : "a"} pas encore activé son compte · ${nbActifs} déjà actif${nbActifs > 1 ? "s" : ""}`
+                  : "Aucun n'a encore activé son compte."}
+          </p>
         </div>
-        {statutsIndispo && (
-          <div className="mb-4 mt-2 p-3 rounded-lg bg-amber-50 flex items-start gap-2">
+
+        {statutsIndispo ? (
+          <div className="mb-5 p-3 rounded-lg bg-amber-50 flex items-start gap-2">
             <AlertCircle className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
             <p className="text-xs text-amber-800">
-              Impossible de savoir qui a déjà activé son compte. Sélectionnez les élèves concernés dans la liste pour
-              inviter leurs parents.
+              Les parents déjà actifs ne peuvent pas être écartés automatiquement : ils recevront eux aussi un lien, qui
+              leur servira à réinitialiser leur mot de passe.
             </p>
           </div>
+        ) : (
+          <label
+            className={`flex items-start gap-3 p-3 rounded-xl border mb-5 cursor-pointer transition-colors ${
+              sauterActifs ? "border-brand-400 bg-brand-50" : "border-gray-200 hover:bg-gray-50"
+            } ${occupe ? "opacity-50 pointer-events-none" : ""}`}
+          >
+            <input
+              type="checkbox"
+              checked={sauterActifs}
+              disabled={occupe}
+              onChange={(e) => setSauterActifs(e.target.checked)}
+              className="mt-0.5 w-4 h-4 accent-brand-500"
+            />
+            <span>
+              <span className="text-sm font-semibold text-gray-900">
+                Ne rien envoyer aux comptes déjà activés
+              </span>
+              <span className="block text-[11px] text-gray-500 mt-0.5 leading-snug">
+                {nbActifs > 0
+                  ? `${nbActifs} famille${nbActifs > 1 ? "s" : ""} a déjà son accès et sera ignorée. Décochez pour leur renvoyer quand même un lien.`
+                  : "Aucune famille active parmi celles sélectionnées : tout le monde recevra l'email."}
+              </span>
+            </span>
+          </label>
         )}
-        <div className="mb-5" />
 
         <label className="label" htmlFor="message-invitation">
           Mot d&apos;introduction <span className="font-normal text-gray-400">(optionnel)</span>
@@ -254,7 +250,7 @@ export default function InvitationParentsModal({
           </span>
         </div>
 
-        {destinataires.length > 0 && (
+        {destinataires.length > 0 ? (
           <div className="mb-5">
             <label className="label">
               {destinataires.length} destinataire{destinataires.length > 1 ? "s" : ""}
@@ -269,26 +265,33 @@ export default function InvitationParentsModal({
                     </p>
                     <p className="text-[11px] text-gray-500 truncate">{p.email}</p>
                   </div>
-                  {p.enfants.length > 0 && (
-                    <span className="text-[11px] text-gray-400 shrink-0 truncate max-w-[45%]" title={p.enfants.join(", ")}>
-                      {p.enfants.join(", ")}
-                    </span>
-                  )}
+                  <div className="flex items-center gap-2 shrink-0 max-w-[55%]">
+                    {p.enfants.length > 0 && (
+                      <span className="text-[11px] text-gray-400 truncate" title={p.enfants.join(", ")}>
+                        {p.enfants.join(", ")}
+                      </span>
+                    )}
+                    {peutFiltrer && estActif(p.email) && (
+                      <span className="text-[10px] font-semibold text-emerald-700 bg-emerald-50 rounded px-1.5 py-0.5 shrink-0">
+                        déjà actif
+                      </span>
+                    )}
+                  </div>
                 </div>
               ))}
             </div>
           </div>
-        )}
-
-        {destinataires.length === 0 && !enAttente && (
-          <div className="mb-5 p-3 rounded-lg bg-gray-50 flex items-center gap-2">
-            <Check className="w-4 h-4 text-emerald-500 shrink-0" />
-            <p className="text-sm text-gray-600">
-              {cible === "sansAcces"
-                ? "Tous les parents de cette année ont déjà activé leur compte."
-                : "Aucun élève sélectionné n'a d'adresse parent."}
-            </p>
-          </div>
+        ) : (
+          !chargement && (
+            <div className="mb-5 p-3 rounded-lg bg-gray-50 flex items-center gap-2">
+              <Check className="w-4 h-4 text-emerald-500 shrink-0" />
+              <p className="text-sm text-gray-600">
+                {parents.length === 0
+                  ? "Aucun élève sélectionné n'a d'adresse parent."
+                  : "Toutes les familles sélectionnées ont déjà activé leur compte."}
+              </p>
+            </div>
+          )
         )}
 
         <div className="flex items-center justify-end gap-2">
@@ -300,13 +303,11 @@ export default function InvitationParentsModal({
           <button onClick={onClose} disabled={occupe} className="btn-secondary">
             Annuler
           </button>
-          <button
-            onClick={envoyer}
-            disabled={occupe || destinataires.length === 0 || enAttente}
-            className="btn-primary"
-          >
-            {occupe ? <Loader2 className="w-4 h-4 animate-spin" /> : <Mail className="w-4 h-4" />}
-            Envoyer {destinataires.length > 0 ? `${destinataires.length} invitation${destinataires.length > 1 ? "s" : ""}` : "les invitations"}
+          <button onClick={envoyer} disabled={occupe || chargement || destinataires.length === 0} className="btn-primary">
+            {occupe || chargement ? <Loader2 className="w-4 h-4 animate-spin" /> : <KeyRound className="w-4 h-4" />}
+            {destinataires.length > 0
+              ? `Envoyer ${destinataires.length} email${destinataires.length > 1 ? "s" : ""}`
+              : "Envoyer"}
           </button>
         </div>
       </div>

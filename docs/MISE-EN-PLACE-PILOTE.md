@@ -34,7 +34,7 @@ Tarifs indicatifs relevés en 2026 : à vérifier au moment de souscrire.
    8. `supabase-emails-desabonnement-2026-09.sql`
    9. `supabase-evolutions-2026-11.sql` : second parent, cours, posés en campagne, HelloAsso, règles du vol 2
    10. `supabase-cours-lms-2026-11.sql` : plusieurs documents par cours et suivi de lecture par élève
-   11. `supabase-invitations-2026-11.sql` : statut d'activation des comptes parents, pour le bouton *Invitation parent*
+   11. `supabase-invitations-2026-11.sql` : statut d'activation des comptes parents, pour le bouton *Activer leur compte*
 4. Se donner le rôle propriétaire, avec votre adresse :
    ```sql
    UPDATE public.profiles SET roles = array_append(roles, 'proprietaire')
@@ -128,22 +128,26 @@ Module **Import des élèves** › onglet **Export FFA (SMILE)**.
 
 L'export FFA ne contient pas l'identité du responsable légal : l'import propose le nom de l'élève et le prénom « Parent », à corriger dans l'aperçu.
 
-**Comptes des familles.** La case *Créer les comptes des responsables légaux* (cochée par défaut) crée les comptes manquants et les rattache à leurs enfants. **Aucun email n'est envoyé pendant l'import** — ni par cette case, ni par la création des élèves. L'accès est transmis plus tard, quand le club le décide, par le bouton **Invitation parent** de la page Élèves (section 7) ou par **Utilisateurs et rôles › Inviter les parents** : ces boutons n'écrivent qu'aux adresses des deux responsables légaux des élèves de l'année affichée, et proposent « Définissez votre mot de passe » aux comptes qui ne se sont jamais connectés.
+**Comptes des familles.** La case *Créer les comptes des responsables légaux* (cochée par défaut) crée les comptes manquants et les rattache à leurs enfants. **Aucun email n'est envoyé pendant l'import** — ni par cette case, ni par la création des élèves. L'accès est transmis plus tard, quand le club le décide, par le bouton **Activer leur compte** de la page Élèves (section 7) ou par **Utilisateurs et rôles › Inviter les parents** : ces boutons n'écrivent qu'aux adresses des deux responsables légaux des élèves de l'année affichée, et proposent « Définissez votre mot de passe » aux comptes qui ne se sont jamais connectés.
 
 Le même écran garde l'onglet **Fichier CSV** (template téléchargeable) pour les clubs qui préparent leur liste à la main.
 
-## 7. Inviter les familles (bouton *Invitation parent*)
-Page **Élèves** › bouton **Invitation parent** (admin du club, coordinateur, gérant). C'est l'email qui donne aux familles l'accès à leur espace : suivi du dossier, attestation, réservation des vols.
+## 7. Activer les comptes des familles
+Page **Élèves** : cochez les élèves concernés, puis **Activer leur compte** dans la barre de sélection (admin du club, coordinateur, gérant). C'est l'email qui donne aux familles l'accès à leur espace : suivi du dossier, attestation, réservation des vols. Le parent y choisit son mot de passe.
 
-1. Choisissez les destinataires :
-   - **Parents sans accès** — ceux qui n'ont pas de compte, et ceux dont le compte a été créé par l'import mais jamais activé. C'est le cas courant après un import FFA.
-   - **Élèves sélectionnés** — les parents des élèves cochés dans la liste, pour une relance ciblée.
-2. Écrivez le **mot d'introduction** (optionnel, 2 000 caractères). Il apparaît en tête de l'email, avant le bouton d'activation : c'est là que le responsable BIA se présente au club. Il est facultatif, l'email reste complet sans lui.
-3. La liste des destinataires s'affiche avant l'envoi, avec le nom des enfants rattachés. Un parent de deux élèves ne reçoit qu'un email, et les deux responsables légaux sont servis.
+1. Cochez les élèves — la case en tête de colonne sélectionne toute la page affichée.
+2. **Activer leur compte** ouvre la fenêtre, qui affiche combien de parents sont concernés et combien ont **déjà** activé leur compte.
+3. La case **Ne rien envoyer aux comptes déjà activés** est cochée par défaut : les familles qui ont déjà leur accès sont ignorées, même si leur élève est coché. Décochez-la seulement pour renvoyer un lien à quelqu'un qui a perdu son mot de passe.
+4. Écrivez le **mot d'introduction** (optionnel, 2 000 caractères). Il apparaît en tête de l'email, avant le bouton d'activation : c'est là que le responsable BIA se présente au club. L'email reste complet sans lui.
+5. La liste exacte des destinataires s'affiche avant l'envoi, avec le nom des enfants rattachés. Un parent de deux élèves ne reçoit qu'un email, et les deux responsables légaux sont servis.
 
-Les destinataires sont toujours ceux de **l'année choisie dans le sélecteur** et des filtres actifs de la liste : vérifiez les deux avant d'envoyer. Un parent qui s'est désabonné des emails ne reçoit rien, y compris ce lien. Chaque envoi est tracé dans l'historique des emails de la fiche élève.
+Un parent qui s'est désabonné des emails ne reçoit rien, y compris ce lien. Chaque envoi est tracé dans l'historique des emails de la fiche élève.
 
-Pour un seul parent, le bouton *Invitation parent* de la fiche élève envoie l'email sans mot d'introduction.
+À côté, **Envoyer un mail** sert à tout autre chose : écrire un message libre aux familles, sans lien d'accès.
+
+Pour un seul parent, le bouton *Activer le compte* de la fiche élève envoie l'email sans mot d'introduction.
+
+Si le script `supabase-invitations-2026-11.sql` n'a pas été exécuté, le club ne peut pas savoir qui a déjà activé son compte : la fenêtre le dit, et tous les parents cochés reçoivent l'email.
 
 ## 8. Suivi des erreurs (Sentry)
 1. Créez un compte sur sentry.io et choisissez la région de données **EU** à la création de l'organisation.
