@@ -64,12 +64,16 @@ const emptyCreate = {
 
 export default function UtilisateursPage() {
   const supabase = createClient();
-  const { activeAnneeId } = useYear();
-  const [users, setUsers] = useState<any[]>([]);
+  const { selectedAnneeId, annees } = useYear();
+  const anneeLabel = annees.find((a) => a.id === selectedAnneeId)?.label ?? "";
+  // Liste brute des profils du club, toutes années confondues. Le filtrage par année se fait plus bas.
+  const [usersBruts, setUsersBruts] = useState<any[]>([]);
   const [etabs, setEtabs] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQ, setSearchQ] = useState("");
   const [filterRole, setFilterRole] = useState("all");
+  // Échappatoire : voir les comptes de toutes les années, y compris un parent dont l'élève a été supprimé.
+  const [toutesAnnees, setToutesAnnees] = useState(false);
   const [editing, setEditing] = useState<any | null>(null);
   const [creating, setCreating] = useState(false);
   const [createForm, setCreateForm] = useState(emptyCreate);
@@ -80,14 +84,11 @@ export default function UtilisateursPage() {
   const [confirmDelete, setConfirmDelete] = useState<any | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
-  const [elevesByParentEmail, setElevesByParentEmail] = useState<Record<string, string[]>>({});
-  const [parentNameByEmail, setParentNameByEmail] = useState<Record<string, string>>({});
   const [isSA, setIsSA] = useState(false);
   const [isCoordReadOnly, setIsCoordReadOnly] = useState(false);
   const [coordEtabIds, setCoordEtabIds] = useState<string[]>([]);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [allEleves, setAllEleves] = useState<any[]>([]);
-  const [parentDataByEmail, setParentDataByEmail] = useState<Record<string, { nom: string; prenom: string }>>({});
   // Bulk invite state
   const [showBulkInvite, setShowBulkInvite] = useState(false);
   const [bulkSending, setBulkSending] = useState(false);
@@ -131,56 +132,92 @@ export default function UtilisateursPage() {
     setIsSA(sa);
     setIsCoordReadOnly(coord);
     setCoordEtabIds(cEtabIds);
-    // For coordinateur: filter users to parents whose elèves are in their étabs
-    let usersFiltered = usersRes.data || [];
-    if (coord && cEtabIds.length === 0) {
-      usersFiltered = [];
-    } else if (coord) {
-      // Les deux responsables légaux comptent pour la visibilité d'un coordinateur
-      const parentEmailsInEtabs = new Set(
-        (elevesRes.data || [])
-          .filter((e: any) => cEtabIds.includes(e.etablissement_id))
-          .flatMap((e: any) => [e.parent_email, e.parent2_email])
-          .filter(Boolean)
-          .map((email: string) => email.toLowerCase())
-      );
-      usersFiltered = usersFiltered.filter((u: any) =>
-        u.roles?.includes("parent") && parentEmailsInEtabs.has(u.email?.toLowerCase())
-      );
-    }
-    setUsers(usersFiltered);
+    setUsersBruts(usersRes.data || []);
     setEtabs(etabsRes.data || []);
     // Fetch auth confirmation status (superadmin only — best-effort)
     if (sa) fetch("/api/admin/users-status").then(r => r.json()).then(setAuthStatus).catch(() => {});
     setAllEleves(elevesRes.data || []);
-
-    // Build maps: parent_email -> student names + parent name fallback
-    const studentMap: Record<string, string[]> = {};
-    const parentNameMap: Record<string, string> = {};
-    const parentDataMap: Record<string, { nom: string; prenom: string }> = {};
-    for (const e of elevesRes.data || []) {
-      if (!e.parent_email) continue;
-      const key = e.parent_email.toLowerCase();
-      if (!studentMap[key]) studentMap[key] = [];
-      studentMap[key].push(`${e.prenom} ${e.nom}`);
-      // Store parent name from eleve fiche as fallback (in case profile has no name)
-      if (!parentNameMap[key] && (e.parent_prenom || e.parent_nom)) {
-        parentNameMap[key] = `${e.parent_prenom ?? ""} ${e.parent_nom ?? ""}`.trim();
-        parentDataMap[key] = { nom: e.parent_nom || "", prenom: e.parent_prenom || "" };
-      }
-    }
-    setElevesByParentEmail(studentMap);
-    setParentNameByEmail(parentNameMap);
-    setParentDataByEmail(parentDataMap);
     setLoading(false);
   }
   useEffect(() => {
     load();
   }, []);
 
-  // Les deux responsables légaux de chaque élève, sans doublon d'adresse
+  /** Élèves de l'année consultée. Changer d'année dans le menu change la liste des familles. */
+  const elevesAnnee = useMemo(
+    () => (selectedAnneeId ? allEleves.filter((e: any) => e.annee_id === selectedAnneeId) : allEleves),
+    [allEleves, selectedAnneeId],
+  );
+
+  /** Adresses des deux responsables légaux des élèves de l'année, en minuscules. */
+  const emailsParentsAnnee = useMemo(() => {
+    const set = new Set<string>();
+    for (const e of elevesAnnee) {
+      for (const email of [e.parent_email, e.parent2_email]) {
+        const k = String(email ?? "").trim().toLowerCase();
+        if (k) set.add(k);
+      }
+    }
+    return set;
+  }, [elevesAnnee]);
+
+  // Un compte qui n'est QUE parent n'apparaît que sur les années où il a un enfant inscrit :
+  // les familles de 2026 restent sur 2026, celles de 2027 sur 2027. Tout compte portant un autre
+  // rôle (admin, coordinateur, pilote, gérant, propriétaire) est conservé d'une année à l'autre.
+  const users = useMemo(() => {
+    const parentSeulement = (u: any) => {
+      const roles: string[] = u.roles || [];
+      return roles.length > 0 && roles.every((r) => r === "parent");
+    };
+    let liste = toutesAnnees
+      ? usersBruts
+      : usersBruts.filter((u: any) =>
+          !parentSeulement(u) || emailsParentsAnnee.has(String(u.email ?? "").trim().toLowerCase()),
+        );
+    // Un coordinateur ne voit que les familles de ses établissements, sur l'année consultée.
+    if (isCoordReadOnly) {
+      if (coordEtabIds.length === 0) return [];
+      const sesFamilles = new Set<string>();
+      for (const e of elevesAnnee) {
+        if (!coordEtabIds.includes(e.etablissement_id)) continue;
+        for (const email of [e.parent_email, e.parent2_email]) {
+          const k = String(email ?? "").trim().toLowerCase();
+          if (k) sesFamilles.add(k);
+        }
+      }
+      liste = liste.filter((u: any) =>
+        u.roles?.includes("parent") && sesFamilles.has(String(u.email ?? "").trim().toLowerCase()),
+      );
+    }
+    return liste;
+  }, [usersBruts, emailsParentsAnnee, elevesAnnee, isCoordReadOnly, coordEtabIds, toutesAnnees]);
+
+  // Enfants rattachés et nom de repli, pour les deux responsables légaux et sur l'année consultée.
+  const { elevesByParentEmail, parentNameByEmail, parentDataByEmail } = useMemo(() => {
+    const parEmail: Record<string, string[]> = {};
+    const nomAffiche: Record<string, string> = {};
+    const nomBrut: Record<string, { nom: string; prenom: string }> = {};
+    const ajouter = (email: any, nom: any, prenom: any, eleve: string) => {
+      const k = String(email ?? "").trim().toLowerCase();
+      if (!k) return;
+      if (!parEmail[k]) parEmail[k] = [];
+      if (!parEmail[k].includes(eleve)) parEmail[k].push(eleve);
+      if (!nomAffiche[k] && (prenom || nom)) {
+        nomAffiche[k] = `${prenom ?? ""} ${nom ?? ""}`.trim();
+        nomBrut[k] = { nom: nom || "", prenom: prenom || "" };
+      }
+    };
+    for (const e of elevesAnnee) {
+      const eleve = `${e.prenom} ${e.nom}`;
+      ajouter(e.parent_email, e.parent_nom, e.parent_prenom, eleve);
+      ajouter(e.parent2_email, e.parent2_nom, e.parent2_prenom, eleve);
+    }
+    return { elevesByParentEmail: parEmail, parentNameByEmail: nomAffiche, parentDataByEmail: nomBrut };
+  }, [elevesAnnee]);
+
+  // Les deux responsables légaux de chaque élève de l'année consultée, sans doublon d'adresse.
   const parentEmails = useMemo(() => {
-    if (!activeAnneeId) return [];
+    if (!selectedAnneeId) return [];
     const seen = new Set<string>();
     const pList: { email: string; nom: string; prenom: string }[] = [];
     const ajouter = (email: any, nom: any, prenom: any) => {
@@ -191,13 +228,13 @@ export default function UtilisateursPage() {
       seen.add(key);
       pList.push({ email: adresse, nom: nom || "", prenom: prenom || "" });
     };
-    for (const e of allEleves) {
-      if (e.archive || e.annee_id !== activeAnneeId) continue;
+    for (const e of elevesAnnee) {
+      if (e.archive) continue;
       ajouter(e.parent_email, e.parent_nom, e.parent_prenom);
       ajouter(e.parent2_email, e.parent2_nom, e.parent2_prenom);
     }
     return pList;
-  }, [allEleves, activeAnneeId]);
+  }, [elevesAnnee, selectedAnneeId]);
 
   const filtered = users.filter((u) => {
     if (
@@ -233,13 +270,13 @@ export default function UtilisateursPage() {
 
   async function handleSave() {
     if (!editing) return;
-    const original = users.find((u) => u.id === editing.id);
+    const original = usersBruts.find((u) => u.id === editing.id);
     const removesSA = original?.roles?.includes("superadmin") && !editing.roles?.includes("superadmin");
     if (removesSA && editing.id === currentUserId) {
       toast.error("Vous ne pouvez pas retirer votre propre rôle Admin du club.");
       return;
     }
-    if (removesSA && users.filter((u) => u.roles?.includes("superadmin")).length <= 1) {
+    if (removesSA && usersBruts.filter((u) => u.roles?.includes("superadmin")).length <= 1) {
       toast.error("Impossible de retirer le rôle Admin du club au dernier admin.");
       return;
     }
@@ -407,7 +444,15 @@ export default function UtilisateursPage() {
           </div>
           <p className="text-sm text-gray-500 mt-0.5">
             {users.length} parent{users.length > 1 ? "s" : ""}{isCoordReadOnly ? " — vos établissements" : ` utilisateur${users.length > 1 ? "s" : ""}`}
+            {anneeLabel && (toutesAnnees
+              ? <> · toutes les années</>
+              : <> · familles de l&apos;année <strong className="text-gray-700">{anneeLabel}</strong></>)}
           </p>
+          {anneeLabel && !isCoordReadOnly && !toutesAnnees && (
+            <p className="text-xs text-gray-400 mt-0.5">
+              Les comptes qui ne sont que parents suivent l&apos;année choisie dans le menu. Les autres rôles sont visibles sur toutes les années.
+            </p>
+          )}
         </div>
         {!isCoordReadOnly && (
           <div className="flex gap-2">
@@ -464,6 +509,12 @@ export default function UtilisateursPage() {
             </button>
           ))}
         </div>
+        {!isCoordReadOnly && anneeLabel && (
+          <label className="flex items-center gap-1.5 text-[11px] text-gray-500 cursor-pointer whitespace-nowrap">
+            <input type="checkbox" checked={toutesAnnees} onChange={(e) => setToutesAnnees(e.target.checked)} className="w-3.5 h-3.5 accent-brand-500" />
+            Toutes les années
+          </label>
+        )}
       </div>
 
       {/* Bulk Invite Modal */}
@@ -472,7 +523,7 @@ export default function UtilisateursPage() {
           <div className="absolute inset-0 bg-black/40" onClick={() => !bulkSending && setShowBulkInvite(false)} />
           <div className="relative bg-white rounded-2xl p-6 w-full max-w-md shadow-xl">
             <div className="flex items-center justify-between mb-5">
-              <h3 className="text-base font-bold text-gray-900">Inviter les parents</h3>
+              <h3 className="text-base font-bold text-gray-900">Inviter les parents{anneeLabel ? ` — ${anneeLabel}` : ""}</h3>
               {!bulkSending && (
                 <button onClick={() => setShowBulkInvite(false)} className="p-1.5 rounded-lg hover:bg-gray-100">
                   <X className="w-4 h-4" />
@@ -485,7 +536,8 @@ export default function UtilisateursPage() {
                   <p className="text-sm font-semibold text-amber-800 mb-1">Confirmation requise</p>
                   <p className="text-sm text-amber-700">
                     Vous allez envoyer un email d&apos;invitation (ou de réinitialisation de mot de passe) à{" "}
-                    <strong>{parentEmails.length} adresse{parentEmails.length > 1 ? "s" : ""}</strong> parent.
+                    <strong>{parentEmails.length} adresse{parentEmails.length > 1 ? "s" : ""}</strong> parent
+                    {anneeLabel ? <> des élèves de l&apos;année <strong>{anneeLabel}</strong></> : null}.
                   </p>
                   <p className="text-xs text-amber-600 mt-2">
                     Les parents qui ont déjà un compte recevront un lien de réinitialisation de mot de passe.

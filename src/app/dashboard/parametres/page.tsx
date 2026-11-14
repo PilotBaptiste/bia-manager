@@ -77,7 +77,7 @@ export default function ParametresPage() {
     const { error: onErr } = offErr ? { error: offErr } : await supabase.from("annees").update({ active: true }).eq("id", annee.id);
     if (onErr) { toast.error(onErr.message); return; }
     refreshAnnees();
-    toast.success(`Année ${annee.label} activée — les nouvelles données seront rattachées à cette année`);
+    toast.success(`Année ${annee.label} activée — c'est désormais l'année en cours du club`);
     setConfirmActivate(null);
     const { data } = await supabase.from("annees").select("*").order("date_debut", { ascending: false });
     setAnnees(data || []);
@@ -338,9 +338,10 @@ export default function ParametresPage() {
                 <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 mb-4 text-sm text-amber-800">
                   <p className="font-semibold mb-1">Ce que ça change :</p>
                   <ul className="space-y-1 text-xs">
-                    <li>• Les nouveaux élèves et créneaux seront rattachés à l'année <strong>{confirmActivate.label}</strong></li>
-                    <li>• Les données des années précédentes restent accessibles dans <strong>Archives</strong></li>
-                    <li>• Les vues principales (Élèves, Vols, Dashboard) ne montreront que les données de la nouvelle année</li>
+                    <li>• Les inscriptions venues du <strong>formulaire public</strong> iront sur l'année <strong>{confirmActivate.label}</strong></li>
+                    <li>• Le <strong>tableau de bord</strong> résumera cette année, et c'est elle qui portera l'étoile ★ dans le menu</li>
+                    <li>• Les inscriptions et les créneaux saisis depuis le tableau de bord continuent de suivre l'année choisie dans le <strong>sélecteur du menu</strong> : vous pouvez travailler sur une autre année sans l'activer</li>
+                    <li>• Aucune donnée n'est déplacée : les années précédentes restent consultables dans <strong>Archives</strong></li>
                   </ul>
                 </div>
                 <div className="flex gap-2">
@@ -508,7 +509,8 @@ export default function ParametresPage() {
 
             <div className="mt-4 p-3 bg-blue-50 border border-blue-200 rounded-lg text-xs text-blue-700">
               <p className="font-semibold mb-1">💡 Fonctionnement multi-année</p>
-              <p>Avant chaque rentrée, créez la nouvelle année avec sa date d'examen BIA, puis activez-la. Les vues Élèves, Vols, Dashboard et Finances n'afficheront que les données de l'année active. Les années passées restent consultables via <strong>Archives</strong>.</p>
+              <p>Avant chaque rentrée, créez la nouvelle année avec sa date d'examen BIA. Vous pouvez l'utiliser sans l'activer : choisissez-la dans le sélecteur <strong>Année scolaire</strong> du menu, et les inscriptions, imports et créneaux s'y rattacheront, pendant que l'année en cours continue de tourner.</p>
+              <p>Activer une année désigne l'<strong>année en cours</strong> du club (★) : celle du tableau de bord et des inscriptions venues du formulaire public. Les années passées restent consultables via <strong>Archives</strong>.</p>
             </div>
           </div>
         </div>

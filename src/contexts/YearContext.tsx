@@ -17,7 +17,13 @@ interface YearContextType {
   selectedAnneeId: string;
   setSelectedAnneeId: (id: string) => void;
   selectedAnnee: Annee | null;
-  /** Année active = celle où on crée les nouveaux élèves/créneaux */
+  /**
+   * Année sur laquelle écrivent les créations faites depuis le tableau de bord :
+   * élèves, créneaux, import. C'est celle du sélecteur, pas l'année active, pour
+   * qu'un club puisse préparer l'année suivante pendant que l'année en cours tourne.
+   */
+  anneeDeTravail: string;
+  /** Année en cours du club (marquée ★). Sert aux écrans sans sélecteur : inscription publique, emails. */
   activeAnneeId: string;
   /** Date de l'examen BIA de l'année active (null si non renseignée) */
   activeExamDate: string | null;
@@ -30,6 +36,7 @@ const YearContext = createContext<YearContextType>({
   selectedAnneeId: "",
   setSelectedAnneeId: () => {},
   selectedAnnee: null,
+  anneeDeTravail: "",
   activeAnneeId: "",
   activeExamDate: null,
   loading: true,
@@ -83,10 +90,12 @@ export function YearProvider({ children }: { children: React.ReactNode }) {
 
   const selectedAnnee = annees.find((a) => a.id === selectedAnneeId) ?? null;
   const activeExamDate = annees.find((a) => a.id === activeAnneeId)?.date_examen_bia ?? null;
+  // Repli sur l'année en cours tant que le sélecteur n'est pas chargé.
+  const anneeDeTravail = selectedAnneeId || activeAnneeId;
 
   return (
     <YearContext.Provider
-      value={{ annees, selectedAnneeId, setSelectedAnneeId, selectedAnnee, activeAnneeId, activeExamDate, loading, refreshAnnees: load }}
+      value={{ annees, selectedAnneeId, setSelectedAnneeId, selectedAnnee, anneeDeTravail, activeAnneeId, activeExamDate, loading, refreshAnnees: load }}
     >
       {children}
     </YearContext.Provider>

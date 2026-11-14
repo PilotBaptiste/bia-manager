@@ -37,13 +37,15 @@ import ConfirmModal from "@/components/ConfirmModal";
 
 export default function VolsPage() {
   const supabase = createClient();
-  const { selectedAnneeId, activeAnneeId, annees, activeExamDate } = useYear();
-  const biaExamDate = activeExamDate || "";
-  // anneeId = active year used when creating new slots
-  const anneeId = activeAnneeId;
-  const activeAnneeLabel = annees.find((a: any) => a.id === activeAnneeId)?.label;
+  const { selectedAnneeId, anneeDeTravail, annees, activeExamDate } = useYear();
+  // Un nouveau créneau est rattaché à l'année choisie dans le sélecteur, pas à l'année en cours.
+  const anneeId = anneeDeTravail;
+  const anneeCourante = annees.find((a: any) => a.id === anneeId);
+  const anneeLabel = anneeCourante?.label;
+  // L'examen affiché est celui de l'année consultée, et non celui de l'année en cours.
+  const biaExamDate = anneeCourante?.date_examen_bia || activeExamDate || "";
   // 2027+ = label starts with "2027" or later → individual numbers mandatory
-  const is2027Plus = !!(activeAnneeLabel && parseInt(activeAnneeLabel.split(/[-/]/)[0]) >= 2027);
+  const is2027Plus = !!(anneeLabel && parseInt(anneeLabel.split(/[-/]/)[0]) >= 2027);
   const todayParis = () => new Date().toLocaleDateString("en-CA", { timeZone: "Europe/Paris" });
   const [creneaux, setCreneaux] = useState<any[]>([]);
   const [volsHisto, setVolsHisto] = useState<any[]>([]);

@@ -88,7 +88,21 @@ Vous hébergez des données de mineurs pour le compte des clubs :
 - **Deux responsables légaux** (module *Deuxième parent*) : les deux reçoivent les emails, peuvent réserver et annuler, et chacun est prévenu de ce que fait l'autre. Chacun se désabonne séparément. Le second parent crée son accès avec « Mot de passe oublié », ou reçoit une invitation depuis la fiche de l'élève.
 - **Vol 2 sans le BIA** : par défaut, un élève non admis perd l'autorisation du vol 2. Paramètres › Règles des vols permet à un club de la maintenir au cas par cas. Un élève peut aussi être marqué « ne souhaite pas faire le vol 2 » : il sort alors des listes et des relances.
 
-## 5. Import des élèves depuis la FFA (SMILE)
+## 5. Travailler sur deux années à la fois
+Un club prépare souvent la rentrée suivante pendant que l'année en cours tourne encore. Deux notions distinctes :
+
+- **L'année choisie** dans le sélecteur *Année scolaire* du menu est l'année de travail. Tout ce que vous créez depuis le tableau de bord s'y rattache : inscriptions d'élèves, import FFA ou CSV, créneaux de vol, subventions. Les listes Élèves, Vols, Finances, Statistiques et Messagerie n'affichent que cette année.
+- **L'année en cours** est celle marquée ★, activée dans *Paramètres › Années scolaires*. Elle sert uniquement aux écrans qui n'ont pas de sélecteur : le tableau de bord d'accueil et les inscriptions venues du **formulaire public**.
+
+Concrètement, pour inscrire les élèves de 2027-2028 pendant que 2026-2027 tourne : créez l'année dans *Paramètres › Années scolaires* (sans l'activer), sélectionnez-la dans le menu, puis importez ou inscrivez. L'écran d'import rappelle en haut l'année visée, et la fiche d'inscription le fait aussi. Activez 2027-2028 seulement quand vous voulez que le formulaire public et le tableau de bord basculent dessus — les créations depuis le tableau de bord, elles, n'en dépendent pas.
+
+**Utilisateurs et rôles suit l'année.** Un compte qui n'est **que** parent n'apparaît que sur les années où il a un enfant inscrit : en 2026 vous voyez les familles de 2026, en 2027 celles de 2027. Tout compte portant un autre rôle — admin du club, coordinateur, pilote, gérant, propriétaire — reste visible sur toutes les années, même s'il est aussi parent. La case *Toutes les années* lève le filtre quand il faut retrouver un compte dont l'élève a été supprimé. Le bouton *Inviter les parents* n'écrit qu'aux familles de l'année affichée : vérifiez le sélecteur avant de l'utiliser.
+
+**Un élève peut exister sur deux années.** Rien n'empêche de réinscrire un élève de 2026 en 2027 ; ce sont deux fiches distinctes, et la détection de doublon de l'import ne regarde que l'année visée.
+
+**Les frais supplémentaires sont datés, pas rattachés à une année.** Une dépense saisie dans Finances est comptée sur l'année scolaire de sa date (1er septembre → 31 août). Le formulaire prévient si la date sort de l'année affichée.
+
+## 6. Import des élèves depuis la FFA (SMILE)
 Module **Import des élèves** › onglet **Export FFA (SMILE)**.
 
 1. Sur SMILE FFA, ouvrez la liste des adhérents du club et exportez-la au format Excel (`Liste_Adherent.xls`). N'en modifiez pas l'en-tête.
@@ -115,7 +129,7 @@ L'export FFA ne contient pas l'identité du responsable légal : l'import propos
 
 Le même écran garde l'onglet **Fichier CSV** (template téléchargeable) pour les clubs qui préparent leur liste à la main.
 
-## 6. Suivi des erreurs (Sentry)
+## 7. Suivi des erreurs (Sentry)
 1. Créez un compte sur sentry.io et choisissez la région de données **EU** à la création de l'organisation.
 2. Créez un projet **Next.js**, puis copiez son **DSN** (Settings › Client Keys).
 3. Dans Vercel › Environment Variables :
@@ -131,7 +145,7 @@ Le même écran garde l'onglet **Fichier CSV** (template téléchargeable) pour 
 
 Aucune donnée personnelle n'est envoyée : ni cookies, ni en-têtes, ni contenu des formulaires, ni paramètres d'URL.
 
-## 7. Cours en ligne
+## 8. Cours en ligne
 
 Le module **Cours en ligne** sert de petit espace de révision pour les familles.
 
@@ -143,7 +157,7 @@ Le module **Cours en ligne** sert de petit espace de révision pour les familles
 
 Taille maximale par document : 50 Mo. Les fichiers sont rangés dans un dossier par club et ne sont lisibles que par un lien signé, valable 5 minutes, généré après vérification des droits.
 
-## 8. Paiement en ligne (HelloAsso)
+## 9. Paiement en ligne (HelloAsso)
 
 Chaque aéroclub encaisse sur **son propre compte HelloAsso** : aucune somme ne transite par BIA Manager, et aucune clé n'est en variable d'environnement.
 
@@ -156,13 +170,13 @@ Côté familles, un bouton « Payer en ligne » apparaît sur le tableau de bord
 
 En cas de besoin, un paiement peut toujours être saisi à la main dans la fiche de l'élève (chèque, virement, espèces) : le module ne remplace rien, il ajoute une possibilité.
 
-## 9. SMS et WhatsApp
+## 10. SMS et WhatsApp
 
 **SMS — pas retenu pour le pilote.** Comptez 0,05 à 0,08 € par SMS en France (Brevo, OVH, Twilio — tarifs à revérifier au moment de souscrire). Pour 600 clubs, le coût devient significatif et impose une mention « STOP » ainsi qu'un recueil de consentement distinct de celui des emails. À réévaluer après le pilote, en comparant les fournisseurs.
 
 **WhatsApp Business Platform — déconseillé.** L'envoi automatisé exige la vérification de l'entreprise auprès de Meta, la validation de chaque modèle de message, et une facturation à la conversation. Le lien `wa.me` déjà en place (Paramètres › Support aux familles) couvre le besoin réel sans aucune de ces contraintes : la famille écrit, le club répond depuis son téléphone.
 
-## 10. Club de démonstration
+## 11. Club de démonstration
 `aeroclub-test.biamanager.com` sert de démo et d'environnement d'essai.
 - **Remplir ou remettre à zéro** : `npm run seed:demo -- --reset`. Le script refuse tout club dont l'adresse ne contient pas « test » ou « demo », et vérifie que les autres clubs n'ont pas bougé.
 - **Comptes** : `demo.pilote1@example.com`, `demo.coordinateur@example.com`, `demo.parent01@example.com`… Mot de passe commun : `admin123` (modifiable avec la variable `DEMO_PASSWORD`).

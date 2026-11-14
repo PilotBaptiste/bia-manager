@@ -150,14 +150,16 @@ export default function ElevesPage() {
   const supabase = createClient();
   const searchParams = useSearchParams();
   const router = useRouter();
-  const { selectedAnneeId, activeAnneeId } = useYear();
+  const { selectedAnneeId, anneeDeTravail, annees } = useYear();
   const hasExportFFA = useModule("export_ffa");
   const hasSecondParent = useModule("second_parent");
   const [showParent2, setShowParent2] = useState(false);
   // Réglage du club : autoriser le vol 2 même sans le BIA
   const [vol2SansBia, setVol2SansBia] = useState(false);
-  // anneeId = active year, used when creating new students
-  const anneeId = activeAnneeId;
+  // Un nouvel élève est rattaché à l'année choisie dans le sélecteur, pas à l'année en cours :
+  // le club doit pouvoir inscrire pour l'année suivante pendant que l'année en cours tourne.
+  const anneeId = anneeDeTravail;
+  const anneeLabel = annees.find((a: any) => a.id === anneeId)?.label ?? "";
   const [eleves, setEleves] = useState<any[]>([]);
   const [etablissements, setEtablissements] = useState<Etablissement[]>([]);
   const [aeronefs, setAeronefs] = useState<any[]>([]);
@@ -512,7 +514,7 @@ export default function ElevesPage() {
       }
     }
     if (!anneeId && !isPiloteOnly) {
-      setFormError("Aucune annee active.");
+      setFormError("Aucune année scolaire sélectionnée.");
       return;
     }
     setSaving(true);
@@ -846,9 +848,16 @@ export default function ElevesPage() {
         className="relative bg-white rounded-2xl p-6 w-full max-w-3xl shadow-xl max-h-[90vh] overflow-auto"
       >
         <div className="flex items-center justify-between mb-5">
-          <h3 className="text-lg font-bold text-gray-900">
-            {editingId ? "Editer l'eleve" : "Inscrire un eleve"}
-          </h3>
+          <div>
+            <h3 className="text-lg font-bold text-gray-900">
+              {editingId ? "Editer l'eleve" : "Inscrire un eleve"}
+            </h3>
+            {!editingId && anneeLabel && (
+              <p className="text-xs text-gray-500 mt-0.5">
+                Inscription sur l&apos;année <strong className="text-brand-600">{anneeLabel}</strong> — celle choisie dans le sélecteur du menu.
+              </p>
+            )}
+          </div>
           <button
             onClick={() => setShowForm(false)}
             className="p-1.5 rounded-lg hover:bg-gray-100"

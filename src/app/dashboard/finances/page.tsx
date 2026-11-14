@@ -26,6 +26,12 @@ export default function FinancesPage() {
   const hasRoulage = useModule("roulage");
   const hasFrais = useModule("frais_supplementaires");
   const anneeLabel = annees.find((a: any) => a.id === selectedAnneeId)?.label || "";
+  // operations_manuelles n'a pas d'annee_id : l'année scolaire est déduite du libellé (1er sept → 31 août).
+  const fenetreAnnee = (() => {
+    const debutAn = parseInt(anneeLabel.split(/[-/]/)[0]);
+    if (!Number.isFinite(debutAn)) return null;
+    return { debut: `${debutAn}-09-01`, fin: `${debutAn + 1}-08-31` };
+  })();
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState<"overview" | "paiements" | "subventions" | "operations" | "frais" | "pilotes" | "roulage" | "logs">("overview");
   const [expandedPilote, setExpandedPilote] = useState<string | null>(null);
@@ -77,9 +83,8 @@ export default function FinancesPage() {
 
     // operations_manuelles has no annee_id: scope it to the school year (1 Sept → 31 Aug) from the year label.
     let opsQuery = supabase.from("operations_manuelles").select("*").order("date", { ascending: false }).order("id");
-    const startYear = parseInt(anneeLabel.split(/[-/]/)[0]);
-    if (Number.isFinite(startYear)) {
-      opsQuery = opsQuery.gte("date", `${startYear}-09-01`).lte("date", `${startYear + 1}-08-31`);
+    if (fenetreAnnee) {
+      opsQuery = opsQuery.gte("date", fenetreAnnee.debut).lte("date", fenetreAnnee.fin);
     }
 
     const [eR, vR, etR, pR, lR, mR, sR] = await Promise.all([
@@ -1039,7 +1044,15 @@ export default function FinancesPage() {
                   </select>
                 </div>
               </div>
-              <div><label className="label">Date *</label><input type="date" value={addForm.date} onChange={e => setAddForm({ ...addForm, date: e.target.value })} className="input" /></div>
+              <div>
+                <label className="label">Date *</label>
+                <input type="date" value={addForm.date} onChange={e => setAddForm({ ...addForm, date: e.target.value })} className="input" />
+                {fenetreAnnee && addForm.date && (addForm.date < fenetreAnnee.debut || addForm.date > fenetreAnnee.fin) && (
+                  <p className="text-xs text-amber-600 mt-1">
+                    Cette date sort de l&apos;année {anneeLabel} : l&apos;opération sera enregistrée, mais comptée sur l&apos;année scolaire de sa date, pas sur celle affichée.
+                  </p>
+                )}
+              </div>
               <div><label className="label">Montant (€) *</label><input type="number" step="0.01" value={addForm.montant} onChange={e => setAddForm({ ...addForm, montant: e.target.value })} className="input" placeholder="0.00" /></div>
               <div><label className="label">Description</label><input value={addForm.description} onChange={e => setAddForm({ ...addForm, description: e.target.value })} className="input" placeholder="Commentaire libre..." /></div>
               <div className="grid grid-cols-2 gap-3">
