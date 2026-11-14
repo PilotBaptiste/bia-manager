@@ -10,8 +10,8 @@
 -- ════════════════════════════════════════════════════════════════
 
 -- ─── 1. Statut d'accès des parents ──────────────────────────────
--- Le bouton « Invitation parent » de la page Élèves doit pouvoir cibler les
--- familles qui n'ont pas encore de compte utilisable. Deux cas distincts :
+-- Le bouton « Activer leur compte » de la page Élèves doit pouvoir écarter les
+-- familles qui ont déjà un accès utilisable. Deux cas sont « sans accès » :
 --   • aucun compte : l'adresse n'existe pas dans auth.users ;
 --   • compte jamais activé : créé par l'import FFA, mot de passe jamais défini,
 --     donc jamais de connexion.
