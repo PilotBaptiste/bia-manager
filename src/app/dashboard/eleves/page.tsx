@@ -26,6 +26,7 @@ import {
   Mail,
   Check,
   Phone,
+  KeyRound,
 } from "lucide-react";
 import ConfirmModal from "@/components/ConfirmModal";
 import InvitationParentsModal, { regrouperParents, type ParentInvitable } from "@/components/InvitationParentsModal";
@@ -195,9 +196,6 @@ export default function ElevesPage() {
   // undefined = not loaded yet, null = no établissement restriction
   const [scopeEtabIds, setScopeEtabIds] = useState<string[] | null | undefined>(undefined);
   const [inviteOuvert, setInviteOuvert] = useState(false);
-  const [inviteCible, setInviteCible] = useState<"sansAcces" | "selection">("sansAcces");
-  const [inviteCandidats, setInviteCandidats] = useState<ParentInvitable[]>([]);
-  const [inviteChargement, setInviteChargement] = useState(false);
   const requestIdRef = useRef(0);
 
   const filterKey = JSON.stringify([selectedAnneeId, debouncedQ, fEtab, fPaiement, fAttest, fVol1, fBia]);
@@ -1769,11 +1767,11 @@ export default function ElevesPage() {
                 <button
                   onClick={() => {
                     setConfirmAction({
-                      title: "Envoyer l'invitation",
-                      message: `Envoyer un email d'invitation/accès à ${s.parent_email} ?`,
+                      title: "Activer le compte",
+                      message: `Envoyer à ${s.parent_email} le lien qui lui fait définir son mot de passe ?`,
                       variant: "primary",
                       onConfirm: async () => {
-                        const tid = toast.loading("Envoi de l'invitation…");
+                        const tid = toast.loading("Envoi de l'email d'activation…");
                         const res = await fetch("/api/invite", {
                           method: "POST",
                           headers: { "Content-Type": "application/json" },
@@ -1781,14 +1779,14 @@ export default function ElevesPage() {
                         });
                         const json = await res.json();
                         toast.dismiss(tid);
-                        if (res.ok) toast.success(`Invitation envoyée à ${s.parent_email}`);
+                        if (res.ok) toast.success(`Email d'activation envoyé à ${s.parent_email}`);
                         else toast.error(`Erreur: ${json.error}`);
                       },
                     });
                   }}
                   className="btn-secondary btn-sm"
                 >
-                  <Mail className="w-3.5 h-3.5" /> Invitation parent
+                  <KeyRound className="w-3.5 h-3.5" /> Activer le compte
                 </button>
               </div>
             </Section>
@@ -1818,11 +1816,11 @@ export default function ElevesPage() {
                   <button
                     onClick={() => {
                       setConfirmAction({
-                        title: "Envoyer l'invitation",
-                        message: `Envoyer un email d'invitation/accès à ${s.parent2_email} ?`,
+                        title: "Activer le compte",
+                        message: `Envoyer à ${s.parent2_email} le lien qui lui fait définir son mot de passe ?`,
                         variant: "primary",
                         onConfirm: async () => {
-                          const tid = toast.loading("Envoi de l'invitation…");
+                          const tid = toast.loading("Envoi de l'email d'activation…");
                           const res = await fetch("/api/invite", {
                             method: "POST",
                             headers: { "Content-Type": "application/json" },
@@ -1830,14 +1828,14 @@ export default function ElevesPage() {
                           });
                           const json = await res.json();
                           toast.dismiss(tid);
-                          if (res.ok) toast.success(`Invitation envoyée à ${s.parent2_email}`);
+                          if (res.ok) toast.success(`Email d'activation envoyé à ${s.parent2_email}`);
                           else toast.error(`Erreur: ${json.error}`);
                         },
                       });
                     }}
                     className="btn-secondary btn-sm"
                   >
-                    <Mail className="w-3.5 h-3.5" /> Invitation second parent
+                    <KeyRound className="w-3.5 h-3.5" /> Activer le compte
                   </button>
                 </div>
               </Section>
@@ -2334,28 +2332,6 @@ export default function ElevesPage() {
 
   const inviteSelection = parentsDesEleves(visibleSelected);
 
-  async function ouvrirInvitations(cible: "sansAcces" | "selection") {
-    setInviteCible(cible);
-    setInviteOuvert(true);
-    if (scopeEtabIds === undefined || !selectedAnneeId) return;
-    // Les parents « sans accès » se cherchent sur toute l'année, pas sur la page affichée.
-    setInviteChargement(true);
-    const rows = await fetchAll((from, to) =>
-      applyFilters(
-        supabase
-          .from("eleves")
-          .select("id, nom, prenom, parent_nom, parent_prenom, parent_email, parent2_nom, parent2_prenom, parent2_email, etablissement:etablissements!inner(actif)"),
-      ).range(from, to),
-    );
-    setInviteChargement(false);
-    if (rows.error) {
-      toast.error(`Impossible de lister les parents : ${rows.error.message}`);
-      setInviteCandidats([]);
-      return;
-    }
-    setInviteCandidats(parentsDesEleves(rows.data || []));
-  }
-
   async function handleBulkPaid() {
     const targets = visibleSelected.filter((e) => !e.paiement_effectue);
     if (targets.length === 0) { toast.info("Tous les élèves sélectionnés ont déjà payé"); return; }
@@ -2414,10 +2390,8 @@ export default function ElevesPage() {
         ouvert={inviteOuvert}
         onClose={() => setInviteOuvert(false)}
         anneeLabel={anneeLabel}
-        candidats={inviteCandidats}
-        selection={inviteSelection}
-        cibleInitiale={inviteCible}
-        chargementCandidats={inviteChargement}
+        parents={inviteSelection}
+        nbEleves={visibleSelected.length}
       />
 
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-5">
@@ -2434,15 +2408,6 @@ export default function ElevesPage() {
           {!isPiloteOnly && hasExportFFA && (
             <button onClick={exportFFA} className="btn-secondary btn-sm" title="Export PDF liste BIA pour la FFA">
               <Download className="w-3.5 h-3.5" /> FFA
-            </button>
-          )}
-          {canInviter && (
-            <button
-              onClick={() => ouvrirInvitations("sansAcces")}
-              className="btn-secondary btn-sm"
-              title="Envoyer l'email d'activation du compte famille, avec un mot d'introduction"
-            >
-              <Mail className="w-3.5 h-3.5" /> Invitation parent
             </button>
           )}
           {!isPiloteOnly && (
@@ -2567,9 +2532,16 @@ export default function ElevesPage() {
           <button onClick={handleBulkPaid} disabled={bulkBusy} className="btn-primary btn-sm">
             {bulkBusy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />} Marquer payé
           </button>
-          <button onClick={() => ouvrirInvitations("selection")} disabled={bulkBusy} className="btn-secondary btn-sm">
-            <Mail className="w-3.5 h-3.5" /> Envoyer invitation
-          </button>
+          {canInviter && (
+            <button
+              onClick={() => setInviteOuvert(true)}
+              disabled={bulkBusy}
+              className="btn-secondary btn-sm"
+              title="Envoyer aux parents le lien qui leur fait définir leur mot de passe"
+            >
+              <KeyRound className="w-3.5 h-3.5" /> Activer leur compte
+            </button>
+          )}
           <button
             onClick={() => {
               const ids = visibleSelected.map((e) => e.id).join(",");
@@ -2577,6 +2549,7 @@ export default function ElevesPage() {
             }}
             disabled={bulkBusy}
             className="btn-secondary btn-sm"
+            title="Écrire un message libre aux familles"
           >
             <Mail className="w-3.5 h-3.5" /> Envoyer un mail
           </button>
