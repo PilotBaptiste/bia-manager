@@ -927,7 +927,7 @@ export default function VolsPage() {
       onConfirm: (motif) => doRemoveEleve(rid, name, motif),
     });
   }
-  async function handleAddEleve(eleveId: string, typeVol: 1 | 2) {
+  async function handleAddEleve(eleveId: string, typeVol: 1 | 2 | 3) {
     if (!showDetail) return;
     const { count: activeCount, error: countErr } = await supabase
       .from("reservations")

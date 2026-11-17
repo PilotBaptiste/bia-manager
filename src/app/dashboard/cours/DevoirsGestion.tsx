@@ -155,7 +155,7 @@ export default function DevoirsGestion() {
         variant="danger"
         loading={suppressionEnCours}
         onCancel={() => setConfirmSuppression(null)}
-        onConfirm={() => confirmSuppression && supprimer(confirmSuppression)}
+        onConfirm={() => { if (confirmSuppression) supprimer(confirmSuppression); }}
       />
     </div>
   );
