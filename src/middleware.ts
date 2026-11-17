@@ -43,6 +43,9 @@ export async function middleware(request: NextRequest) {
   // Les pages légales doivent être lisibles par n'importe qui, sans compte :
   // c'est tout l'objet d'une mention légale.
   const isLegal = pathname === "/mentions-legales" || pathname === "/confidentialite";
+  // Le président d'un aéroclub signe depuis un lien reçu par email : il n'a
+  // pas de compte, et le jeton de l'URL tient lieu d'autorisation.
+  const isSignature = pathname.startsWith("/contrat/");
   const isLoginPage = pathname === "/auth/connexion";
   const isRoot = pathname === "/";
   const isPlatform = pathname.startsWith("/plateforme");
@@ -68,7 +71,7 @@ export async function middleware(request: NextRequest) {
     if (onShowcase && isRoot) return supabaseResponse;
   }
 
-  if (!user && !isAuth && !isApi && !isInscription && !isDesabonnement && !isLegal && !(isRoot && !slug && !onAdmin)) {
+  if (!user && !isAuth && !isApi && !isInscription && !isDesabonnement && !isLegal && !isSignature && !(isRoot && !slug && !onAdmin)) {
     return redirectTo(new URL("/auth/connexion", request.url).toString());
   }
   if (onAdmin && !user && isInscription) {

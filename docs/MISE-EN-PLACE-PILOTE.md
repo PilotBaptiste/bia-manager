@@ -38,6 +38,7 @@ Tarifs indicatifs relevés en 2026 : à vérifier au moment de souscrire.
    12. `supabase-vol3-ulm-2026-11.sql` : module vol 3 / ULM et prime FFPLUM
    13. `supabase-formateur-qcm-2026-11.sql` : rôle formateur, QCM et devoirs notés
    14. `supabase-contrats-2026-11.sql` : identité de l'éditeur et contrats par aéroclub
+   15. `supabase-signature-contrats-2026-11.sql` : signature électronique des contrats
 4. Se donner le rôle propriétaire, avec votre adresse :
    ```sql
    UPDATE public.profiles SET roles = array_append(roles, 'proprietaire')
@@ -86,7 +87,12 @@ Vous hébergez des données de mineurs pour le compte des clubs.
 **Fait aussi.** La console propriétaire (`admin.<domaine>`) a un onglet **Contrats** qui centralise :
 - l'**identité de l'éditeur**, saisie une fois, reprise par les mentions légales du site *et* par l'en-tête des contrats — plus besoin de variables d'environnement ni de redéploiement ;
 - un **contrat de sous-traitance RGPD** par aéroclub, généré depuis un texte conforme à l'article 28 (instructions documentées, confidentialité, sécurité, sous-traitants ultérieurs, droits des personnes, notification des violations sous 48 h, sort des données en fin de contrat, audit), avec les coordonnées juridiques du club, des clauses particulières facultatives, le suivi du statut (brouillon, envoyé, signé, résilié) et l'impression en PDF ;
-- un **contrat d'abonnement** facultatif, pour les conditions commerciales.
+- un **contrat d'abonnement** facultatif, pour les conditions commerciales ;
+- la **signature électronique**. Bouton *Envoyer à signer* : le représentant du club reçoit un lien, lit le contrat en entier, demande un code à 6 chiffres envoyé à sa propre adresse, tape son nom tel qu'il figure au contrat, et signe. Il n'a pas besoin de compte.
+
+Ce qui est conservé : l'adresse vérifiée par le code, l'horodatage, l'adresse IP, et l'**empreinte SHA-256 du document tel qu'il a été affiché**. Si le texte change d'un caractère, l'empreinte ne correspond plus. Le document signé est archivé avec son certificat et envoyé aux deux parties. Signature « simple » au sens d'eIDAS, valable en droit français (articles 1366 et 1367 du Code civil) : largement proportionnée entre deux parties qui se connaissent.
+
+Le lien vaut 30 jours, le code 15 minutes, et cinq codes faux bloquent la signature jusqu'au renvoi d'un nouveau code.
 
 Un bandeau signale les clubs actifs sans contrat de sous-traitance signé. Les champs non renseignés sortent surlignés en jaune dans le document : on ne signe pas un contrat à trous sans le voir.
 

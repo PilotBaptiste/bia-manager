@@ -555,7 +555,7 @@ export default function ParametresPage() {
               </div>
               <div className="mt-4 p-3 bg-gray-50 rounded-lg">
                 <p className="text-[10px] text-gray-400">
-                  Le PDF sera généré automatiquement avec la signature manuscrite du parent, la date et l&apos;heure de signature.
+                  Le PDF sera généré automatiquement avec le nom du parent signataire, la date et l&apos;heure de signature.
                   Le document sera stocké de manière sécurisée et accessible uniquement par vous (SuperAdmin).
                 </p>
               </div>
