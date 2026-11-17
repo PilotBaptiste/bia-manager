@@ -30,6 +30,7 @@ import {
 } from "lucide-react";
 import ConfirmModal from "@/components/ConfirmModal";
 import InvitationParentsModal, { regrouperParents, type ParentInvitable } from "@/components/InvitationParentsModal";
+import { anneeSession, dateNaissanceMin, eligiblePrimeFfa, libellePrimeFfa, MONTANT_PRIME_FFA } from "@/lib/primeFfa";
 import { fromDb } from "@/components/DesiderataGrid";
 
 function Dot({ ok }: { ok: boolean }) {
@@ -162,6 +163,9 @@ export default function ElevesPage() {
   // le club doit pouvoir inscrire pour l'année suivante pendant que l'année en cours tourne.
   const anneeId = anneeDeTravail;
   const anneeLabel = annees.find((a: any) => a.id === anneeId)?.label ?? "";
+  // La prime FFA se juge sur l'année consultée (celle de la liste), pas sur celle
+  // d'inscription : un élève de 21 ans en 2026 en a 22 à la session suivante.
+  const anneeExamen = anneeSession(annees.find((a: any) => a.id === selectedAnneeId));
   const [eleves, setEleves] = useState<any[]>([]);
   const [etablissements, setEtablissements] = useState<Etablissement[]>([]);
   const [aeronefs, setAeronefs] = useState<any[]>([]);
@@ -183,6 +187,7 @@ export default function ElevesPage() {
   const [fAttest, setFAttest] = useState(() => searchParams.get("attestation") || "all");
   const [fVol1, setFVol1] = useState("all");
   const [fBia, setFBia] = useState("all");
+  const [fPrime, setFPrime] = useState("all");
   const [showFilters, setShowFilters] = useState(() => !!(searchParams.get("paiement") || searchParams.get("attestation") || searchParams.get("etablissement")));
   const [parentProfiles, setParentProfiles] = useState<Record<string, any>>({});
   const [pilotes, setPilotes] = useState<any[]>([]);
@@ -198,7 +203,7 @@ export default function ElevesPage() {
   const [inviteOuvert, setInviteOuvert] = useState(false);
   const requestIdRef = useRef(0);
 
-  const filterKey = JSON.stringify([selectedAnneeId, debouncedQ, fEtab, fPaiement, fAttest, fVol1, fBia]);
+  const filterKey = JSON.stringify([selectedAnneeId, debouncedQ, fEtab, fPaiement, fAttest, fVol1, fBia, fPrime, anneeExamen]);
   const [pageState, setPageState] = useState({ key: filterKey, page: 1 });
   const page = pageState.key === filterKey ? pageState.page : 1;
   const setPage = (p: number) => setPageState({ key: filterKey, page: p });
@@ -216,6 +221,12 @@ export default function ElevesPage() {
     if (fVol1 !== "all") q = q.eq("vol1_effectue", fVol1 === "oui");
     if (fBia === "admis") q = q.not("bia_resultat", "is", null).neq("bia_resultat", "Non admis");
     if (fBia === "non") q = q.or("bia_resultat.is.null,bia_resultat.eq.Non admis");
+    // Prime FFA : la FFA la borne par une année de naissance plancher, donc une
+    // simple comparaison de dates suffit côté base.
+    if (fPrime !== "all" && anneeExamen) {
+      const plancher = dateNaissanceMin(anneeExamen);
+      q = fPrime === "oui" ? q.gte("date_naissance", plancher) : q.lt("date_naissance", plancher);
+    }
     return q.order("nom").order("prenom").order("id");
   }
 
@@ -690,7 +701,7 @@ export default function ElevesPage() {
     );
     toast.dismiss(tid);
     if (error) { toast.error(`Erreur lors de l'export : ${error.message}`); return; }
-    const headers = ["Nom","Prenom","Date naissance","Lieu naissance","Adresse","Etablissement","Classe","Parent nom","Parent prenom","Email parent","Tel parent","Parent 2 nom","Parent 2 prenom","Email parent 2","Tel parent 2","Paiement","Montant","Mode paiement","Attestation","Vol 1","Temps vol 1 (min)","Prix vol 1","BIA resultat","Vol 2 autorise","Vol 2","Vol 2 refuse","Temps vol 2 (min)","Prix vol 2","Commentaires"];
+    const headers = ["Nom","Prenom","Date naissance","Lieu naissance","Adresse","Etablissement","Classe","Parent nom","Parent prenom","Email parent","Tel parent","Parent 2 nom","Parent 2 prenom","Email parent 2","Tel parent 2","Paiement","Montant","Mode paiement","Attestation","Prime FFA","Vol 1","Temps vol 1 (min)","Prix vol 1","BIA resultat","Vol 2 autorise","Vol 2","Vol 2 refuse","Temps vol 2 (min)","Prix vol 2","Commentaires"];
     const rows = allRows.map((s: any) => [
       s.nom, s.prenom,
       s.date_naissance ? new Date(s.date_naissance).toLocaleDateString("fr-FR") : "",
@@ -704,6 +715,7 @@ export default function ElevesPage() {
       s.paiement_montant || "",
       s.paiement_mode || "",
       s.attestation_signee ? "Oui" : "Non",
+      (() => { const e = eligiblePrimeFfa(s.date_naissance, anneeExamen); return e === null ? "" : e ? "Eligible" : "Trop age"; })(),
       s.vol1_effectue ? "Oui" : "Non",
       s.vol1_temps_minutes || "",
       s.vol1_prix || "",
@@ -736,9 +748,15 @@ export default function ElevesPage() {
     if (biaStudents.length === 0) { w.close(); toast.info("Aucun élève avec BIA dans la sélection actuelle"); return; }
     const date = new Date().toLocaleDateString("fr-FR", { day: "2-digit", month: "long", year: "numeric" });
     const esc = (v: any) => String(v ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+    // La prime n'est due que pour les reçus assez jeunes : le club voit d'un coup
+    // d'œil ce qu'il peut réellement demander.
+    let nbPrimes = 0;
     const rows = biaStudents.map((s: any) => {
       const recu = s.bia_resultat && s.bia_resultat !== "Non admis";
       const mention = s.bia_resultat === "Mention";
+      const eligible = eligiblePrimeFfa(s.date_naissance, anneeExamen);
+      const prime = recu && eligible === true;
+      if (prime) nbPrimes++;
       return `<tr>
         <td>${esc(s.nom)}</td>
         <td>${esc(s.prenom)}</td>
@@ -747,6 +765,7 @@ export default function ElevesPage() {
         <td class="${recu ? "ok" : "ko"}">${recu ? "Reçu" : "Non reçu"}</td>
         <td class="${mention ? "ok" : ""}">${mention ? "Oui" : "Non"}</td>
         <td>${mention && (s as any).bia_mention ? esc((s as any).bia_mention) : "—"}</td>
+        <td class="${prime ? "ok" : "ko"}">${prime ? "Oui" : eligible === false ? "Non — trop âgé" : eligible === null ? "?" : "Non — non reçu"}</td>
       </tr>`;
     }).join("");
     const html = `<!DOCTYPE html>
@@ -769,11 +788,11 @@ export default function ElevesPage() {
 </head>
 <body>
 <h1>Résultats BIA — Liste pour la FFA</h1>
-<p class="sub">Exporté le ${date} · ${biaStudents.length} élève(s)</p>
+<p class="sub">Exporté le ${date} · ${biaStudents.length} élève(s)${anneeExamen ? ` · session ${anneeExamen}` : ""} · ${nbPrimes} prime(s) de ${MONTANT_PRIME_FFA} € = ${nbPrimes * MONTANT_PRIME_FFA} €</p>
 <table>
   <thead><tr>
     <th>Nom</th><th>Prénom</th><th>Établissement</th><th>Date de naissance</th>
-    <th>Résultat</th><th>Mention</th><th>Type de mention</th>
+    <th>Résultat</th><th>Mention</th><th>Type de mention</th><th>Prime ${MONTANT_PRIME_FFA} €</th>
   </tr></thead>
   <tbody>${rows}</tbody>
 </table>
@@ -1723,6 +1742,18 @@ export default function ElevesPage() {
                 label="Naissance"
                 value={new Date(s.date_naissance).toLocaleDateString("fr-FR")}
               />
+              {(() => {
+                // La prime FFA est nominative : un élève trop âgé est formé et vole
+                // normalement, mais le club ne touchera rien pour lui.
+                const { eligible, texte } = libellePrimeFfa(s.date_naissance, anneeExamen);
+                return (
+                  <InfoRow
+                    label={`Prime FFA ${MONTANT_PRIME_FFA} €`}
+                    value={texte}
+                    accent={eligible === null ? "text-gray-400" : eligible ? "text-emerald-600" : "text-amber-600"}
+                  />
+                );
+              })()}
               <InfoRow label="Lieu" value={s.lieu_naissance} />
               {s.adresse && <InfoRow label="Adresse" value={s.adresse} />}
               <InfoRow label="Classe" value={s.classe} />
@@ -2508,6 +2539,21 @@ export default function ElevesPage() {
                 <option value="all">Tous</option>
                 <option value="oui">Oui</option>
                 <option value="non">Non</option>
+              </select>
+            </div>
+            <div className="min-w-[150px]">
+              <label className="label" title={anneeExamen ? `Élèves de 21 ans au plus en ${anneeExamen}` : undefined}>
+                Prime FFA {MONTANT_PRIME_FFA} €
+              </label>
+              <select
+                value={fPrime}
+                onChange={(e) => setFPrime(e.target.value)}
+                disabled={!anneeExamen}
+                className="select disabled:opacity-50"
+              >
+                <option value="all">Tous</option>
+                <option value="oui">Éligibles</option>
+                <option value="non">Trop âgés</option>
               </select>
             </div>
             <div className="min-w-[120px]">

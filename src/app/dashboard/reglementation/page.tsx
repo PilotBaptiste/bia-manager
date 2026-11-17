@@ -1,6 +1,8 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
+import { useYear } from "@/contexts/YearContext";
+import { anneeSession, anneeNaissanceMin, AGE_MAX_PRIME_FFA, MONTANT_PRIME_FFA } from "@/lib/primeFfa";
 import { createClient } from "@/lib/supabase/client";
 import { toast } from "sonner";
 import {
@@ -33,7 +35,8 @@ type Section = {
   detail?: React.ReactNode;
 };
 
-const sections: Section[] = [
+// L'annee de naissance plancher depend de la session : 2026 - 21 = 2005.
+const faireSections = (anneeExamen: number | null): Section[] => [
   {
     id: "qualifications",
     icon: <Shield size={20} />,
@@ -192,8 +195,10 @@ const sections: Section[] = [
     rules: [
       {
         ok: true,
-        text: "Élève de moins de 21 ans (né après le 01/01/2005)",
-        detail: "Condition pour l'attribution de la prime FFA de 50 €.",
+        text: anneeExamen
+          ? `Élève de ${AGE_MAX_PRIME_FFA} ans au plus en ${anneeExamen} (né le 01/01/${anneeNaissanceMin(anneeExamen)} ou après)`
+          : `Élève de ${AGE_MAX_PRIME_FFA} ans au plus l'année de la session`,
+        detail: `Condition pour l'attribution de la prime FFA de ${MONTANT_PRIME_FFA} €. Un élève plus âgé suit la formation et vole normalement, mais n'ouvre droit à aucune prime.`,
       },
       {
         ok: true,
@@ -302,6 +307,9 @@ export default function ReglementationPage() {
   const [uploading, setUploading] = useState(false);
   const [isSA, setIsSA] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
+  const { selectedAnneeId, annees } = useYear();
+  const anneeExamen = anneeSession(annees.find((a: any) => a.id === selectedAnneeId));
+  const sections = useMemo(() => faireSections(anneeExamen), [anneeExamen]);
   const allOk = checklist.every((c) => checked[c.id]);
   const someOk = checklist.some((c) => checked[c.id]);
 
