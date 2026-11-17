@@ -17,8 +17,10 @@ import {
 } from "lucide-react";
 import ConfirmModal from "@/components/ConfirmModal";
 import { matchDesiderata } from "@/components/DesiderataGrid";
+import { useModule } from "@/contexts/ModulesContext";
 
 export default function ReservationPage() {
+  const hasVol3 = useModule("vol3_ulm");
   const supabase = createClient();
   const [enfants, setEnfants] = useState<any[]>([]);
   const [creneaux, setCreneaux] = useState<any[]>([]);
@@ -72,7 +74,7 @@ export default function ReservationPage() {
       supabase
         .from("creneaux")
         .select(
-          "*, etablissement_ids, pilote:profiles!pilote_id(nom, prenom, email, telephone), aeronef:aeronefs(type_aeronef, immatriculation, nb_places_eleves), etablissement:etablissements(nom), reservations(id, statut, type_vol)",
+          "*, etablissement_ids, pilote:profiles!pilote_id(nom, prenom, email, telephone), aeronef:aeronefs(type_aeronef, immatriculation, nb_places_eleves, est_ulm), etablissement:etablissements(nom), reservations(id, statut, type_vol)",
         )
         .in("statut", ["ouvert", "confirme"])
         .gte("date_vol", today)
@@ -182,6 +184,10 @@ export default function ReservationPage() {
         setError("Le vol 1 doit être effectué avant de réserver le vol 2.");
         return;
       }
+      if (booking.typeVol === 3 && !(enfant.vol1_effectue || enfant.vol1_skippe)) {
+        setError("Le vol 1 doit être effectué avant de réserver le vol ULM.");
+        return;
+      }
     }
     const slot = creneaux.find((c) => c.id === booking.creneauId);
     if (!slot || slot.date_vol < parisToday()) {
@@ -240,10 +246,12 @@ export default function ReservationPage() {
   }
 
   // Filter creneaux by student's etablissement and eleves_autorises
-  function getCreneauxForEleve(enfant: any) {
+  function getCreneauxForEleve(enfant: any, typeVol: number) {
     const today = parisToday();
     return creneaux.filter((c) => {
       if (c.date_vol < today) return false;
+      // Le vol ULM se fait sur un ULM, les vols BIA sur un avion.
+      if (!!c.aeronef?.est_ulm !== (typeVol === 3)) return false;
       // Un enfant inscrit sur 2026 ne réserve pas un créneau ouvert pour 2027, et
       // inversement : l'année de l'élève et celle du créneau doivent concorder.
       if (c.annee_id && enfant.annee_id && c.annee_id !== enfant.annee_id) return false;
@@ -278,29 +286,43 @@ export default function ReservationPage() {
       </div>
     );
 
-  const bookableEnfants = enfants.filter((e) => {
+  /** Les vols que cet enfant peut réserver maintenant, dans l'ordre du parcours. */
+  function volsReservables(e: any): number[] {
     // Abandoned students can never book
-    if (e.abandonne) return false;
+    if (e.abandonne) return [];
     const activeRes = (e.reservations || []).filter(
       (r: any) => r.statut !== "annule" && r.creneau?.statut !== "annule",
     );
-    const hasActiveVol1 = activeRes.some(
-      (r: any) => r.type_vol === 1 && r.statut !== "effectue",
-    );
-    const hasActiveVol2 = activeRes.some(
-      (r: any) => r.type_vol === 2 && r.statut !== "effectue",
-    );
+    const enCours = (type: number) =>
+      activeRes.some((r: any) => r.type_vol === type && r.statut !== "effectue");
+    const vols: number[] = [];
     if (
       e.paiement_effectue &&
       e.attestation_signee &&
       !e.vol1_effectue &&
-      !hasActiveVol1 &&
+      !enCours(1) &&
       !vol1Blocage(e)
     )
-      return true;
-    if (e.vol2_autorise && (e.vol1_effectue || e.vol1_skippe) && !e.vol2_effectue && !hasActiveVol2) return true;
-    return false;
-  });
+      vols.push(1);
+    if (e.vol2_autorise && (e.vol1_effectue || e.vol1_skippe) && !e.vol2_effectue && !enCours(2)) vols.push(2);
+    // Le vol ULM ne dépend ni du BIA ni du vol 2 : il suit le vol de découverte.
+    if (
+      hasVol3 &&
+      e.vol3_autorise &&
+      !e.vol3_refuse &&
+      (e.vol1_effectue || e.vol1_skippe) &&
+      !e.vol3_effectue &&
+      !enCours(3)
+    )
+      vols.push(3);
+    return vols;
+  }
+
+  // Une ligne par vol réservable : un enfant peut avoir son vol 2 et son vol ULM
+  // ouverts en même temps, sur deux appareils différents.
+  const aReserver = enfants.flatMap((e) =>
+    volsReservables(e).map((typeVol) => ({ enfant: e, typeVol })),
+  );
 
   return (
     <div>
@@ -339,7 +361,7 @@ export default function ReservationPage() {
                     <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
                       <div>
                         <p className="text-sm font-semibold text-gray-900">
-                          {e.prenom} {e.nom} — Vol {r.type_vol}
+                          {e.prenom} {e.nom} — {r.type_vol === 3 ? "Vol 3 — ULM" : `Vol ${r.type_vol}`}
                         </p>
                         <span
                           className={`badge ${r.statut === "effectue" ? "bg-emerald-50 text-emerald-600" : "bg-brand-50 text-brand-500"}`}
@@ -453,7 +475,7 @@ export default function ReservationPage() {
       )}
 
       {/* Booking */}
-      {bookableEnfants.length === 0 ? (
+      {aReserver.length === 0 ? (
         <div className="card text-center py-12">
           <CalendarPlus className="w-10 h-10 text-gray-300 mx-auto mb-3" />
           <p className="text-gray-500 mb-1">Aucun enfant eligible.</p>
@@ -472,23 +494,19 @@ export default function ReservationPage() {
           <h2 className="text-sm font-semibold text-gray-900 mb-3">
             Creneaux disponibles
           </h2>
-          {bookableEnfants.map((enfant) => {
-            const isVol2 =
-              (enfant.vol1_effectue || enfant.vol1_skippe) &&
-              enfant.vol2_autorise &&
-              !enfant.vol2_effectue;
-            const typeVol = isVol2 ? 2 : 1;
-            const available = getCreneauxForEleve(enfant);
+          {aReserver.map(({ enfant, typeVol }) => {
+            const available = getCreneauxForEleve(enfant, typeVol);
+            const libelleVol = typeVol === 3 ? "Vol 3 — ULM" : `Vol ${typeVol}`;
             return (
-              <div key={enfant.id} className="mb-6">
+              <div key={`${enfant.id}-${typeVol}`} className="mb-6">
                 <div className="flex items-center gap-2 mb-3">
                   <h3 className="text-sm font-semibold text-gray-900">
                     {enfant.prenom} {enfant.nom}
                   </h3>
                   <span
-                    className={`badge ${isVol2 ? "bg-emerald-50 text-emerald-600" : "bg-brand-50 text-brand-500"}`}
+                    className={`badge ${typeVol === 3 ? "bg-violet-50 text-violet-600" : typeVol === 2 ? "bg-emerald-50 text-emerald-600" : "bg-brand-50 text-brand-500"}`}
                   >
-                    {isVol2 ? "Vol 2" : "Vol 1"}
+                    {libelleVol}
                   </span>
                   <span className="text-xs text-gray-400">
                     {enfant.etablissement?.nom}
@@ -496,7 +514,9 @@ export default function ReservationPage() {
                 </div>
                 {available.length === 0 ? (
                   <p className="text-sm text-gray-400 p-3">
-                    Aucun creneau disponible pour votre etablissement.
+                    {typeVol === 3
+                      ? "Aucun creneau ULM disponible pour le moment."
+                      : "Aucun creneau disponible pour votre etablissement."}
                   </p>
                 ) : (() => {
                   const hasDesiderata = enfant.desiderata && Object.values(enfant.desiderata).some(Boolean);

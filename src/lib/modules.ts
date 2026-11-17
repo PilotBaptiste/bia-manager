@@ -40,6 +40,8 @@ export const MODULES: ModuleDef[] = [
     description: "Dépenses et recettes hors vols imputées au budget BIA — cocktail, dîner, fournitures (onglet Finances)." },
   { key: "saisie_directe_vols", label: "Saisie directe des vols", categorie: "Gestion",
     description: "L'admin enregistre un vol déjà effectué sans créneau ni réservation, et sans aucun email aux familles." },
+  { key: "vol3_ulm", label: "Vol 3 — ULM (FFPLUM)", categorie: "Gestion",
+    description: "Un troisième vol en ULM après les vols BIA, avec sa prime FFPLUM. Ajoute le vol 3 aux fiches élèves, aux créneaux et aux réservations." },
   { key: "poses_campagne", label: "Posés en campagne", categorie: "Gestion",
     description: "Sur un vol instructeur, saisie des posés sur d'autres terrains (touchés et complets)." },
   { key: "import_csv", label: "Import des élèves", categorie: "Gestion", navKey: "import",

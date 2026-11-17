@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/client";
 import { toast } from "sonner";
 import { Settings, Plus, Edit, Loader2, X, History, ChevronDown, ChevronUp, Euro, AlertTriangle, Trash2, PowerOff } from "lucide-react";
 import type { Aeronef } from "@/types";
+import { useModule } from "@/contexts/ModulesContext";
 
 type Tarif = { id: string; aeronef_id: string; prix_heure: number; date_effet: string; note: string | null; created_at: string };
 type Impact = { source: "cloture" | "manuel"; id: string; date: string | null; temps: number; avant: number | null; apres: number; eleves: string | null };
@@ -15,13 +16,14 @@ const fmtDate = (d: string) => new Date(`${d}T12:00:00`).toLocaleDateString("fr-
 const fmtEur = (n: number | null | undefined) => (n == null ? "—" : `${Number(n).toFixed(2).replace(".", ",")} €`);
 
 export default function AeronefsPage() {
+  const hasVol3 = useModule("vol3_ulm");
   const supabase = createClient();
   const [aeronefs, setAeronefs] = useState<Aeronef[]>([]);
   const [tarifs, setTarifs] = useState<Tarif[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState<Aeronef | null>(null);
-  const [form, setForm] = useState({ immatriculation: "", type_aeronef: "", nb_places_eleves: "2", prix_heure: "", actif: true });
+  const [form, setForm] = useState({ immatriculation: "", type_aeronef: "", nb_places_eleves: "2", prix_heure: "", actif: true, est_ulm: false });
   const [saving, setSaving] = useState(false);
   const [expandedHistorique, setExpandedHistorique] = useState<string | null>(null);
 
@@ -55,12 +57,12 @@ export default function AeronefsPage() {
 
   function openCreate() {
     setEditing(null);
-    setForm({ immatriculation: "", type_aeronef: "", nb_places_eleves: "2", prix_heure: "", actif: true });
+    setForm({ immatriculation: "", type_aeronef: "", nb_places_eleves: "2", prix_heure: "", actif: true, est_ulm: false });
     setShowForm(true);
   }
   function openEdit(a: Aeronef) {
     setEditing(a);
-    setForm({ immatriculation: a.immatriculation, type_aeronef: a.type_aeronef, nb_places_eleves: String(a.nb_places_eleves), prix_heure: String(a.prix_heure), actif: a.actif });
+    setForm({ immatriculation: a.immatriculation, type_aeronef: a.type_aeronef, nb_places_eleves: String(a.nb_places_eleves), prix_heure: String(a.prix_heure), actif: a.actif, est_ulm: !!a.est_ulm });
     setShowForm(true);
   }
 
@@ -118,6 +120,7 @@ export default function AeronefsPage() {
       type_aeronef: form.type_aeronef.trim(),
       nb_places_eleves: nbPlaces,
       actif: form.actif,
+      est_ulm: form.est_ulm,
     };
     if (!editing) {
       const prix = parseFloat(form.prix_heure);
@@ -258,6 +261,24 @@ export default function AeronefsPage() {
                   <div><label className="label">Prix / heure (€) *</label><input type="number" value={form.prix_heure} onChange={(e) => setForm({ ...form, prix_heure: e.target.value })} className="input" placeholder="160" step="0.01" /></div>
                 )}
               </div>
+
+              {hasVol3 && (
+                <div className="flex items-center justify-between p-3 rounded-lg bg-gray-50 border border-gray-200">
+                  <div>
+                    <p className="text-sm font-medium text-gray-700">ULM</p>
+                    <p className="text-xs text-gray-500">
+                      {form.est_ulm ? "Réservé aux vols 3 (ULM)" : "Appareil classé avion : vols 1 et 2"}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setForm({ ...form, est_ulm: !form.est_ulm })}
+                    className={`relative w-11 h-6 rounded-full transition-colors duration-200 ${form.est_ulm ? "bg-brand-500" : "bg-gray-300"}`}
+                  >
+                    <span className={`absolute top-1 left-1 w-4 h-4 bg-white rounded-full shadow transition-transform duration-200 ${form.est_ulm ? "translate-x-5" : "translate-x-0"}`} />
+                  </button>
+                </div>
+              )}
 
               <div className="flex items-center justify-between p-3 rounded-lg bg-gray-50 border border-gray-200">
                 <div>
@@ -438,9 +459,12 @@ export default function AeronefsPage() {
                   <p className="text-lg font-bold text-gray-900">{a.immatriculation}</p>
                   <p className="text-sm text-gray-500">{a.type_aeronef}</p>
                 </div>
-                <span className={`badge ${a.actif ? "bg-emerald-50 text-emerald-600" : "bg-red-50 text-red-600"}`}>
-                  {a.actif ? "Actif" : "Inactif"}
-                </span>
+                <div className="flex items-center gap-1.5">
+                  {hasVol3 && a.est_ulm && <span className="badge bg-brand-50 text-brand-600">ULM</span>}
+                  <span className={`badge ${a.actif ? "bg-emerald-50 text-emerald-600" : "bg-red-50 text-red-600"}`}>
+                    {a.actif ? "Actif" : "Inactif"}
+                  </span>
+                </div>
               </div>
               <div className="flex justify-between py-2 border-t border-gray-100 text-sm">
                 <span className="text-gray-500">Places élèves</span>
