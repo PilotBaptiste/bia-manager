@@ -4,8 +4,10 @@ import { PARENT_COLUMNS, estParentDe } from "@/lib/parents";
 // Contrôles partagés par les routes de consultation des cours.
 // La progression appartient à l'élève : les deux parents alimentent la même.
 
-export const EQUIPE = ["superadmin", "coordinateur", "pilote", "gerant"];
-export const GESTIONNAIRES = ["superadmin", "coordinateur"];
+// Un formateur fait partie de l'équipe pour l'espace de formation, et de lui
+// seul : il n'apparaît dans aucun autre périmètre de l'application.
+export const EQUIPE = ["superadmin", "coordinateur", "pilote", "gerant", "formateur"];
+export const GESTIONNAIRES = ["superadmin", "coordinateur", "formateur"];
 
 type Auth = { userId: string; email: string | undefined; roles: string[]; orgId: string | null };
 

@@ -30,6 +30,7 @@ import {
 } from "lucide-react";
 import ConfirmModal from "@/components/ConfirmModal";
 import InvitationParentsModal, { regrouperParents, type ParentInvitable } from "@/components/InvitationParentsModal";
+import { anneeSession, dateNaissanceMin, eligiblePrimeFfa, libellePrimeFfa, MONTANT_PRIME_FFA } from "@/lib/primeFfa";
 import { fromDb } from "@/components/DesiderataGrid";
 
 function Dot({ ok }: { ok: boolean }) {
@@ -96,11 +97,11 @@ function fmtDay(dateStr: string) {
 const PAGE_SIZE = 50;
 
 const ELEVES_LIST_SELECT =
-  "*, etablissement:etablissements!inner(*), vol1_aeronef:aeronefs!vol1_aeronef_id(type_aeronef,immatriculation,prix_heure), vol2_aeronef:aeronefs!vol2_aeronef_id(type_aeronef,immatriculation,prix_heure), reservations(id,statut,type_vol,creneau:creneaux(id,date_vol,heure_debut,heure_fin,statut,pilote:profiles!pilote_id(nom,prenom),aeronef:aeronefs(type_aeronef,immatriculation)))";
+  "*, etablissement:etablissements!inner(*), vol1_aeronef:aeronefs!vol1_aeronef_id(type_aeronef,immatriculation,prix_heure), vol2_aeronef:aeronefs!vol2_aeronef_id(type_aeronef,immatriculation,prix_heure), vol3_aeronef:aeronefs!vol3_aeronef_id(type_aeronef,immatriculation,prix_heure), reservations(id,statut,type_vol,creneau:creneaux(id,date_vol,heure_debut,heure_fin,statut,pilote:profiles!pilote_id(nom,prenom),aeronef:aeronefs(type_aeronef,immatriculation)))";
 
 const ELEVES_EXPORT_SELECT = "*, etablissement:etablissements!inner(nom,actif)";
 
-const SEARCH_FIELDS = ["nom", "prenom", "parent_nom", "parent_prenom", "parent_email", "parent2_nom", "parent2_email", "vol1_numero_aerogest", "vol2_numero_aerogest"];
+const SEARCH_FIELDS = ["nom", "prenom", "parent_nom", "parent_prenom", "parent_email", "parent2_nom", "parent2_email", "vol1_numero_aerogest", "vol2_numero_aerogest", "vol3_numero_aerogest"];
 
 const emptyForm = {
   nom: "",
@@ -140,6 +141,14 @@ const emptyForm = {
   vol2_prix: "",
   vol2_pilote_nom: "",
   vol2_numero_aerogest: "",
+  vol3_autorise: false,
+  vol3_effectue: false,
+  vol3_refuse: false,
+  vol3_temps_minutes: "",
+  vol3_aeronef_id: "",
+  vol3_prix: "",
+  vol3_pilote_nom: "",
+  vol3_numero_aerogest: "",
   bia_passe: false,
   bia_resultat: "",
   bia_mention: "",
@@ -154,17 +163,27 @@ export default function ElevesPage() {
   const router = useRouter();
   const { selectedAnneeId, anneeDeTravail, annees } = useYear();
   const hasExportFFA = useModule("export_ffa");
+  const hasVol3 = useModule("vol3_ulm");
   const hasSecondParent = useModule("second_parent");
   const [showParent2, setShowParent2] = useState(false);
   // Réglage du club : autoriser le vol 2 même sans le BIA
   const [vol2SansBia, setVol2SansBia] = useState(false);
+  // Montant versé par la FFPLUM pour un vol ULM, réglable par club.
+  const [primeFfplum, setPrimeFfplum] = useState("40");
   // Un nouvel élève est rattaché à l'année choisie dans le sélecteur, pas à l'année en cours :
   // le club doit pouvoir inscrire pour l'année suivante pendant que l'année en cours tourne.
   const anneeId = anneeDeTravail;
   const anneeLabel = annees.find((a: any) => a.id === anneeId)?.label ?? "";
+  // La prime FFA se juge sur l'année consultée (celle de la liste), pas sur celle
+  // d'inscription : un élève de 21 ans en 2026 en a 22 à la session suivante.
+  const anneeExamen = anneeSession(annees.find((a: any) => a.id === selectedAnneeId));
   const [eleves, setEleves] = useState<any[]>([]);
   const [etablissements, setEtablissements] = useState<Etablissement[]>([]);
   const [aeronefs, setAeronefs] = useState<any[]>([]);
+  // Un vol BIA se fait sur un avion, le vol ULM sur un ULM : les deux listes
+  // d'aéronefs ne se mélangent pas. Sans le module, aucun appareil n'est ULM.
+  const aeronefsAvion = aeronefs.filter((a) => !a.est_ulm);
+  const aeronefsUlm = aeronefs.filter((a) => a.est_ulm);
   const [profileId, setProfileId] = useState("");
   const [profile, setProfile] = useState<any>(null);
   const [defaultMontant, setDefaultMontant] = useState("80");
@@ -183,6 +202,7 @@ export default function ElevesPage() {
   const [fAttest, setFAttest] = useState(() => searchParams.get("attestation") || "all");
   const [fVol1, setFVol1] = useState("all");
   const [fBia, setFBia] = useState("all");
+  const [fPrime, setFPrime] = useState("all");
   const [showFilters, setShowFilters] = useState(() => !!(searchParams.get("paiement") || searchParams.get("attestation") || searchParams.get("etablissement")));
   const [parentProfiles, setParentProfiles] = useState<Record<string, any>>({});
   const [pilotes, setPilotes] = useState<any[]>([]);
@@ -198,7 +218,7 @@ export default function ElevesPage() {
   const [inviteOuvert, setInviteOuvert] = useState(false);
   const requestIdRef = useRef(0);
 
-  const filterKey = JSON.stringify([selectedAnneeId, debouncedQ, fEtab, fPaiement, fAttest, fVol1, fBia]);
+  const filterKey = JSON.stringify([selectedAnneeId, debouncedQ, fEtab, fPaiement, fAttest, fVol1, fBia, fPrime, anneeExamen]);
   const [pageState, setPageState] = useState({ key: filterKey, page: 1 });
   const page = pageState.key === filterKey ? pageState.page : 1;
   const setPage = (p: number) => setPageState({ key: filterKey, page: p });
@@ -216,6 +236,12 @@ export default function ElevesPage() {
     if (fVol1 !== "all") q = q.eq("vol1_effectue", fVol1 === "oui");
     if (fBia === "admis") q = q.not("bia_resultat", "is", null).neq("bia_resultat", "Non admis");
     if (fBia === "non") q = q.or("bia_resultat.is.null,bia_resultat.eq.Non admis");
+    // Prime FFA : la FFA la borne par une année de naissance plancher, donc une
+    // simple comparaison de dates suffit côté base.
+    if (fPrime !== "all" && anneeExamen) {
+      const plancher = dateNaissanceMin(anneeExamen);
+      q = fPrime === "oui" ? q.gte("date_naissance", plancher) : q.lt("date_naissance", plancher);
+    }
     return q.order("nom").order("prenom").order("id");
   }
 
@@ -283,7 +309,7 @@ export default function ElevesPage() {
         ? supabase.from("etablissements").select("*").in("id", coordEtabIds).order("nom")
         : supabase.from("etablissements").select("*").eq("actif", true).order("nom"),
       supabase.from("aeronefs").select("*").eq("actif", true).order("type_aeronef"),
-      supabase.from("parametres").select("cle,valeur").in("cle", ["prix_inscription", "vol2_sans_bia"]),
+      supabase.from("parametres").select("cle,valeur").in("cle", ["prix_inscription", "vol2_sans_bia", "prime_ffplum"]),
       fetchAll((from, to) => supabase.from("profiles").select("email, nom, prenom, telephone").contains("roles", ["parent"]).order("id").range(from, to)),
       supabase.from("profiles").select("id, nom, prenom").contains("roles", ["pilote"]).eq("actif", true).order("nom"),
     ]);
@@ -294,6 +320,7 @@ export default function ElevesPage() {
     for (const row of pR.data || []) params[row.cle] = row.valeur;
     if (params.prix_inscription) setDefaultMontant(params.prix_inscription);
     setVol2SansBia(params.vol2_sans_bia === "true");
+    setPrimeFfplum(params.prime_ffplum ?? "40");
     // Build email → profile map for parent name sync
     const pmap: Record<string, any> = {};
     for (const p of profR.data || []) {
@@ -395,6 +422,20 @@ export default function ElevesPage() {
       vol2_prix: calcPrix(f.vol2_aeronef_id, mins),
     }));
   }
+  function updateVol3Aeronef(aeronefId: string) {
+    setForm((f) => ({
+      ...f,
+      vol3_aeronef_id: aeronefId,
+      vol3_prix: calcPrix(aeronefId, f.vol3_temps_minutes),
+    }));
+  }
+  function updateVol3Temps(mins: string) {
+    setForm((f) => ({
+      ...f,
+      vol3_temps_minutes: mins,
+      vol3_prix: calcPrix(f.vol3_aeronef_id, mins),
+    }));
+  }
 
   function openCreate() {
     setEditingId(null);
@@ -461,6 +502,14 @@ export default function ElevesPage() {
       vol2_prix: String(s.vol2_prix || ""),
       vol2_pilote_nom: s.vol2_pilote_nom || "",
       vol2_numero_aerogest: s.vol2_numero_aerogest || "",
+      vol3_autorise: s.vol3_autorise || false,
+      vol3_effectue: s.vol3_effectue || false,
+      vol3_refuse: s.vol3_refuse || false,
+      vol3_temps_minutes: String(s.vol3_temps_minutes || ""),
+      vol3_aeronef_id: s.vol3_aeronef_id || "",
+      vol3_prix: String(s.vol3_prix || ""),
+      vol3_pilote_nom: s.vol3_pilote_nom || "",
+      vol3_numero_aerogest: s.vol3_numero_aerogest || "",
       bia_passe: s.bia_passe,
       bia_resultat: s.bia_resultat || "",
       bia_mention: (s as any).bia_mention || "",
@@ -558,6 +607,14 @@ export default function ElevesPage() {
         vol2_prix: form.vol_fi_mode ? null : (form.vol2_prix ? parseFloat(form.vol2_prix) : null),
         vol2_pilote_nom: form.vol_fi_mode ? null : (form.vol2_pilote_nom || null),
         vol2_numero_aerogest: form.vol_fi_mode ? null : (form.vol2_numero_aerogest || null),
+        vol3_autorise: form.vol3_autorise,
+        vol3_effectue: form.vol3_effectue,
+        vol3_refuse: form.vol3_refuse,
+        vol3_temps_minutes: form.vol3_effectue && form.vol3_temps_minutes ? parseInt(form.vol3_temps_minutes) : null,
+        vol3_aeronef_id: form.vol3_aeronef_id || null,
+        vol3_prix: form.vol3_prix ? parseFloat(form.vol3_prix) : null,
+        vol3_pilote_nom: form.vol3_pilote_nom || null,
+        vol3_numero_aerogest: form.vol3_numero_aerogest || null,
         bia_passe: form.bia_passe,
         bia_resultat: form.bia_resultat || null,
         bia_mention: form.bia_resultat === "Mention" ? (form.bia_mention || null) : null,
@@ -616,6 +673,14 @@ export default function ElevesPage() {
       vol2_prix: form.vol_fi_mode ? null : (form.vol2_prix ? parseFloat(form.vol2_prix) : null),
       vol2_pilote_nom: form.vol_fi_mode ? null : (form.vol2_pilote_nom || null),
       vol2_numero_aerogest: form.vol_fi_mode ? null : (form.vol2_numero_aerogest || null),
+      vol3_autorise: form.vol3_autorise,
+      vol3_effectue: form.vol3_effectue,
+      vol3_refuse: form.vol3_refuse,
+      vol3_temps_minutes: form.vol3_effectue && form.vol3_temps_minutes ? parseInt(form.vol3_temps_minutes) : null,
+      vol3_aeronef_id: form.vol3_aeronef_id || null,
+      vol3_prix: form.vol3_prix ? parseFloat(form.vol3_prix) : null,
+      vol3_pilote_nom: form.vol3_pilote_nom || null,
+      vol3_numero_aerogest: form.vol3_numero_aerogest || null,
       bia_passe: form.bia_passe,
       bia_resultat: form.bia_resultat || null,
       bia_mention: form.bia_resultat === "Mention" ? (form.bia_mention || null) : null,
@@ -673,7 +738,7 @@ export default function ElevesPage() {
       setSelected({ ...selected, ...payload, etablissement: etab ?? selected.etablissement });
       supabase
         .from("eleves")
-        .select("*, etablissement:etablissements(*), vol1_aeronef:aeronefs!vol1_aeronef_id(type_aeronef,immatriculation,prix_heure), vol2_aeronef:aeronefs!vol2_aeronef_id(type_aeronef,immatriculation,prix_heure)")
+        .select("*, etablissement:etablissements(*), vol1_aeronef:aeronefs!vol1_aeronef_id(type_aeronef,immatriculation,prix_heure), vol2_aeronef:aeronefs!vol2_aeronef_id(type_aeronef,immatriculation,prix_heure), vol3_aeronef:aeronefs!vol3_aeronef_id(type_aeronef,immatriculation,prix_heure)")
         .eq("id", editingId)
         .single()
         .then(({ data }) => { if (data) setSelected(data); });
@@ -690,7 +755,7 @@ export default function ElevesPage() {
     );
     toast.dismiss(tid);
     if (error) { toast.error(`Erreur lors de l'export : ${error.message}`); return; }
-    const headers = ["Nom","Prenom","Date naissance","Lieu naissance","Adresse","Etablissement","Classe","Parent nom","Parent prenom","Email parent","Tel parent","Parent 2 nom","Parent 2 prenom","Email parent 2","Tel parent 2","Paiement","Montant","Mode paiement","Attestation","Vol 1","Temps vol 1 (min)","Prix vol 1","BIA resultat","Vol 2 autorise","Vol 2","Vol 2 refuse","Temps vol 2 (min)","Prix vol 2","Commentaires"];
+    const headers = ["Nom","Prenom","Date naissance","Lieu naissance","Adresse","Etablissement","Classe","Parent nom","Parent prenom","Email parent","Tel parent","Parent 2 nom","Parent 2 prenom","Email parent 2","Tel parent 2","Paiement","Montant","Mode paiement","Attestation","Prime FFA","Vol 1","Temps vol 1 (min)","Prix vol 1","BIA resultat","Vol 2 autorise","Vol 2","Vol 2 refuse","Temps vol 2 (min)","Prix vol 2","Vol ULM autorise","Vol ULM","Temps vol ULM (min)","Prix vol ULM","Commentaires"];
     const rows = allRows.map((s: any) => [
       s.nom, s.prenom,
       s.date_naissance ? new Date(s.date_naissance).toLocaleDateString("fr-FR") : "",
@@ -704,6 +769,7 @@ export default function ElevesPage() {
       s.paiement_montant || "",
       s.paiement_mode || "",
       s.attestation_signee ? "Oui" : "Non",
+      (() => { const e = eligiblePrimeFfa(s.date_naissance, anneeExamen); return e === null ? "" : e ? "Eligible" : "Trop age"; })(),
       s.vol1_effectue ? "Oui" : "Non",
       s.vol1_temps_minutes || "",
       s.vol1_prix || "",
@@ -713,6 +779,10 @@ export default function ElevesPage() {
       s.vol2_refuse ? "Oui" : "Non",
       s.vol2_temps_minutes || "",
       s.vol2_prix || "",
+      s.vol3_autorise ? "Oui" : "Non",
+      s.vol3_effectue ? "Oui" : "Non",
+      s.vol3_temps_minutes || "",
+      s.vol3_prix || "",
       s.commentaires || "",
     ].map(v => `"${String(v).replace(/"/g, '""')}"`));
     const csv = [headers.join(";"), ...rows.map(r => r.join(";"))].join("\n");
@@ -736,9 +806,15 @@ export default function ElevesPage() {
     if (biaStudents.length === 0) { w.close(); toast.info("Aucun élève avec BIA dans la sélection actuelle"); return; }
     const date = new Date().toLocaleDateString("fr-FR", { day: "2-digit", month: "long", year: "numeric" });
     const esc = (v: any) => String(v ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+    // La prime n'est due que pour les reçus assez jeunes : le club voit d'un coup
+    // d'œil ce qu'il peut réellement demander.
+    let nbPrimes = 0;
     const rows = biaStudents.map((s: any) => {
       const recu = s.bia_resultat && s.bia_resultat !== "Non admis";
       const mention = s.bia_resultat === "Mention";
+      const eligible = eligiblePrimeFfa(s.date_naissance, anneeExamen);
+      const prime = recu && eligible === true;
+      if (prime) nbPrimes++;
       return `<tr>
         <td>${esc(s.nom)}</td>
         <td>${esc(s.prenom)}</td>
@@ -747,6 +823,7 @@ export default function ElevesPage() {
         <td class="${recu ? "ok" : "ko"}">${recu ? "Reçu" : "Non reçu"}</td>
         <td class="${mention ? "ok" : ""}">${mention ? "Oui" : "Non"}</td>
         <td>${mention && (s as any).bia_mention ? esc((s as any).bia_mention) : "—"}</td>
+        <td class="${prime ? "ok" : "ko"}">${prime ? "Oui" : eligible === false ? "Non — trop âgé" : eligible === null ? "?" : "Non — non reçu"}</td>
       </tr>`;
     }).join("");
     const html = `<!DOCTYPE html>
@@ -769,11 +846,11 @@ export default function ElevesPage() {
 </head>
 <body>
 <h1>Résultats BIA — Liste pour la FFA</h1>
-<p class="sub">Exporté le ${date} · ${biaStudents.length} élève(s)</p>
+<p class="sub">Exporté le ${date} · ${biaStudents.length} élève(s)${anneeExamen ? ` · session ${anneeExamen}` : ""} · ${nbPrimes} prime(s) de ${MONTANT_PRIME_FFA} € = ${nbPrimes * MONTANT_PRIME_FFA} €</p>
 <table>
   <thead><tr>
     <th>Nom</th><th>Prénom</th><th>Établissement</th><th>Date de naissance</th>
-    <th>Résultat</th><th>Mention</th><th>Type de mention</th>
+    <th>Résultat</th><th>Mention</th><th>Type de mention</th><th>Prime ${MONTANT_PRIME_FFA} €</th>
   </tr></thead>
   <tbody>${rows}</tbody>
 </table>
@@ -1409,7 +1486,7 @@ export default function ElevesPage() {
                       className="select"
                     >
                       <option value="">— Choisir l&apos;aeronef —</option>
-                      {aeronefs.map((a) => (
+                      {aeronefsAvion.map((a) => (
                         <option key={a.id} value={a.id}>
                           {a.type_aeronef} ({a.immatriculation}) —{" "}
                           {a.prix_heure}E/h
@@ -1546,7 +1623,7 @@ export default function ElevesPage() {
                       className="select"
                     >
                       <option value="">— Choisir l&apos;aeronef —</option>
-                      {aeronefs.map((a) => (
+                      {aeronefsAvion.map((a) => (
                         <option key={a.id} value={a.id}>
                           {a.type_aeronef} ({a.immatriculation}) —{" "}
                           {a.prix_heure}E/h
@@ -1613,6 +1690,113 @@ export default function ElevesPage() {
                           </p>
                         ) : null;
                       })()}
+                  </div>
+                </>
+              )}
+            </div>
+            )}
+            {/* Vol 3 — ULM, hors parcours BIA : ni le mode FI ni le BIA ne le conditionnent */}
+            {hasVol3 && (
+            <div className="p-3 rounded-lg border border-brand-200 bg-brand-50/30">
+              <p className="text-[11px] font-bold uppercase tracking-wider text-brand-500 mb-2">
+                Vol 3 — ULM
+              </p>
+              <label className="flex items-center gap-2 cursor-pointer mb-2">
+                <input
+                  type="checkbox"
+                  checked={form.vol3_autorise}
+                  disabled={form.vol3_refuse}
+                  onChange={(e) => setForm({ ...form, vol3_autorise: e.target.checked })}
+                />
+                <span className="text-sm font-semibold text-gray-700">Vol ULM autorise</span>
+              </label>
+              <label className="flex items-center gap-2 cursor-pointer mb-3">
+                <input
+                  type="checkbox"
+                  checked={form.vol3_effectue}
+                  disabled={form.vol3_refuse}
+                  onChange={(e) => setForm({ ...form, vol3_effectue: e.target.checked })}
+                />
+                <span className="text-sm font-semibold text-gray-700">Vol ULM effectue</span>
+              </label>
+              <label className="flex items-center gap-2 cursor-pointer mb-3">
+                <input
+                  type="checkbox"
+                  checked={form.vol3_refuse}
+                  onChange={(e) =>
+                    setForm({
+                      ...form,
+                      vol3_refuse: e.target.checked,
+                      ...(e.target.checked ? { vol3_autorise: false, vol3_effectue: false } : {}),
+                    })
+                  }
+                />
+                <span className="text-sm font-semibold text-gray-700">
+                  Ne souhaite pas faire le vol ULM
+                </span>
+              </label>
+              {form.vol3_effectue && (
+                <>
+                  <div className="mb-2">
+                    <label className="label">ULM</label>
+                    <select
+                      value={form.vol3_aeronef_id}
+                      onChange={(e) => updateVol3Aeronef(e.target.value)}
+                      className="select"
+                    >
+                      <option value="">— Choisir l&apos;ULM —</option>
+                      {aeronefsUlm.map((a) => (
+                        <option key={a.id} value={a.id}>
+                          {a.type_aeronef} ({a.immatriculation}) — {a.prix_heure}E/h
+                        </option>
+                      ))}
+                    </select>
+                    {aeronefsUlm.length === 0 && (
+                      <p className="text-[11px] text-amber-600 mt-1">
+                        Aucun ULM dans la flotte : cochez « ULM » sur un aéronef dans l&apos;onglet Aéronefs.
+                      </p>
+                    )}
+                  </div>
+                  <div className="mb-2">
+                    <label className="label">Temps de vol (min)</label>
+                    <input
+                      type="number"
+                      value={form.vol3_temps_minutes}
+                      onChange={(e) => updateVol3Temps(e.target.value)}
+                      className="input"
+                      placeholder="30"
+                    />
+                  </div>
+                  <div className="mb-2">
+                    <label className="label">Pilote</label>
+                    <select
+                      value={form.vol3_pilote_nom}
+                      onChange={(e) => setForm({ ...form, vol3_pilote_nom: e.target.value })}
+                      className="select"
+                    >
+                      <option value="">— Choisir le pilote —</option>
+                      {form.vol3_pilote_nom && !pilotes.some((p) => `${p.prenom} ${p.nom}` === form.vol3_pilote_nom) && (
+                        <option value={form.vol3_pilote_nom}>{form.vol3_pilote_nom} (ancien pilote)</option>
+                      )}
+                      {pilotes.map((p) => (
+                        <option key={p.id} value={`${p.prenom} ${p.nom}`}>{p.prenom} {p.nom}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="mb-2">
+                    <label className="label">N° de vol</label>
+                    <input
+                      value={form.vol3_numero_aerogest}
+                      onChange={(e) => setForm({ ...form, vol3_numero_aerogest: e.target.value })}
+                      className="input"
+                      placeholder="Ex: 24-0124"
+                    />
+                  </div>
+                  <div className="p-2.5 rounded-lg bg-emerald-50 border border-emerald-200">
+                    <p className="text-xs text-emerald-600 font-medium">Prix calcule</p>
+                    <p className="text-lg font-bold text-emerald-700">
+                      {form.vol3_prix ? `${form.vol3_prix} E` : "Selectionnez un ULM et un temps"}
+                    </p>
                   </div>
                 </>
               )}
@@ -1723,6 +1907,18 @@ export default function ElevesPage() {
                 label="Naissance"
                 value={new Date(s.date_naissance).toLocaleDateString("fr-FR")}
               />
+              {(() => {
+                // La prime FFA est nominative : un élève trop âgé est formé et vole
+                // normalement, mais le club ne touchera rien pour lui.
+                const { eligible, texte } = libellePrimeFfa(s.date_naissance, anneeExamen);
+                return (
+                  <InfoRow
+                    label={`Prime FFA ${MONTANT_PRIME_FFA} €`}
+                    value={texte}
+                    accent={eligible === null ? "text-gray-400" : eligible ? "text-emerald-600" : "text-amber-600"}
+                  />
+                );
+              })()}
               <InfoRow label="Lieu" value={s.lieu_naissance} />
               {s.adresse && <InfoRow label="Adresse" value={s.adresse} />}
               <InfoRow label="Classe" value={s.classe} />
@@ -2199,6 +2395,60 @@ export default function ElevesPage() {
                 <InfoRow label="Statut" value="—" />
               )}
             </Section>
+            {hasVol3 && (
+              <Section title="Vol 3 — ULM">
+                {s.vol3_effectue ? (
+                  <>
+                    <InfoRow label="Statut" value="Effectue" accent="text-emerald-600" />
+                    {s.vol3_temps_minutes && <InfoRow label="Temps" value={`${s.vol3_temps_minutes} min`} />}
+                    {s.vol3_aeronef && (
+                      <InfoRow
+                        label="ULM"
+                        value={`${s.vol3_aeronef.type_aeronef} (${s.vol3_aeronef.immatriculation})`}
+                      />
+                    )}
+                    {s.vol3_pilote_nom && <InfoRow label="Pilote" value={s.vol3_pilote_nom} />}
+                    {s.vol3_numero_aerogest && <InfoRow label="N° Aerogest" value={s.vol3_numero_aerogest} />}
+                    {s.vol3_prix && <InfoRow label="Prix vol" value={`${s.vol3_prix}E`} accent="text-red-600" />}
+                    <InfoRow label="Prime FFPLUM" value={`${primeFfplum}E`} accent="text-emerald-600" />
+                  </>
+                ) : s.vol3_refuse ? (
+                  <InfoRow label="Statut" value="Ne souhaite pas faire le vol ULM" accent="text-gray-400" />
+                ) : s.vol3_autorise ? (
+                  (() => {
+                    const r = getActiveResa((s as any).reservations, 3);
+                    if (r?.creneau) {
+                      const c = r.creneau;
+                      return (
+                        <>
+                          <InfoRow label="Statut" value="Programmé" accent="text-emerald-600" />
+                          <InfoRow
+                            label="Date"
+                            value={new Date(c.date_vol + "T00:00:00").toLocaleDateString("fr-FR")}
+                          />
+                          {c.heure_debut && (
+                            <InfoRow
+                              label="Horaire"
+                              value={`${c.heure_debut.slice(0, 5)}${c.heure_fin ? " – " + c.heure_fin.slice(0, 5) : ""}`}
+                            />
+                          )}
+                          {c.aeronef && (
+                            <InfoRow
+                              label="ULM"
+                              value={`${c.aeronef.type_aeronef} (${c.aeronef.immatriculation})`}
+                            />
+                          )}
+                          {c.pilote && <InfoRow label="Pilote" value={`${c.pilote.prenom} ${c.pilote.nom}`} />}
+                        </>
+                      );
+                    }
+                    return <InfoRow label="Statut" value="Autorisé — non programmé" accent="text-amber-600" />;
+                  })()
+                ) : (
+                  <InfoRow label="Statut" value="—" />
+                )}
+              </Section>
+            )}
           </div>
         </div>
 
@@ -2510,6 +2760,21 @@ export default function ElevesPage() {
                 <option value="non">Non</option>
               </select>
             </div>
+            <div className="min-w-[150px]">
+              <label className="label" title={anneeExamen ? `Élèves de 21 ans au plus en ${anneeExamen}` : undefined}>
+                Prime FFA {MONTANT_PRIME_FFA} €
+              </label>
+              <select
+                value={fPrime}
+                onChange={(e) => setFPrime(e.target.value)}
+                disabled={!anneeExamen}
+                className="select disabled:opacity-50"
+              >
+                <option value="all">Tous</option>
+                <option value="oui">Éligibles</option>
+                <option value="non">Trop âgés</option>
+              </select>
+            </div>
             <div className="min-w-[120px]">
               <label className="label">BIA</label>
               <select
@@ -2588,6 +2853,7 @@ export default function ElevesPage() {
                   "Vol 1",
                   "BIA",
                   "Vol 2",
+                  ...(hasVol3 ? ["ULM"] : []),
                   "",
                 ].map((h) => (
                   <th
@@ -2603,7 +2869,7 @@ export default function ElevesPage() {
               {filtered.length === 0 ? (
                 <tr>
                   <td
-                    colSpan={11}
+                    colSpan={hasVol3 ? 12 : 11}
                     className="px-3 py-12 text-center text-gray-400"
                   >
                     {activeFilters === 0 && !debouncedQ ? (
@@ -2710,6 +2976,31 @@ export default function ElevesPage() {
                         "—"
                       )}
                     </td>
+                    {hasVol3 && (
+                      <td className="px-3 py-2.5">
+                        {s.vol3_effectue ? (
+                          <Dot ok />
+                        ) : s.vol3_refuse ? (
+                          <span className="text-xs font-medium text-gray-400 whitespace-nowrap" title="L'élève ne souhaite pas faire le vol ULM">
+                            Renonce
+                          </span>
+                        ) : s.vol3_autorise ? (
+                          (() => {
+                            const r = getActiveResa((s as any).reservations, 3);
+                            if (r?.creneau?.date_vol)
+                              return (
+                                <span className="flex items-center gap-1 text-xs font-medium text-emerald-700 whitespace-nowrap">
+                                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0" />
+                                  {fmtDay(r.creneau.date_vol)}
+                                </span>
+                              );
+                            return <Dot ok={false} />;
+                          })()
+                        ) : (
+                          "—"
+                        )}
+                      </td>
+                    )}
                     <td className="px-3 py-2.5">
                       <Eye className="w-4 h-4 text-brand-400" />
                     </td>

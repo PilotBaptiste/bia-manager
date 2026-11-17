@@ -6,6 +6,7 @@ import { inActiveEtab } from "@/lib/etablissements";
 import { Euro, Plane, Users, School, TrendingUp, Loader2, Edit, Save, X, Clock, History, UserCheck, Plus, Trash2, Check, Download, HandCoins, Receipt } from "lucide-react";
 import { useYear } from "@/contexts/YearContext";
 import { useModule } from "@/contexts/ModulesContext";
+import { anneeSession, eligiblePrimeFfa } from "@/lib/primeFfa";
 import { toast } from "sonner";
 
 const PAYMENT_MODES = ["Espèces", "Chèque", "Virement", "CB", "Autre"];
@@ -25,7 +26,9 @@ export default function FinancesPage() {
   const hasReleve = useModule("releve_compte");
   const hasRoulage = useModule("roulage");
   const hasFrais = useModule("frais_supplementaires");
+  const hasVol3 = useModule("vol3_ulm");
   const anneeLabel = annees.find((a: any) => a.id === selectedAnneeId)?.label || "";
+  const anneeExamen = anneeSession(annees.find((a: any) => a.id === selectedAnneeId));
   // operations_manuelles n'a pas d'annee_id : l'année scolaire est déduite du libellé (1er sept → 31 août).
   const fenetreAnnee = (() => {
     const debutAn = parseInt(anneeLabel.split(/[-/]/)[0]);
@@ -50,6 +53,7 @@ export default function FinancesPage() {
   const [confirmDeleteSub, setConfirmDeleteSub] = useState<any | null>(null);
   const [prixInscription, setPrixInscription] = useState(80);
   const [subFede, setSubFede] = useState(50);
+  const [primeFfplum, setPrimeFfplum] = useState(40);
   const [nomClub, setNomClub] = useState("");
 
   // Edit state
@@ -113,6 +117,8 @@ export default function FinancesPage() {
     const sf = params.find((p: any) => p.cle === "subvention_federation");
     if (pi && Number.isFinite(parseFloat(pi.valeur))) setPrixInscription(parseFloat(pi.valeur));
     if (sf && Number.isFinite(parseFloat(sf.valeur))) setSubFede(parseFloat(sf.valeur));
+    const pf = params.find((p: any) => p.cle === "prime_ffplum");
+    if (pf && Number.isFinite(parseFloat(pf.valeur))) setPrimeFfplum(parseFloat(pf.valeur));
     const nc = params.find((p: any) => p.cle === "nom_club");
     if (nc) setNomClub(nc.valeur);
     setLoading(false);
@@ -133,12 +139,18 @@ export default function FinancesPage() {
   });
 
   const totalPaye = eleves.filter(e => e.paiement_effectue).length;
-  const totalBia = eleves.filter(e => e.bia_resultat && e.bia_resultat !== "Non admis").length;
+  const recuAuBia = (e: any) => !!e.bia_resultat && e.bia_resultat !== "Non admis";
+  // La prime fédérale est réservée aux élèves de 21 ans au plus l'année de la
+  // session : un adulte reçu au BIA ne rapporte rien au club.
+  const primeFfa = (e: any) => recuAuBia(e) && eligiblePrimeFfa(e.date_naissance, anneeExamen) !== false;
+  const totalBia = eleves.filter(recuAuBia).length;
+  const totalPrimes = eleves.filter(primeFfa).length;
+  const totalHorsAge = totalBia - totalPrimes;
   const totalVol1 = eleves.filter(e => e.vol1_effectue).length;
   const totalVol2 = eleves.filter(e => e.vol2_effectue).length;
   // Use each élève's actual paiement_montant (falls back to default prix_inscription)
   const recettesInscriptions = eleves.filter(e => e.paiement_effectue).reduce((a, e) => a + (e.paiement_montant != null ? parseFloat(e.paiement_montant) : prixInscription), 0);
-  const recettesFede = totalBia * subFede;
+  const recettesFede = totalPrimes * subFede;
   const recettesManuelles = manualOps.filter(o => o.sens === "recette").reduce((a, o) => a + parseFloat(o.montant || 0), 0);
   const depensesManuelles = manualOps.filter(o => o.sens === "depense").reduce((a, o) => a + parseFloat(o.montant || 0), 0);
   // Each grant is split equally between the (non-archived) students of its établissements for the year.
@@ -168,7 +180,7 @@ export default function FinancesPage() {
     return acc + c;
   }, 0);
   const coutVolsTotal = coutVolsClotures + coutVolsManuels;
-  const margeNonUtil = (totalBia - totalVol2) * subFede;
+  const margeNonUtil = (totalPrimes - totalVol2) * subFede;
   const solde = totalRecettes - coutVolsTotal - depensesManuelles;
 
   type PiloteVolDetail = { date: string; numero: string; temps: number | null; cout: number; nbPax: number; tempsParEleve: number | null };
@@ -219,7 +231,7 @@ export default function FinancesPage() {
       return a + c;
     }, 0);
     const ins = etEleves.filter(e => e.paiement_effectue).reduce((a, e) => a + (e.paiement_montant != null ? parseFloat(e.paiement_montant) : prixInscription), 0);
-    const fed = etBia * subFede;
+    const fed = etEleves.filter(primeFfa).length * subFede;
     const subLoc = subventionsDetail.reduce((a, sv) => a + (sv.parEtab[et.id] || 0), 0);
     return { nom: et.nom, eleves: etEleves.length, payes: etPaye, ins, bia: etBia, vol1: etVol1, vol2: etVol2, fed, subLoc, couts: etCout, solde: ins + fed + subLoc - etCout };
   });
@@ -228,7 +240,7 @@ export default function FinancesPage() {
   const operations: any[] = [];
   eleves.forEach(e => {
     if (e.paiement_effectue) operations.push({ id: e.id, source: "inscription", date: e.paiement_date || e.created_at, type: "Inscription", sens: "recette", montant: e.paiement_montant != null ? parseFloat(e.paiement_montant) : prixInscription, description: `${e.prenom} ${e.nom}`, etablissement: e.etablissement?.nom, mode: e.paiement_mode });
-    if (e.bia_resultat && e.bia_resultat !== "Non admis") operations.push({ id: e.id, source: "bia", date: e.bia_date || e.updated_at, type: "Subvention BIA", sens: "recette", montant: subFede, description: `${e.prenom} ${e.nom} — ${e.bia_resultat}`, etablissement: e.etablissement?.nom });
+    if (primeFfa(e)) operations.push({ id: e.id, source: "bia", date: e.bia_date || e.updated_at, type: "Subvention BIA", sens: "recette", montant: subFede, description: `${e.prenom} ${e.nom} — ${e.bia_resultat}`, etablissement: e.etablissement?.nom });
   });
   vols.forEach(v => {
     operations.push({ id: v.id, source: "vol", date: v.creneau?.date_vol || v.created_at, type: "Vol", sens: "depense", montant: parseFloat(v.prix_total) || 0, description: `${v.numero_aerogest || (v.numeros_aerogest || []).join(", ")} — ${v.creneau?.reservations?.map((r: any) => `${r.eleve?.prenom} ${r.eleve?.nom}`).join(", ") || "—"}`, etablissement: v.creneau?.etablissement?.nom, aeronef: v.creneau?.aeronef?.type_aeronef, pilote: v.creneau?.pilote ? `${v.creneau.pilote.prenom} ${v.creneau.pilote.nom}` : "", temps: v.temps_vol_minutes });
@@ -519,8 +531,18 @@ export default function FinancesPage() {
         <div>
           <div className="flex gap-3 flex-wrap mb-6">
             <div className="card flex-1 min-w-[160px]"><p className="text-xs text-gray-500 mb-1">Inscriptions</p><p className="text-2xl font-bold text-emerald-600">{recettesInscriptions.toFixed(2)}€</p><p className="text-[11px] text-gray-400">{totalPaye} élève{totalPaye > 1 ? "s" : ""} payé{totalPaye > 1 ? "s" : ""}</p></div>
-            <div className="card flex-1 min-w-[160px]"><p className="text-xs text-gray-500 mb-1">Subventions fede</p><p className="text-2xl font-bold text-emerald-600">{recettesFede}€</p><p className="text-[11px] text-gray-400">{totalBia} x {subFede}€</p></div>
+            <div className="card flex-1 min-w-[160px]"><p className="text-xs text-gray-500 mb-1">Subventions fede</p><p className="text-2xl font-bold text-emerald-600">{recettesFede}€</p><p className="text-[11px] text-gray-400">{totalPrimes} x {subFede}€{totalHorsAge > 0 ? ` · ${totalHorsAge} hors âge` : ""}</p></div>
             {hasSubventions && <button onClick={() => setTab("subventions")} className="card flex-1 min-w-[160px] text-left hover:border-brand-200"><p className="text-xs text-gray-500 mb-1">Subventions locales</p><p className="text-2xl font-bold text-emerald-600">{recettesSubventions.toFixed(2)}€</p><p className="text-[11px] text-gray-400">{subventions.length} subvention{subventions.length > 1 ? "s" : ""}</p></button>}
+            {hasVol3 && (() => {
+              const nbUlm = eleves.filter((e: any) => e.vol3_effectue).length;
+              return (
+                <div className="card flex-1 min-w-[160px]">
+                  <p className="text-xs text-gray-500 mb-1">Prime FFPLUM</p>
+                  <p className="text-2xl font-bold text-emerald-600">{(nbUlm * primeFfplum).toFixed(2)}€</p>
+                  <p className="text-[11px] text-gray-400">{nbUlm} vol{nbUlm > 1 ? "s" : ""} ULM x {primeFfplum}€</p>
+                </div>
+              );
+            })()}
             <div className="card flex-1 min-w-[160px]"><p className="text-xs text-gray-500 mb-1">Cout vols</p><p className="text-2xl font-bold text-red-600">{coutVolsTotal.toFixed(2)}€</p><p className="text-[11px] text-gray-400">{totalVol1 + totalVol2} vols</p></div>
             {hasFrais && (() => {
               const fraisOps = manualOps.filter((o: any) => o.type === TYPE_FRAIS);

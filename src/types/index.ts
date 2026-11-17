@@ -53,6 +53,8 @@ export interface Aeronef {
   prix_heure: number;
   actif: boolean;
   prix_heure_historique?: PrixHeureLigne[];
+  /** Appareil classé ULM : il ne porte que des vols 3 (module vol3_ulm). */
+  est_ulm?: boolean;
 }
 
 export interface Eleve {
@@ -97,6 +99,11 @@ export interface Eleve {
   adresse: string | null;
   vol1_numero_aerogest: string | null;
   vol2_numero_aerogest: string | null;
+  vol3_autorise?: boolean;
+  vol3_effectue?: boolean;
+  vol3_refuse?: boolean;
+  vol3_temps_minutes?: number | null;
+  vol3_numero_aerogest?: string | null;
   commentaires: string | null;
   archive: boolean;
   archived_at: string | null;

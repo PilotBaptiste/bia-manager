@@ -35,6 +35,61 @@ import {
 } from "lucide-react";
 import ConfirmModal from "@/components/ConfirmModal";
 
+/** Préfixe des colonnes de l'élève pour un type de vol (1, 2 ou vol 3 ULM). */
+function prefixeVol(type: number) {
+  return type === 2 ? "vol2" : type === 3 ? "vol3" : "vol1";
+}
+
+/** Colonnes à écrire pour marquer ce vol fait, ou à vider pour le défaire. */
+function champsVol(
+  type: number,
+  valeurs: { temps: any; aeronefId: any; prix: any; piloteNom: string; numero: string | null } | null,
+): Record<string, any> {
+  const v = prefixeVol(type);
+  if (!valeurs) {
+    return {
+      [`${v}_effectue`]: false,
+      [`${v}_numero_aerogest`]: null,
+      [`${v}_temps_minutes`]: null,
+      [`${v}_aeronef_id`]: null,
+      [`${v}_prix`]: null,
+      [`${v}_pilote_nom`]: null,
+    };
+  }
+  return {
+    [`${v}_effectue`]: true,
+    [`${v}_temps_minutes`]: valeurs.temps,
+    [`${v}_aeronef_id`]: valeurs.aeronefId,
+    [`${v}_prix`]: valeurs.prix,
+    [`${v}_pilote_nom`]: valeurs.piloteNom,
+    [`${v}_numero_aerogest`]: valeurs.numero,
+  };
+}
+
+/**
+ * Le type de vol se déduit de l'appareil : un créneau en ULM ne peut porter
+ * qu'un vol 3, et un créneau en avion suit le parcours BIA de l'élève.
+ */
+function typeVolDetecte(e: any, estUlm: boolean): 1 | 2 | 3 {
+  if (estUlm) return 3;
+  return (e.vol1_effectue || e.vol1_skippe) && e.vol2_autorise && !e.vol2_effectue ? 2 : 1;
+}
+
+/** Un élève peut-il être mis sur un vol de ce type ? */
+function eligibleAuVol(e: any, estUlm: boolean): boolean {
+  if (e.abandonne) return false;
+  if (estUlm) return !!e.vol3_autorise && !e.vol3_refuse && !e.vol3_effectue;
+  if (e.vol2_effectue) return false;
+  if ((e.vol1_effectue || e.vol1_skippe) && !e.vol2_autorise) return false;
+  if (e.bia_resultat === "Non admis") return false;
+  return true;
+}
+
+/** Nom affiché d'un type de vol. */
+function libelleVol(type: number) {
+  return type === 3 ? "Vol 3 ULM" : `Vol ${type || 1}`;
+}
+
 export default function VolsPage() {
   const supabase = createClient();
   const { selectedAnneeId, anneeDeTravail, annees, activeExamDate } = useYear();
@@ -50,6 +105,8 @@ export default function VolsPage() {
   const [creneaux, setCreneaux] = useState<any[]>([]);
   const [volsHisto, setVolsHisto] = useState<any[]>([]);
   const [aeronefs, setAeronefs] = useState<any[]>([]);
+  // Un créneau sur un ULM ne porte que des vols 3 : l'appareil choisi décide.
+  const estUlmId = (id: string) => !!aeronefs.find((a: any) => a.id === id)?.est_ulm;
   const [etabs, setEtabs] = useState<any[]>([]);
   const [eleves, setEleves] = useState<any[]>([]);
   const [pilotes, setPilotes] = useState<any[]>([]);
@@ -71,7 +128,7 @@ export default function VolsPage() {
   const [editHistoElevesLocal, setEditHistoElevesLocal] = useState<any[]>([]);
   const [editHistoElevesOrig, setEditHistoElevesOrig] = useState<any[]>([]);
   const [addHistoEleveId, setAddHistoEleveId] = useState("");
-  const [addHistoEleveTypeVol, setAddHistoEleveTypeVol] = useState<1 | 2>(1);
+  const [addHistoEleveTypeVol, setAddHistoEleveTypeVol] = useState<1 | 2 | 3>(1);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [confirmAction, setConfirmAction] = useState<{ title: string; message: string; variant?: "danger" | "primary"; reasonLabel?: string; onConfirm: (reason?: string) => void } | null>(null);
@@ -141,7 +198,7 @@ export default function VolsPage() {
 
     let elevesQuery = supabase
       .from("eleves")
-      .select("id, nom, prenom, etablissement_id, etablissement:etablissements!inner(actif), desiderata, abandonne, bia_resultat, vol2_autorise, vol2_refuse, vol1_effectue, vol1_skippe, vol1_numero_aerogest, vol1_prix, vol1_temps_minutes, vol1_pilote_nom, vol1_aeronef_id, vol2_effectue, vol2_numero_aerogest, vol2_prix, vol2_temps_minutes, vol2_pilote_nom, vol2_aeronef_id")
+      .select("id, nom, prenom, etablissement_id, etablissement:etablissements!inner(actif), desiderata, abandonne, bia_resultat, vol2_autorise, vol2_refuse, vol1_effectue, vol1_skippe, vol1_numero_aerogest, vol1_prix, vol1_temps_minutes, vol1_pilote_nom, vol1_aeronef_id, vol2_effectue, vol2_numero_aerogest, vol2_prix, vol2_temps_minutes, vol2_pilote_nom, vol2_aeronef_id, vol3_autorise, vol3_refuse, vol3_effectue, vol3_numero_aerogest, vol3_prix, vol3_temps_minutes, vol3_pilote_nom, vol3_aeronef_id")
       .eq("archive", false)
       .eq("etablissement.actif", true)
       .order("nom")
@@ -151,7 +208,7 @@ export default function VolsPage() {
     let volsQuery = supabase
       .from("vols_effectues")
       .select(
-        "*, creneau:creneaux!inner(date_vol,heure_debut,heure_fin,pilote_id,aeronef_id,etablissement_id,etablissement_ids,annee_id,pilote:profiles!pilote_id(nom,prenom),aeronef:aeronefs(type_aeronef,immatriculation,nb_places_eleves),etablissement:etablissements(nom),reservations(id,type_vol,statut,eleve:eleves(id,nom,prenom)))",
+        "*, creneau:creneaux!inner(date_vol,heure_debut,heure_fin,pilote_id,aeronef_id,etablissement_id,etablissement_ids,annee_id,pilote:profiles!pilote_id(nom,prenom),aeronef:aeronefs(type_aeronef,immatriculation,nb_places_eleves,est_ulm),etablissement:etablissements(nom),reservations(id,type_vol,statut,eleve:eleves(id,nom,prenom)))",
       )
       .order("created_at", { ascending: false })
       .order("id");
@@ -870,7 +927,7 @@ export default function VolsPage() {
       onConfirm: (motif) => doRemoveEleve(rid, name, motif),
     });
   }
-  async function handleAddEleve(eleveId: string, typeVol: 1 | 2) {
+  async function handleAddEleve(eleveId: string, typeVol: 1 | 2 | 3) {
     if (!showDetail) return;
     const { count: activeCount, error: countErr } = await supabase
       .from("reservations")
@@ -921,7 +978,7 @@ export default function VolsPage() {
     setEditHistoElevesLocal(resEleves);
     setEditHistoElevesOrig(resEleves);
     setAddHistoEleveId("");
-    setAddHistoEleveTypeVol(1);
+    setAddHistoEleveTypeVol(v.creneau?.aeronef?.est_ulm ? 3 : 1);
     setEditHisto({ ...v });
   }
 
@@ -929,9 +986,10 @@ export default function VolsPage() {
     // Reset vol flags on linked eleves
     const reservations = (v.creneau?.reservations || []).filter((r: any) => r.eleve?.id && r.statut !== "annule");
     for (const r of reservations) {
-      const { error: elErr } = r.type_vol === 2
-        ? await supabase.from("eleves").update({ vol2_effectue: false, vol2_numero_aerogest: null, vol2_temps_minutes: null, vol2_aeronef_id: null, vol2_prix: null, vol2_pilote_nom: null }).eq("id", r.eleve.id)
-        : await supabase.from("eleves").update({ vol1_effectue: false, vol1_numero_aerogest: null, vol1_temps_minutes: null, vol1_aeronef_id: null, vol1_prix: null, vol1_pilote_nom: null }).eq("id", r.eleve.id);
+      const { error: elErr } = await supabase
+        .from("eleves")
+        .update(champsVol(r.type_vol || 1, null))
+        .eq("id", r.eleve.id);
       if (elErr) { toast.error(elErr.message); load(); return; }
       const { error: resErr } = await supabase.from("reservations").update({ statut: "reserve" }).eq("id", r.id);
       if (resErr) { toast.error(resErr.message); load(); return; }
@@ -946,15 +1004,11 @@ export default function VolsPage() {
   }
 
   async function doDeleteManual(group: { ids: string[]; numero_aerogest: string }) {
-    const vol1Ids = group.ids.filter((id) => id.endsWith("_vol1")).map((id) => id.replace("_vol1", ""));
-    const vol2Ids = group.ids.filter((id) => id.endsWith("_vol2")).map((id) => id.replace("_vol2", ""));
-    if (vol1Ids.length) {
-      const { error: e1 } = await supabase.from("eleves").update({ vol1_effectue: false, vol1_numero_aerogest: null, vol1_temps_minutes: null, vol1_aeronef_id: null, vol1_prix: null, vol1_pilote_nom: null }).in("id", vol1Ids);
-      if (e1) { toast.error(e1.message); return; }
-    }
-    if (vol2Ids.length) {
-      const { error: e2 } = await supabase.from("eleves").update({ vol2_effectue: false, vol2_numero_aerogest: null, vol2_temps_minutes: null, vol2_aeronef_id: null, vol2_prix: null, vol2_pilote_nom: null }).in("id", vol2Ids);
-      if (e2) { toast.error(e2.message); load(); return; }
+    for (const type of [1, 2, 3]) {
+      const ids = group.ids.filter((id) => id.endsWith(`_vol${type}`)).map((id) => id.replace(`_vol${type}`, ""));
+      if (ids.length === 0) continue;
+      const { error } = await supabase.from("eleves").update(champsVol(type, null)).in("id", ids);
+      if (error) { toast.error(error.message); load(); return; }
     }
     toast.success("Entrée supprimée");
     load();
@@ -990,11 +1044,7 @@ export default function VolsPage() {
     for (const e of editHistoElevesOrig) {
       if (!newIds.has(e.id)) {
         await supabase.from("reservations").update({ statut: "annule" }).eq("id", e.reservation_id);
-        if (e.type_vol === 2) {
-          await supabase.from("eleves").update({ vol2_effectue: false, vol2_numero_aerogest: null, vol2_temps_minutes: null, vol2_aeronef_id: null, vol2_prix: null, vol2_pilote_nom: null }).eq("id", e.id);
-        } else {
-          await supabase.from("eleves").update({ vol1_effectue: false, vol1_numero_aerogest: null, vol1_temps_minutes: null, vol1_aeronef_id: null, vol1_prix: null, vol1_pilote_nom: null }).eq("id", e.id);
-        }
+        await supabase.from("eleves").update(champsVol(e.type_vol || 1, null)).eq("id", e.id);
       }
     }
 
@@ -1013,23 +1063,15 @@ export default function VolsPage() {
       const eleveState = eleves.find((el: any) => el.id === e.id);
       // Effacer les anciens champs UNIQUEMENT si c'est ce vol qui les a écrits
       // (identifié par le numéro de vol correspondant à ce vol)
-      if (oldTypeVol === 2) {
-        const wasThisFlight = numAerogest && eleveState?.vol2_numero_aerogest === numAerogest;
-        if (wasThisFlight) {
-          await supabase.from("eleves").update({ vol2_effectue: false, vol2_numero_aerogest: null, vol2_temps_minutes: null, vol2_aeronef_id: null, vol2_prix: null, vol2_pilote_nom: null }).eq("id", e.id);
-        }
-      } else {
-        const wasThisFlight = numAerogest && eleveState?.vol1_numero_aerogest === numAerogest;
-        if (wasThisFlight) {
-          await supabase.from("eleves").update({ vol1_effectue: false, vol1_numero_aerogest: null, vol1_temps_minutes: null, vol1_aeronef_id: null, vol1_prix: null, vol1_pilote_nom: null }).eq("id", e.id);
-        }
+      const ecritParCeVol = numAerogest && eleveState?.[`${prefixeVol(oldTypeVol)}_numero_aerogest`] === numAerogest;
+      if (ecritParCeVol) {
+        await supabase.from("eleves").update(champsVol(oldTypeVol, null)).eq("id", e.id);
       }
       // Écrire les nouveaux champs vol
-      if (newTypeVol === 2) {
-        await supabase.from("eleves").update({ vol2_effectue: true, vol2_temps_minutes: tempsMin, vol2_aeronef_id: aeronefId, vol2_prix: prixParEleve, vol2_pilote_nom: piloteNom, vol2_numero_aerogest: numAerogest }).eq("id", e.id);
-      } else {
-        await supabase.from("eleves").update({ vol1_effectue: true, vol1_temps_minutes: tempsMin, vol1_aeronef_id: aeronefId, vol1_prix: prixParEleve, vol1_pilote_nom: piloteNom, vol1_numero_aerogest: numAerogest }).eq("id", e.id);
-      }
+      await supabase
+        .from("eleves")
+        .update(champsVol(newTypeVol, { temps: tempsMin, aeronefId, prix: prixParEleve, piloteNom, numero: numAerogest }))
+        .eq("id", e.id);
     }
 
     // Add new eleves
@@ -1042,11 +1084,10 @@ export default function VolsPage() {
       } else {
         await supabase.from("reservations").insert({ creneau_id: creneauId, eleve_id: e.id, type_vol: typeVol, statut: "effectue" });
       }
-      if (typeVol === 2) {
-        await supabase.from("eleves").update({ vol2_effectue: true, vol2_temps_minutes: tempsMin, vol2_aeronef_id: aeronefId, vol2_prix: prixParEleve, vol2_pilote_nom: piloteNom, vol2_numero_aerogest: numAerogest }).eq("id", e.id);
-      } else {
-        await supabase.from("eleves").update({ vol1_effectue: true, vol1_temps_minutes: tempsMin, vol1_aeronef_id: aeronefId, vol1_prix: prixParEleve, vol1_pilote_nom: piloteNom, vol1_numero_aerogest: numAerogest }).eq("id", e.id);
-      }
+      await supabase
+        .from("eleves")
+        .update(champsVol(typeVol, { temps: tempsMin, aeronefId, prix: prixParEleve, piloteNom, numero: numAerogest }))
+        .eq("id", e.id);
     }
 
     setSaving(false);
@@ -1263,21 +1304,18 @@ export default function VolsPage() {
                               <p className="text-[10px] text-gray-400 mb-1.5">Restreindre à des élèves spécifiques (optionnel) :</p>
                               <div className="flex flex-wrap gap-1">
                                 {etabEleves.filter(el => {
-                                  if (el.abandonne) return false;
                                   if (busyEleveIds.has(el.id)) return false;
-                                  if (el.vol2_effectue) return false;
-                                  if ((el.vol1_effectue || el.vol1_skippe) && !el.vol2_autorise) return false;
-                                  // Masquer les Non admis (BIA échoué)
-                                  if (el.bia_resultat === "Non admis") return false;
+                                  // Le créneau décide : en ULM seuls les élèves autorisés au vol 3 apparaissent.
+                                  if (!eligibleAuVol(el, estUlmId(form.aeronef_id))) return false;
                                   // Pour les non-SA : masquer les élèves dont la date BIA est passée sans avoir fait Vol 1
-                                  if (!isSA) {
+                                  if (!isSA && !estUlmId(form.aeronef_id)) {
                                     const today = todayParis();
                                     if (!el.vol1_effectue && !el.vol1_skippe && biaExamDate && biaExamDate < today) return false;
                                   }
                                   return true;
                                 }).map((el) => {
                                   const sel = etabElvsSelected.includes(el.id);
-                                  const volLabel = ((el.vol1_effectue || el.vol1_skippe) && el.vol2_autorise) ? "BIA ✓ · V2" : "V1";
+                                  const volLabel = estUlmId(form.aeronef_id) ? "ULM" : ((el.vol1_effectue || el.vol1_skippe) && el.vol2_autorise) ? "BIA ✓ · V2" : "V1";
                                   return (
                                     <button
                                       key={el.id}
@@ -1460,7 +1498,7 @@ export default function VolsPage() {
                       </p>
                       <div className="flex items-center gap-2">
                         <span className="badge bg-brand-50 text-brand-500">
-                          Vol {r.type_vol || 1}
+                          {libelleVol(r.type_vol || 1)}
                         </span>
                         {showDetail.statut !== "termine" &&
                           (isSA || isCoord || showDetail.pilote_id === profile?.id) && (
@@ -1552,13 +1590,11 @@ export default function VolsPage() {
                     .map((r: any) => r.eleve_id)
                 );
                 const q = addEleveSearch.toLowerCase();
+                const creneauUlm = !!showDetail.aeronef?.est_ulm;
                 const available = eleves.filter((e: any) => {
                   if (alreadyIn.has(e.id)) return false;
-                  if (e.abandonne) return false;
-                  if (e.vol2_effectue) return false;
-                  if ((e.vol1_effectue || e.vol1_skippe) && !e.vol2_autorise) return false;
-                  if (e.bia_resultat === "Non admis") return false;
-                  if (!isSA) {
+                  if (!eligibleAuVol(e, creneauUlm)) return false;
+                  if (!isSA && !creneauUlm) {
                     const today = todayParis();
                     if (!e.vol1_effectue && !e.vol1_skippe && biaExamDate && biaExamDate < today) return false;
                   }
@@ -1575,13 +1611,17 @@ export default function VolsPage() {
                       placeholder="Rechercher un élève..."
                       className="w-full px-2.5 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-300 bg-white"
                     />
-                    <p className="text-[10px] text-gray-400">Le type de vol (Vol 1 ou Vol 2) est détecté automatiquement selon l'état de l'élève.</p>
+                    <p className="text-[10px] text-gray-400">
+                      {creneauUlm
+                        ? "Créneau en ULM : tous les élèves ajoutés y font leur vol 3."
+                        : "Le type de vol (Vol 1 ou Vol 2) est détecté automatiquement selon l'état de l'élève."}
+                    </p>
                     <div className="max-h-36 overflow-y-auto space-y-1">
                       {available.length === 0 ? (
                         <p className="text-xs text-gray-400 py-1">Aucun élève disponible</p>
                       ) : available.map((e: any) => {
                         // Auto-détecter le type de vol selon l'état de l'élève
-                        const detectedTypeVol: 1 | 2 = ((e.vol1_effectue || e.vol1_skippe) && e.vol2_autorise && !e.vol2_effectue) ? 2 : 1;
+                        const detectedTypeVol = typeVolDetecte(e, creneauUlm);
                         const match = matchDesiderata(e.desiderata, showDetail.date_vol, showDetail.heure_debut);
                         return (
                           <button
@@ -1591,8 +1631,8 @@ export default function VolsPage() {
                           >
                             <span className="font-medium text-gray-900 flex items-center gap-1.5">
                               {e.prenom} {e.nom}
-                              <span className={`text-[8px] font-bold px-1.5 py-0.5 rounded-full ${detectedTypeVol === 2 ? "bg-emerald-100 text-emerald-700" : "bg-brand-100 text-brand-700"}`}>
-                                Vol {detectedTypeVol}
+                              <span className={`text-[8px] font-bold px-1.5 py-0.5 rounded-full ${detectedTypeVol === 3 ? "bg-violet-100 text-violet-700" : detectedTypeVol === 2 ? "bg-emerald-100 text-emerald-700" : "bg-brand-100 text-brand-700"}`}>
+                                {libelleVol(detectedTypeVol)}
                               </span>
                               {match === "match" && <span className="bg-emerald-500 text-white text-[9px] font-bold px-1.5 py-0.5 rounded-full leading-none">DISPO</span>}
                               {match === "no-match" && <span className="bg-orange-400 text-white text-[9px] font-bold px-1.5 py-0.5 rounded-full leading-none">INDISPO</span>}
@@ -1797,8 +1837,8 @@ export default function VolsPage() {
                     .map((r: any) => (
                       <div key={r.id} className="flex items-center justify-between text-xs">
                         <span className="text-gray-700">{r.eleve?.prenom} {r.eleve?.nom}</span>
-                        <span className={`font-bold px-2 py-0.5 rounded-full ${r.type_vol === 2 ? "bg-emerald-100 text-emerald-700" : "bg-brand-100 text-brand-700"}`}>
-                          Vol {r.type_vol || 1}
+                        <span className={`font-bold px-2 py-0.5 rounded-full ${r.type_vol === 3 ? "bg-violet-100 text-violet-700" : r.type_vol === 2 ? "bg-emerald-100 text-emerald-700" : "bg-brand-100 text-brand-700"}`}>
+                          {libelleVol(r.type_vol || 1)}
                         </span>
                       </div>
                     ))}
@@ -2150,11 +2190,8 @@ export default function VolsPage() {
                               <p className="text-[10px] text-gray-400 mb-1.5">Restreindre à des élèves spécifiques (optionnel) :</p>
                               <div className="flex flex-wrap gap-1">
                                 {etabEleves.filter(el => {
-                                  if (el.abandonne) return false;
-                                  if (el.vol2_effectue) return false;
-                                  if ((el.vol1_effectue || el.vol1_skippe) && !el.vol2_autorise) return false;
-                                  if (el.bia_resultat === "Non admis") return false;
-                                  if (!isSA) {
+                                  if (!eligibleAuVol(el, estUlmId(showEditSlot.aeronef_id))) return false;
+                                  if (!isSA && !estUlmId(showEditSlot.aeronef_id)) {
                                     const today = todayParis();
                                     if (!el.vol1_effectue && !el.vol1_skippe && biaExamDate && biaExamDate < today) return false;
                                   }
@@ -2163,7 +2200,7 @@ export default function VolsPage() {
                                   return (showEditSlot.reservations || []).some((r: any) => r.statut !== "annule" && r.eleve?.id === el.id);
                                 }).map((el) => {
                                   const sel = etabElvsSelected.includes(el.id);
-                                  const volLabel = ((el.vol1_effectue || el.vol1_skippe) && el.vol2_autorise) ? "BIA ✓ · V2" : "V1";
+                                  const volLabel = estUlmId(showEditSlot.aeronef_id) ? "ULM" : ((el.vol1_effectue || el.vol1_skippe) && el.vol2_autorise) ? "BIA ✓ · V2" : "V1";
                                   return (
                                     <button
                                       key={el.id}
@@ -2218,7 +2255,10 @@ export default function VolsPage() {
       )}
 
       {/* EDIT HISTO */}
-      {editHisto && (
+      {editHisto && (() => {
+        // Un vol enregistré sur un ULM ne peut porter que des vols 3.
+        const histoEstUlm = !!editHisto.creneau?.aeronef?.est_ulm || estUlmId(editHisto.creneau?.aeronef_id);
+        return (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center p-4"
           onClick={() => setEditHisto(null)}
@@ -2313,16 +2353,17 @@ export default function VolsPage() {
                       <div key={e.id} className="flex items-center justify-between bg-gray-50 rounded-lg px-3 py-1.5 text-sm">
                         <span className="font-medium">{e.prenom} {e.nom}</span>
                         <div className="flex items-center gap-2">
-                          {/* Toggle Vol 1 / Vol 2 */}
+                          {/* Bascule Vol 1 / Vol 2 — figée sur un vol en ULM */}
                           <button
                             type="button"
+                            disabled={histoEstUlm}
                             onClick={() => setEditHistoElevesLocal((prev) =>
                               prev.map((x) => x.id === e.id ? { ...x, type_vol: tv === 1 ? 2 : 1 } : x)
                             )}
-                            className={`text-[11px] font-bold px-2.5 py-0.5 rounded-full border-2 transition-all ${tv === 2 ? "border-emerald-400 bg-emerald-50 text-emerald-700" : "border-brand-300 bg-brand-50 text-brand-700"}`}
-                            title="Cliquer pour changer le type de vol"
+                            className={`text-[11px] font-bold px-2.5 py-0.5 rounded-full border-2 transition-all disabled:cursor-default ${tv === 3 ? "border-violet-400 bg-violet-50 text-violet-700" : tv === 2 ? "border-emerald-400 bg-emerald-50 text-emerald-700" : "border-brand-300 bg-brand-50 text-brand-700"}`}
+                            title={histoEstUlm ? "Vol en ULM : toujours un vol 3" : "Cliquer pour changer le type de vol"}
                           >
-                            Vol {tv}
+                            {libelleVol(tv)}
                           </button>
                           <button
                             type="button"
@@ -2345,8 +2386,7 @@ export default function VolsPage() {
                       // Auto-détecter le type de vol selon l'état de l'élève
                       const found = eleves.find((el: any) => el.id === e.target.value);
                       if (found) {
-                        const detected: 1 | 2 = ((found.vol1_effectue || found.vol1_skippe) && found.vol2_autorise && !found.vol2_effectue) ? 2 : 1;
-                        setAddHistoEleveTypeVol(detected);
+                        setAddHistoEleveTypeVol(typeVolDetecte(found, histoEstUlm));
                       }
                     }}
                     className="input flex-1 text-sm"
@@ -2356,18 +2396,24 @@ export default function VolsPage() {
                       .filter((e: any) => !editHistoElevesLocal.some((x: any) => x.id === e.id))
                       .sort((a: any, b: any) => `${a.prenom} ${a.nom}`.localeCompare(`${b.prenom} ${b.nom}`))
                       .map((e: any) => {
-                        const tv = ((e.vol1_effectue || e.vol1_skippe) && e.vol2_autorise && !e.vol2_effectue) ? "Vol 2" : "Vol 1";
+                        const tv = libelleVol(typeVolDetecte(e, histoEstUlm));
                         return <option key={e.id} value={e.id}>{e.prenom} {e.nom} — {tv}</option>;
                       })}
                   </select>
                   <select
                     value={addHistoEleveTypeVol}
-                    onChange={(e) => setAddHistoEleveTypeVol(parseInt(e.target.value) as 1 | 2)}
-                    className="input w-20 text-sm"
+                    onChange={(e) => setAddHistoEleveTypeVol(parseInt(e.target.value) as 1 | 2 | 3)}
+                    className="input w-24 text-sm"
                     title="Type de vol (auto-détecté, modifiable)"
                   >
-                    <option value={1}>Vol 1</option>
-                    <option value={2}>Vol 2</option>
+                    {histoEstUlm ? (
+                      <option value={3}>Vol 3 ULM</option>
+                    ) : (
+                      <>
+                        <option value={1}>Vol 1</option>
+                        <option value={2}>Vol 2</option>
+                      </>
+                    )}
                   </select>
                   <button
                     type="button"
@@ -2408,7 +2454,8 @@ export default function VolsPage() {
             </div>
           </div>
         </div>
-      )}
+        );
+      })()}
 
       {/* HEADER */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-5">
@@ -2890,27 +2937,27 @@ export default function VolsPage() {
 
         // Build manual groups from eleve vol1/vol2 fields (grouped by numero_aerogest, excluding those already in vols_effectues)
         const manualByAerogest: Record<string, { ids: string[]; noms: string[]; numero_aerogest: string; prix_total: number; temps: number | null; pilote: string; aeronef_label: string; etab_ids: string[] }> = {};
+        // Les trois vols se regroupent de la même façon : le vol 3 ULM compris.
         for (const e of eleves) {
-          if (e.vol1_effectue && e.vol1_numero_aerogest && !aerogestInVols.has(e.vol1_numero_aerogest)) {
-            if (!manualByAerogest[e.vol1_numero_aerogest]) {
-              const a = e.vol1_aeronef_id ? aeronefs.find((x: any) => x.id === e.vol1_aeronef_id) : null;
-              manualByAerogest[e.vol1_numero_aerogest] = { ids: [], noms: [], numero_aerogest: e.vol1_numero_aerogest, prix_total: 0, temps: e.vol1_temps_minutes || null, pilote: e.vol1_pilote_nom || "", aeronef_label: a ? `${a.type_aeronef} (${a.immatriculation})` : "", etab_ids: [] };
+          for (const type of [1, 2, 3]) {
+            const v = prefixeVol(type);
+            const numero = e[`${v}_numero_aerogest`];
+            if (!e[`${v}_effectue`] || !numero || aerogestInVols.has(numero)) continue;
+            if (!manualByAerogest[numero]) {
+              const aeronefId = e[`${v}_aeronef_id`];
+              const a = aeronefId ? aeronefs.find((x: any) => x.id === aeronefId) : null;
+              manualByAerogest[numero] = {
+                ids: [], noms: [], numero_aerogest: numero, prix_total: 0,
+                temps: e[`${v}_temps_minutes`] || null,
+                pilote: e[`${v}_pilote_nom`] || "",
+                aeronef_label: a ? `${a.type_aeronef} (${a.immatriculation})` : "",
+                etab_ids: [],
+              };
             }
-            const g = manualByAerogest[e.vol1_numero_aerogest];
-            g.ids.push(`${e.id}_vol1`);
+            const g = manualByAerogest[numero];
+            g.ids.push(`${e.id}_vol${type}`);
             g.noms.push(`${e.prenom} ${e.nom}`);
-            if (!g.prix_total) g.prix_total = e.vol1_prix ? parseFloat(e.vol1_prix) : 0;
-            if (e.etablissement_id && !g.etab_ids.includes(e.etablissement_id)) g.etab_ids.push(e.etablissement_id);
-          }
-          if (e.vol2_effectue && e.vol2_numero_aerogest && !aerogestInVols.has(e.vol2_numero_aerogest)) {
-            if (!manualByAerogest[e.vol2_numero_aerogest]) {
-              const a = e.vol2_aeronef_id ? aeronefs.find((x: any) => x.id === e.vol2_aeronef_id) : null;
-              manualByAerogest[e.vol2_numero_aerogest] = { ids: [], noms: [], numero_aerogest: e.vol2_numero_aerogest, prix_total: 0, temps: e.vol2_temps_minutes || null, pilote: e.vol2_pilote_nom || "", aeronef_label: a ? `${a.type_aeronef} (${a.immatriculation})` : "", etab_ids: [] };
-            }
-            const g = manualByAerogest[e.vol2_numero_aerogest];
-            g.ids.push(`${e.id}_vol2`);
-            g.noms.push(`${e.prenom} ${e.nom}`);
-            if (!g.prix_total) g.prix_total = e.vol2_prix ? parseFloat(e.vol2_prix) : 0;
+            if (!g.prix_total) g.prix_total = e[`${v}_prix`] ? parseFloat(e[`${v}_prix`]) : 0;
             if (e.etablissement_id && !g.etab_ids.includes(e.etablissement_id)) g.etab_ids.push(e.etablissement_id);
           }
         }

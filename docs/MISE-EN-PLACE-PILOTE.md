@@ -35,6 +35,8 @@ Tarifs indicatifs relevés en 2026 : à vérifier au moment de souscrire.
    9. `supabase-evolutions-2026-11.sql` : second parent, cours, posés en campagne, HelloAsso, règles du vol 2
    10. `supabase-cours-lms-2026-11.sql` : plusieurs documents par cours et suivi de lecture par élève
    11. `supabase-invitations-2026-11.sql` : statut d'activation des comptes parents, pour le bouton *Activer leur compte*
+   12. `supabase-vol3-ulm-2026-11.sql` : module vol 3 / ULM et prime FFPLUM
+   13. `supabase-formateur-qcm-2026-11.sql` : rôle formateur, QCM et devoirs notés
 4. Se donner le rôle propriétaire, avec votre adresse :
    ```sql
    UPDATE public.profiles SET roles = array_append(roles, 'proprietaire')
@@ -177,7 +179,41 @@ Le module **Cours en ligne** sert de petit espace de révision pour les familles
 
 Taille maximale par document : 50 Mo. Les fichiers sont rangés dans un dossier par club et ne sont lisibles que par un lien signé, valable 5 minutes, généré après vérification des droits.
 
-## 10. Paiement en ligne (HelloAsso)
+### Le rôle formateur, les QCM et les devoirs
+
+Le module Cours ouvre un troisième rôle, **Formateur**, à créer dans *Utilisateurs et rôles* comme les autres. Un formateur ne voit **que** l'espace de formation : ni les vols, ni les paiements, ni les fiches élèves. Cochez ses **établissements** dans sa fiche — il ne verra que les élèves de ces lycées. Sans aucun établissement coché, il suit toute la promo du club.
+
+**QCM.** Le formateur crée un QCM, écrit ses questions (une bonne réponse par question, barème libre, explication facultative affichée à la correction), puis l'**attribue** aux élèves de son choix depuis l'onglet *Copies*. Tant que le QCM est en brouillon, les familles ne le voient pas. La correction est automatique : le score est calculé **sur le serveur**, jamais dans le navigateur, et les bonnes réponses ne sont envoyées à la famille qu'une fois la copie rendue. Une copie rendue ne se refait pas.
+
+Case **Montrer la correction dès que l'élève rend** : décochez-la pour relire les copies avant de rendre les notes — chaque copie a alors un bouton *Cachée / Visible*. Chaque copie accepte aussi un mot du formateur, lu par la famille.
+
+**Devoirs.** Le formateur crée un devoir (consigne, date de rendu, note sur 20 par défaut) et l'attribue. La famille dépose un fichier depuis son espace, peut le remplacer tant qu'il n'est pas corrigé, et le formateur le télécharge, met une note et un commentaire. Le bouton **Rendre à la famille** décide si la correction redescend ou reste chez le formateur. Une famille ne peut jamais toucher la note : la base le refuse, même si quelqu'un contourne l'écran.
+
+**Côté familles**, deux onglets de plus dans Cours : *QCM* et *Devoirs*, avec le sélecteur d'enfant comme pour les cours. Il n'y a pas de compte élève : c'est le compte famille qui passe le QCM, et la copie appartient à l'enfant choisi.
+
+## 10. Vol 3 — ULM (prime FFPLUM)
+
+Module **Vol 3 — ULM (FFPLUM)**, inactif par défaut, à activer par club depuis la console propriétaire. Il ajoute un troisième vol, après les vols BIA, pour les clubs qui font voler leurs élèves en ULM avec le soutien de la FFPLUM.
+
+1. Onglet **Aéronefs** : basculez sur **ULM** les appareils concernés. C'est cette case qui commande tout le reste.
+2. Un créneau ouvert sur un ULM ne porte **que** des vols 3, et un créneau sur avion ne peut pas accueillir un vol ULM. Le contrôle est aussi fait en base, pas seulement à l'écran.
+3. Fiche élève : cochez **Vol ULM autorisé**. La famille peut alors le réserver, en même temps que son vol 2 si besoin — ce sont deux créneaux différents, sur deux appareils différents.
+4. Le vol ULM demande que le vol 1 soit fait (ou dispensé). Il ne dépend ni du BIA ni du vol 2.
+
+Le montant de la prime FFPLUM est un réglage de club (`prime_ffplum`, 40 € par défaut). L'onglet **Finances** affiche une carte *Prime FFPLUM* qui compte les vols ULM effectués.
+
+## 11. La prime FFA de 50 € et l'âge des élèves
+
+La FFA réserve sa prime aux élèves de **21 ans au plus l'année de la session** — soit, pour la session 2026, les élèves nés le 01/01/2005 ou après. Un club qui ouvre le BIA aux adultes les forme et les fait voler normalement, mais ne touche rien pour eux.
+
+L'application calcule désormais cette éligibilité à partir de la date de naissance et de l'année de session (la date d'examen BIA de l'année, à défaut la fin de l'année scolaire) :
+
+- **fiche élève** : une ligne *Prime FFA 50 €*, verte ou orange, avec l'âge atteint à la session ;
+- **liste des élèves** : un filtre *Éligibles / Trop âgés* ;
+- **export CSV** et **export FFA des résultats** : une colonne, et le total réellement demandable en tête de l'export ;
+- **Finances** : la carte *Subventions fédé* ne compte plus que les élèves éligibles, et indique combien sortent du dispositif. C'est le chiffre qui change le plus : avant, tout élève reçu au BIA était compté.
+
+## 12. Paiement en ligne (HelloAsso)
 
 Chaque aéroclub encaisse sur **son propre compte HelloAsso** : aucune somme ne transite par BIA Manager, et aucune clé n'est en variable d'environnement.
 
@@ -190,13 +226,13 @@ Côté familles, un bouton « Payer en ligne » apparaît sur le tableau de bord
 
 En cas de besoin, un paiement peut toujours être saisi à la main dans la fiche de l'élève (chèque, virement, espèces) : le module ne remplace rien, il ajoute une possibilité.
 
-## 11. SMS et WhatsApp
+## 13. SMS et WhatsApp
 
 **SMS — pas retenu pour le pilote.** Comptez 0,05 à 0,08 € par SMS en France (Brevo, OVH, Twilio — tarifs à revérifier au moment de souscrire). Pour 600 clubs, le coût devient significatif et impose une mention « STOP » ainsi qu'un recueil de consentement distinct de celui des emails. À réévaluer après le pilote, en comparant les fournisseurs.
 
 **WhatsApp Business Platform — déconseillé.** L'envoi automatisé exige la vérification de l'entreprise auprès de Meta, la validation de chaque modèle de message, et une facturation à la conversation. Le lien `wa.me` déjà en place (Paramètres › Support aux familles) couvre le besoin réel sans aucune de ces contraintes : la famille écrit, le club répond depuis son téléphone.
 
-## 12. Club de démonstration
+## 14. Club de démonstration
 `aeroclub-test.biamanager.com` sert de démo et d'environnement d'essai.
 - **Remplir ou remettre à zéro** : `npm run seed:demo -- --reset`. Le script refuse tout club dont l'adresse ne contient pas « test » ou « demo », et vérifie que les autres clubs n'ont pas bougé.
 - **Comptes** : `demo.pilote1@example.com`, `demo.coordinateur@example.com`, `demo.parent01@example.com`… Mot de passe commun : `admin123` (modifiable avec la variable `DEMO_PASSWORD`).
