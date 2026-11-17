@@ -1,6 +1,7 @@
 "use client";
 import { useCallback, useEffect, useState } from "react";
 import { Plane, Loader2, Check, AlertCircle, Mail, ShieldCheck, Printer } from "lucide-react";
+import PadSignature from "@/components/PadSignature";
 
 type Donnees = {
   titre: string;
@@ -9,6 +10,7 @@ type Donnees = {
   fonction: string;
   email_masque: string;
   deja_signe: boolean;
+  editeur_a_signe: boolean;
   signature: { nom: string; le: string; reference: string } | null;
   code_envoye: boolean;
   bloque: boolean;
@@ -26,11 +28,12 @@ export default function SignatureClient({ token }: { token: string }) {
   const [etape, setEtape] = useState<"lecture" | "code" | "fini">("lecture");
   const [code, setCode] = useState("");
   const [nom, setNom] = useState("");
+  const [trace, setTrace] = useState<string | null>(null);
   const [lu, setLu] = useState(false);
   const [habilite, setHabilite] = useState(false);
   const [occupe, setOccupe] = useState(false);
   const [erreur, setErreur] = useState<string | null>(null);
-  const [resultat, setResultat] = useState<{ reference: string; horodatage: string } | null>(null);
+  const [resultat, setResultat] = useState<{ reference: string; horodatage: string; complet: boolean } | null>(null);
 
   const charger = useCallback(async () => {
     const res = await fetch(`/api/contrats/signer?token=${encodeURIComponent(token)}`);
@@ -63,12 +66,12 @@ export default function SignatureClient({ token }: { token: string }) {
     const res = await fetch("/api/contrats/signer", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ token, action: "signer", code, nom }),
+      body: JSON.stringify({ token, action: "signer", code, nom, signature: trace }),
     });
     const json = await res.json();
     setOccupe(false);
     if (!res.ok) { setErreur(json.error ?? "Signature impossible"); return; }
-    setResultat({ reference: json.reference, horodatage: json.horodatage });
+    setResultat({ reference: json.reference, horodatage: json.horodatage, complet: !!json.complet });
     setEtape("fini");
   }
 
@@ -119,7 +122,9 @@ export default function SignatureClient({ token }: { token: string }) {
           </p>
           {ref && <p className="text-xs text-gray-400 mt-1">Référence {ref}</p>}
           <p className="text-sm text-gray-500 mt-4">
-            Un exemplaire signé vient de vous être envoyé par email. Conservez-le.
+            {resultat && !resultat.complet
+              ? "Votre signature est enregistrée. L'exemplaire signé des deux parties vous parviendra par email dès que l'éditeur aura contresigné."
+              : "Un exemplaire signé des deux parties vient de vous être envoyé par email, au format PDF. Conservez-le."}
           </p>
           <button onClick={imprimer} className="btn-secondary btn-sm mx-auto mt-5">
             <Printer className="w-3.5 h-3.5" /> Relire le contrat
@@ -206,9 +211,14 @@ export default function SignatureClient({ token }: { token: string }) {
               </p>
             )}
 
+            <label className="label">Votre signature</label>
+            <div className="mb-4">
+              <PadSignature onChange={setTrace} />
+            </div>
+
             {erreur && <p className="text-sm text-red-600 mb-3">{erreur}</p>}
 
-            <button onClick={signer} disabled={code.length !== 6 || !nom.trim() || occupe} className="btn-primary w-full">
+            <button onClick={signer} disabled={code.length !== 6 || !nom.trim() || !trace || occupe} className="btn-primary w-full">
               {occupe ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
               Signer le contrat
             </button>
