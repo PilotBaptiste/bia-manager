@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import PageLegale, { Bloc, ACompleter } from "@/components/PageLegale";
-import { editeur, HEBERGEURS } from "@/lib/legal";
+import { HEBERGEURS } from "@/lib/legal";
+import { editeur } from "@/lib/legalServeur";
 import { getRequestOrg } from "@/lib/org";
 
 export const metadata: Metadata = {
@@ -9,7 +10,7 @@ export const metadata: Metadata = {
 };
 
 export default async function MentionsLegalesPage() {
-  const e = editeur();
+  const e = await editeur();
   const club = await getRequestOrg();
 
   return (
@@ -42,7 +43,7 @@ export default async function MentionsLegalesPage() {
             </ul>
             <p className="text-xs text-gray-400">
               Ces valeurs se règlent dans les variables d&apos;environnement du projet
-              (<code className="text-gray-500">NEXT_PUBLIC_EDITEUR_*</code>), sans modification du code.
+              depuis la console propriétaire, onglet <strong>Contrats</strong> › <em>Identité de l&apos;éditeur</em>.
             </p>
           </div>
         )}

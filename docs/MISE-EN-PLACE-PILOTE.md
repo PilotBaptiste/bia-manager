@@ -37,6 +37,7 @@ Tarifs indicatifs relevés en 2026 : à vérifier au moment de souscrire.
    11. `supabase-invitations-2026-11.sql` : statut d'activation des comptes parents, pour le bouton *Activer leur compte*
    12. `supabase-vol3-ulm-2026-11.sql` : module vol 3 / ULM et prime FFPLUM
    13. `supabase-formateur-qcm-2026-11.sql` : rôle formateur, QCM et devoirs notés
+   14. `supabase-contrats-2026-11.sql` : identité de l'éditeur et contrats par aéroclub
 4. Se donner le rôle propriétaire, avec votre adresse :
    ```sql
    UPDATE public.profiles SET roles = array_append(roles, 'proprietaire')
@@ -55,12 +56,7 @@ Tarifs indicatifs relevés en 2026 : à vérifier au moment de souscrire.
 | `NEXT_PUBLIC_APP_URL` | `https://biamanager.com` |
 | `RESEND_FROM` | `BIA Manager <noreply@biamanager.com>` |
 | `RESEND_WEBHOOK_SECRET` | secret du webhook Resend (étape 4) |
-| `NEXT_PUBLIC_EDITEUR_NOM` | le nom qui apparaît sur les mentions légales (vous, votre association ou votre société) |
-| `NEXT_PUBLIC_EDITEUR_STATUT` | forme juridique : `Auto-entrepreneur`, `Association loi 1901`, `SASU`… (facultatif) |
-| `NEXT_PUBLIC_EDITEUR_SIRET` | SIRET, uniquement s'il y a une structure immatriculée |
-| `NEXT_PUBLIC_EDITEUR_ADRESSE` | adresse du siège, sur une ligne |
-| `NEXT_PUBLIC_EDITEUR_EMAIL` | adresse de contact affichée publiquement, pour les demandes RGPD |
-| `NEXT_PUBLIC_EDITEUR_DIRECTEUR` | directeur de la publication (par défaut : le nom de l'éditeur) |
+| `NEXT_PUBLIC_EDITEUR_*` | **facultatif** : l'identité de l'éditeur se règle désormais dans la console propriétaire, onglet *Contrats*. Ces variables ne servent que de secours si la base ne dit rien. |
 | `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `RESEND_API_KEY` | inchangées |
 
 Redéployer après modification.
@@ -87,9 +83,16 @@ Vous hébergez des données de mineurs pour le compte des clubs.
 
 **Fait.** Les pages `/mentions-legales` et `/confidentialite` existent, sont lisibles **sans compte** sur le site vitrine comme sur chaque sous-domaine de club, et sont liées depuis le pied de page d'accueil, la page de connexion, le formulaire d'inscription des familles et le menu de l'application. La politique de confidentialité liste les données réellement enregistrées, leur durée de conservation et les droits des familles ; sur un sous-domaine de club, elle nomme le club comme responsable de traitement et l'éditeur comme sous-traitant.
 
+**Fait aussi.** La console propriétaire (`admin.<domaine>`) a un onglet **Contrats** qui centralise :
+- l'**identité de l'éditeur**, saisie une fois, reprise par les mentions légales du site *et* par l'en-tête des contrats — plus besoin de variables d'environnement ni de redéploiement ;
+- un **contrat de sous-traitance RGPD** par aéroclub, généré depuis un texte conforme à l'article 28 (instructions documentées, confidentialité, sécurité, sous-traitants ultérieurs, droits des personnes, notification des violations sous 48 h, sort des données en fin de contrat, audit), avec les coordonnées juridiques du club, des clauses particulières facultatives, le suivi du statut (brouillon, envoyé, signé, résilié) et l'impression en PDF ;
+- un **contrat d'abonnement** facultatif, pour les conditions commerciales.
+
+Un bandeau signale les clubs actifs sans contrat de sous-traitance signé. Les champs non renseignés sortent surlignés en jaune dans le document : on ne signe pas un contrat à trous sans le voir.
+
 **À faire :**
-- Renseigner les variables `NEXT_PUBLIC_EDITEUR_*` (étape 3). Tant qu'elles sont vides, les mentions légales affichent « à compléter » en toutes lettres plutôt qu'une identité inventée — le site reste donc non conforme jusqu'à ce que vous les remplissiez.
-- **Contrat de sous-traitance (RGPD)** avec chaque club : le club est responsable du traitement, vous êtes sous-traitant.
+- Saisir l'identité de l'éditeur dans la console propriétaire, onglet *Contrats*. Tant qu'elle est vide, les mentions légales affichent « à compléter » en toutes lettres plutôt qu'une identité inventée — le site reste donc non conforme.
+- Établir et faire signer le contrat de sous-traitance de chaque club.
 - **Registre des traitements** (modèle CNIL).
 - Une **structure juridique** pour signer ces documents et les abonnements (association ou société).
 

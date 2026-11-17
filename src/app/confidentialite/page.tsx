@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import PageLegale, { Bloc, ACompleter } from "@/components/PageLegale";
-import { editeur, DONNEES, CONSERVATION, DROITS } from "@/lib/legal";
+import { DONNEES, CONSERVATION, DROITS } from "@/lib/legal";
+import { editeur } from "@/lib/legalServeur";
 import { getRequestOrg } from "@/lib/org";
 
 export const metadata: Metadata = {
@@ -9,7 +10,7 @@ export const metadata: Metadata = {
 };
 
 export default async function ConfidentialitePage() {
-  const e = editeur();
+  const e = await editeur();
   const club = await getRequestOrg();
   const nomClub = club?.nom ?? "l'aéroclub";
 
