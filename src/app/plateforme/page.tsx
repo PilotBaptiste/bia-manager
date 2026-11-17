@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import Contrats from "./Contrats";
 import { toast } from "sonner";
 import {
   Building2,
@@ -77,6 +78,7 @@ async function api<T = any>(url: string, init?: RequestInit): Promise<T> {
 }
 
 export default function PlateformePage() {
+  const [onglet, setOnglet] = useState<"clubs" | "contrats">("clubs");
   const [clubs, setClubs] = useState<Club[]>([]);
   const [currentOrgId, setCurrentOrgId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -319,18 +321,43 @@ export default function PlateformePage() {
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-5">
+      <div className="flex items-center justify-between mb-4 gap-3 flex-wrap">
         <div>
-          <h1 className="text-xl font-bold text-gray-900">Aéroclubs</h1>
-          <p className="text-sm text-gray-500 mt-0.5">{clubs.length} aéroclub{clubs.length > 1 ? "s" : ""} sur la plateforme</p>
+          <h1 className="text-xl font-bold text-gray-900">
+            {onglet === "clubs" ? "Aéroclubs" : "Contrats"}
+          </h1>
+          <p className="text-sm text-gray-500 mt-0.5">
+            {onglet === "clubs"
+              ? `${clubs.length} aéroclub${clubs.length > 1 ? "s" : ""} sur la plateforme`
+              : "Identité de l'éditeur et contrats signés avec chaque club"}
+          </p>
         </div>
-        <div className="flex gap-2">
-          <button onClick={testSentry} disabled={testingSentry} className="btn-secondary btn-sm" title="Envoyer une erreur de test à Sentry">
-            {testingSentry ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Bug className="w-3.5 h-3.5" />} Tester Sentry
-          </button>
-          <button onClick={openCreate} className="btn-primary btn-sm"><Plus className="w-3.5 h-3.5" /> Nouvel aéroclub</button>
-        </div>
+        {onglet === "clubs" && (
+          <div className="flex gap-2">
+            <button onClick={testSentry} disabled={testingSentry} className="btn-secondary btn-sm" title="Envoyer une erreur de test à Sentry">
+              {testingSentry ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Bug className="w-3.5 h-3.5" />} Tester Sentry
+            </button>
+            <button onClick={openCreate} className="btn-primary btn-sm"><Plus className="w-3.5 h-3.5" /> Nouvel aéroclub</button>
+          </div>
+        )}
       </div>
+
+      <div className="flex gap-1 p-1 bg-gray-100 rounded-lg mb-5 w-fit">
+        {([["clubs", "Aéroclubs"], ["contrats", "Contrats"]] as const).map(([k, label]) => (
+          <button
+            key={k}
+            onClick={() => setOnglet(k)}
+            className={`px-4 py-1.5 rounded-md text-xs font-semibold transition-all ${onglet === k ? "bg-white text-brand-500 shadow-sm" : "text-gray-500 hover:text-gray-700"}`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {onglet === "contrats" ? (
+        <Contrats clubs={clubs.map((c) => ({ id: c.id, nom: c.nom, slug: c.slug, actif: c.actif }))} />
+      ) : (
+      <>
 
       {/* Club ouvert depuis son sous-domaine */}
       {openedSlug && (
@@ -490,6 +517,8 @@ export default function PlateformePage() {
             </table>
           </div>
         </div>
+      )}
+      </>
       )}
 
       {/* Création */}

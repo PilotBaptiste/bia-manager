@@ -1,11 +1,16 @@
 // Informations légales de la plateforme.
 //
-// L'identité de l'éditeur se règle par variables d'environnement Vercel, pour
-// qu'elle puisse être complétée (ou corrigée) sans toucher au code. Tant
-// qu'une valeur manque, les pages affichent « à compléter » plutôt que du
-// texte inventé : une mention légale fausse vaut moins que pas de mention.
+// Ce fichier ne contient que des constantes et des types : il est importé
+// aussi bien par les pages serveur que par la console propriétaire côté
+// navigateur. La lecture en base vit dans legalServeur.ts.
+//
+// L'identité de l'éditeur se règle depuis la console propriétaire, et retombe
+// sur les variables d'environnement si la base ne dit rien. Tant qu'une valeur
+// manque, les pages affichent « à compléter » plutôt que du texte inventé :
+// une mention légale fausse vaut moins que pas de mention.
 
-const lire = (v: string | undefined) => (v ?? "").trim();
+
+export const lire = (v: string | null | undefined) => (v ?? "").trim();
 
 export type Editeur = {
   nom: string;
@@ -17,23 +22,24 @@ export type Editeur = {
   complet: boolean;
 };
 
-export function editeur(): Editeur {
+/** Identité telle que réglée par variables d'environnement (secours). */
+export function editeurEnv(): Editeur {
   const nom = lire(process.env.NEXT_PUBLIC_EDITEUR_NOM);
   const statut = lire(process.env.NEXT_PUBLIC_EDITEUR_STATUT);
   const siret = lire(process.env.NEXT_PUBLIC_EDITEUR_SIRET);
   const adresse = lire(process.env.NEXT_PUBLIC_EDITEUR_ADRESSE);
   const email = lire(process.env.NEXT_PUBLIC_EDITEUR_EMAIL);
   const directeur = lire(process.env.NEXT_PUBLIC_EDITEUR_DIRECTEUR) || nom;
+  return assembler({ nom, statut, siret, adresse, email, directeur });
+}
+
+export function assembler(v: Omit<Editeur, "complet">): Editeur {
   return {
-    nom,
-    statut,
-    siret,
-    adresse,
-    email,
-    directeur,
+    ...v,
+    directeur: v.directeur || v.nom,
     // Le SIRET n'est obligatoire que s'il y a une structure immatriculée :
     // un éditeur en nom propre n'en a pas.
-    complet: !!(nom && adresse && email),
+    complet: !!(v.nom && v.adresse && v.email),
   };
 }
 
