@@ -1,5 +1,6 @@
 "use client";
 import { useState } from "react";
+import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils";
@@ -314,6 +315,10 @@ export default function Sidebar({ profile }: { profile: any }) {
           <LogOut className="w-3.5 h-3.5 transition-transform duration-150 group-hover:-translate-x-0.5" />
           Déconnexion
         </button>
+        <div className="flex items-center gap-3 px-3 pt-2 text-[10px] text-gray-300">
+          <Link href="/mentions-legales" className="hover:text-brand-400">Mentions légales</Link>
+          <Link href="/confidentialite" className="hover:text-brand-400">Confidentialité</Link>
+        </div>
       </div>
     </>
   );

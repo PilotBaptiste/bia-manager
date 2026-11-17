@@ -450,8 +450,14 @@ export default function InscriptionCodePage() {
             )}
           </button>
 
+          {/* Information au moment de la collecte : c'est là que le RGPD l'exige. */}
           <p className="text-center text-white/40 text-xs pb-6">
-            En vous inscrivant, vous acceptez que vos données soient utilisées dans le cadre du BIA.
+            Les données saisies servent à organiser le BIA de votre enfant et ne sont transmises à personne
+            d&apos;autre. Voir la{" "}
+            <a href="/confidentialite" className="text-white/70 hover:text-white underline">politique de confidentialité</a>{" "}
+            et les{" "}
+            <a href="/mentions-legales" className="text-white/70 hover:text-white underline">mentions légales</a>.
+            <br />
             Déjà un compte ?{" "}
             <a href="/auth/connexion" className="text-white/70 hover:text-white underline">Se connecter</a>
           </p>

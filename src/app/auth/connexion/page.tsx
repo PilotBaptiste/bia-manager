@@ -224,6 +224,13 @@ function ConnexionInner() {
             </>
           )}
         </div>
+
+        {/* Les familles doivent pouvoir lire ces pages avant même d'avoir un compte. */}
+        <div className="flex items-center justify-center gap-4 mt-5 text-[11px] text-gray-400">
+          <Link href="/mentions-legales" className="hover:text-brand-500">Mentions légales</Link>
+          <span aria-hidden>·</span>
+          <Link href="/confidentialite" className="hover:text-brand-500">Confidentialité</Link>
+        </div>
       </div>
     </div>
   );
