@@ -82,7 +82,8 @@ export const DONNEES = [
   },
   {
     titre: "Autorisation parentale",
-    details: "Signature manuscrite tracée à l'écran, date et heure, document PDF généré.",
+    details:
+      "Nom du signataire saisi par lui-même, ville, date et heure de signature, identifiant unique et document PDF généré.",
     pourquoi: "Preuve de l'autorisation de vol, exigée avant tout vol de découverte.",
   },
   {
