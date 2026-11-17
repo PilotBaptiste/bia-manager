@@ -36,17 +36,25 @@ export default function SaisieDirecte({
   });
   const [tarif, setTarif] = useState<number | null>(null);
   const [choisis, setChoisis] = useState<string[]>([]);
-  const [typeParEleve, setTypeParEleve] = useState<Record<string, 1 | 2>>({});
+  const [typeParEleve, setTypeParEleve] = useState<Record<string, 1 | 2 | 3>>({});
   const [recherche, setRecherche] = useState("");
   const [erreur, setErreur] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
-  /** Vol proposé par défaut pour un élève, d'après son avancement. */
-  function volPropose(e: any): 1 | 2 | null {
+  /**
+   * Vol proposé par défaut pour un élève, d'après son avancement. Un vol saisi
+   * sur un ULM ne peut être qu'un vol 3 : l'appareil tranche avant l'avancement.
+   */
+  function volPropose(e: any): 1 | 2 | 3 | null {
+    if (aeronefs.find((a: any) => a.id === form.aeronef_id)?.est_ulm) {
+      return e.vol3_autorise && !e.vol3_effectue && !e.vol3_refuse ? 3 : null;
+    }
     if (!(e.vol1_effectue || e.vol1_skippe)) return 1;
     if (e.vol2_autorise && !e.vol2_effectue && !e.vol2_refuse) return 2;
     return null;
   }
+
+  const estUlm = !!aeronefs.find((a: any) => a.id === form.aeronef_id)?.est_ulm;
 
   const eligibles = useMemo(
     () =>
@@ -56,7 +64,7 @@ export default function SaisieDirecte({
           const q = recherche.trim().toLowerCase();
           return !q || `${e.prenom} ${e.nom}`.toLowerCase().includes(q);
         }),
-    [eleves, recherche],
+    [eleves, recherche, form.aeronef_id, aeronefs],
   );
 
   // Tarif en vigueur à la date du vol, comme pour une clôture
@@ -111,15 +119,15 @@ export default function SaisieDirecte({
     for (const id of choisis) {
       const eleve = eleves.find((e) => e.id === id);
       const type = typeParEleve[id] ?? volPropose(eleve) ?? 1;
-      const champs = type === 2
-        ? {
-            vol2_effectue: true, vol2_temps_minutes: minutes, vol2_aeronef_id: form.aeronef_id,
-            vol2_prix: prixParEleve, vol2_pilote_nom: pilote || null, vol2_numero_aerogest: form.numero.trim(),
-          }
-        : {
-            vol1_effectue: true, vol1_temps_minutes: minutes, vol1_aeronef_id: form.aeronef_id,
-            vol1_prix: prixParEleve, vol1_pilote_nom: pilote || null, vol1_numero_aerogest: form.numero.trim(),
-          };
+      const v = type === 2 ? "vol2" : type === 3 ? "vol3" : "vol1";
+      const champs: Record<string, any> = {
+        [`${v}_effectue`]: true,
+        [`${v}_temps_minutes`]: minutes,
+        [`${v}_aeronef_id`]: form.aeronef_id,
+        [`${v}_prix`]: prixParEleve,
+        [`${v}_pilote_nom`]: pilote || null,
+        [`${v}_numero_aerogest`]: form.numero.trim(),
+      };
       const { error } = await supabase.from("eleves").update(champs).eq("id", id);
       if (error) echecs.push(`${eleve?.prenom} ${eleve?.nom} : ${error.message}`);
     }
@@ -234,7 +242,7 @@ export default function SaisieDirecte({
                     <button type="button" onClick={() => basculer(e)} className="flex-1 text-left min-w-0">
                       <span className="text-sm text-gray-900">{e.prenom} {e.nom}</span>
                     </button>
-                    {selectionne && (
+                    {selectionne && !estUlm && (
                       <div className="flex bg-white rounded-md border border-gray-200 p-0.5 shrink-0">
                         {([1, 2] as const).map((t) => (
                           <button
@@ -248,13 +256,18 @@ export default function SaisieDirecte({
                         ))}
                       </div>
                     )}
+                    {selectionne && estUlm && (
+                      <span className="shrink-0 text-[11px] font-semibold px-2 py-0.5 rounded bg-violet-100 text-violet-700">ULM</span>
+                    )}
                   </div>
                 );
               })}
             </div>
           )}
           <p className="text-[11px] text-gray-400 mt-2">
-            Le vol proposé (V1 ou V2) dépend de l&apos;avancement de l&apos;élève. Vous pouvez le corriger.
+            {estUlm
+              ? "Appareil ULM : chaque élève sélectionné enregistre son vol 3."
+              : "Le vol proposé (V1 ou V2) dépend de l'avancement de l'élève. Vous pouvez le corriger."}{" "}
             Le prix est réparti à parts égales entre les élèves sélectionnés.
           </p>
         </div>
