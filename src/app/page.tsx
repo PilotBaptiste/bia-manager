@@ -290,8 +290,10 @@ export default async function Home() {
             <Plane className="w-3.5 h-3.5 text-brand-400" />
             <span>© {new Date().getFullYear()} BIA Manager</span>
           </div>
-          <div className="flex items-center gap-5">
+          <div className="flex items-center gap-5 flex-wrap justify-center">
             <a href="#contact" className="hover:text-brand-500">Contact</a>
+            <Link href="/mentions-legales" className="hover:text-brand-500">Mentions légales</Link>
+            <Link href="/confidentialite" className="hover:text-brand-500">Confidentialité</Link>
             <Link href="/auth/connexion" className="hover:text-brand-500">Accès aéroclubs</Link>
           </div>
         </div>

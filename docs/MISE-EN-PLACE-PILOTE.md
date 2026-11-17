@@ -55,6 +55,12 @@ Tarifs indicatifs relevés en 2026 : à vérifier au moment de souscrire.
 | `NEXT_PUBLIC_APP_URL` | `https://biamanager.com` |
 | `RESEND_FROM` | `BIA Manager <noreply@biamanager.com>` |
 | `RESEND_WEBHOOK_SECRET` | secret du webhook Resend (étape 4) |
+| `NEXT_PUBLIC_EDITEUR_NOM` | le nom qui apparaît sur les mentions légales (vous, votre association ou votre société) |
+| `NEXT_PUBLIC_EDITEUR_STATUT` | forme juridique : `Auto-entrepreneur`, `Association loi 1901`, `SASU`… (facultatif) |
+| `NEXT_PUBLIC_EDITEUR_SIRET` | SIRET, uniquement s'il y a une structure immatriculée |
+| `NEXT_PUBLIC_EDITEUR_ADRESSE` | adresse du siège, sur une ligne |
+| `NEXT_PUBLIC_EDITEUR_EMAIL` | adresse de contact affichée publiquement, pour les demandes RGPD |
+| `NEXT_PUBLIC_EDITEUR_DIRECTEUR` | directeur de la publication (par défaut : le nom de l'éditeur) |
 | `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `RESEND_API_KEY` | inchangées |
 
 Redéployer après modification.
@@ -77,11 +83,17 @@ Sans `NEXT_PUBLIC_ROOT_DOMAIN`, l'application fonctionne sans sous-domaines : ch
 4. Chaque admin de club renseigne ensuite, sur son site : Paramètres (nom, lieu des vols, tarifs), Aéronefs, Établissements, Utilisateurs (pilotes, coordinateurs).
 
 ## 3. Côté juridique (avant d'accueillir des élèves)
-Vous hébergez des données de mineurs pour le compte des clubs :
+Vous hébergez des données de mineurs pour le compte des clubs.
+
+**Fait.** Les pages `/mentions-legales` et `/confidentialite` existent, sont lisibles **sans compte** sur le site vitrine comme sur chaque sous-domaine de club, et sont liées depuis le pied de page d'accueil, la page de connexion, le formulaire d'inscription des familles et le menu de l'application. La politique de confidentialité liste les données réellement enregistrées, leur durée de conservation et les droits des familles ; sur un sous-domaine de club, elle nomme le club comme responsable de traitement et l'éditeur comme sous-traitant.
+
+**À faire :**
+- Renseigner les variables `NEXT_PUBLIC_EDITEUR_*` (étape 3). Tant qu'elles sont vides, les mentions légales affichent « à compléter » en toutes lettres plutôt qu'une identité inventée — le site reste donc non conforme jusqu'à ce que vous les remplissiez.
 - **Contrat de sous-traitance (RGPD)** avec chaque club : le club est responsable du traitement, vous êtes sous-traitant.
-- **Mentions légales** et **politique de confidentialité** accessibles depuis le site : finalités, durée de conservation, droits des familles, contact.
 - **Registre des traitements** (modèle CNIL).
 - Une **structure juridique** pour signer ces documents et les abonnements (association ou société).
+
+Les textes fournis sont un socle honnête, écrit à partir de ce que l'application enregistre réellement. Ce n'est pas un avis juridique : avec plusieurs clubs tiers et des données de mineurs, une relecture par un professionnel reste indiquée.
 
 ## 4. Fonctionnement à connaître
 - **Rôles** : « Admin du club » (ancien SuperAdmin) gère tout son club et uniquement son club. « Propriétaire » gère la plateforme ; il travaille dans un club à la fois et en change via **Plateforme › Entrer**.

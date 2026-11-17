@@ -40,6 +40,9 @@ export async function middleware(request: NextRequest) {
   const isInscription = pathname.startsWith("/inscription");
   // Le désabonnement se fait depuis un lien reçu par email, sans connexion.
   const isDesabonnement = pathname.startsWith("/desabonnement");
+  // Les pages légales doivent être lisibles par n'importe qui, sans compte :
+  // c'est tout l'objet d'une mention légale.
+  const isLegal = pathname === "/mentions-legales" || pathname === "/confidentialite";
   const isLoginPage = pathname === "/auth/connexion";
   const isRoot = pathname === "/";
   const isPlatform = pathname.startsWith("/plateforme");
@@ -65,7 +68,7 @@ export async function middleware(request: NextRequest) {
     if (onShowcase && isRoot) return supabaseResponse;
   }
 
-  if (!user && !isAuth && !isApi && !isInscription && !isDesabonnement && !(isRoot && !slug && !onAdmin)) {
+  if (!user && !isAuth && !isApi && !isInscription && !isDesabonnement && !isLegal && !(isRoot && !slug && !onAdmin)) {
     return redirectTo(new URL("/auth/connexion", request.url).toString());
   }
   if (onAdmin && !user && isInscription) {
