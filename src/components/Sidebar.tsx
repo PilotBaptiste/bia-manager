@@ -143,6 +143,7 @@ function getNav(roles: string[]) {
     "parent",
     "pilote",
     "gerant",
+    "formateur",
   ]);
   add("support", "Support", "MessageCircle", "/dashboard/support", [
     "superadmin",
@@ -150,6 +151,7 @@ function getNav(roles: string[]) {
     "pilote",
     "gerant",
     "parent",
+    "formateur",
   ]);
 
   return items;
@@ -162,6 +164,7 @@ function getRoleLabel(roles: string[]): string {
   if (roles.includes("coordinateur")) labels.push("Coordinateur");
   if (roles.includes("pilote")) labels.push("Pilote");
   if (roles.includes("gerant")) labels.push("Gérant");
+  if (roles.includes("formateur")) labels.push("Formateur");
   if (roles.includes("parent")) labels.push("Parent");
   return labels.join(" · ") || "Utilisateur";
 }

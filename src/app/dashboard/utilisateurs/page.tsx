@@ -45,6 +45,12 @@ const ALL_ROLES = [
     desc: "Gestion eleves",
   },
   {
+    value: "formateur",
+    label: "Formateur",
+    color: "text-violet-600 bg-violet-50",
+    desc: "Cours, QCM et devoirs de ses établissements",
+  },
+  {
     value: "parent",
     label: "Parent",
     color: "text-gray-600 bg-gray-100",

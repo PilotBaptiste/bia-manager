@@ -1,3 +1,4 @@
+import { redirect } from "next/navigation";
 import { getCurrentProfile } from "@/lib/auth";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { Users, CheckCircle2, Plane, Euro, Calendar, Clock, School, FileSignature, CalendarPlus, AlertCircle } from "lucide-react";
@@ -463,6 +464,9 @@ export default async function DashboardPage() {
   if (roles.includes("pilote")) return <DashboardPilote supabase={supabase} profile={profile} annee={annee} />;
   if (roles.includes("gerant")) return <DashboardGerant supabase={supabase} profile={profile} annee={annee} />;
   if (roles.includes("parent")) return <DashboardParent supabase={supabase} profile={profile} />;
+  // Un formateur n'a que l'espace de formation : on l'y envoie directement
+  // plutôt que de lui montrer un tableau de bord vide.
+  if (roles.includes("formateur")) redirect("/dashboard/cours");
 
   return (
     <div className="card text-center py-12">

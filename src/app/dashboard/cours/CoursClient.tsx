@@ -7,6 +7,10 @@ import {
 } from "lucide-react";
 import { MATIERES } from "@/lib/cours";
 import LecteurCours from "./LecteurCours";
+import QcmGestion from "./QcmGestion";
+import DevoirsGestion from "./DevoirsGestion";
+import QcmEleve from "./QcmEleve";
+import DevoirsEleve from "./DevoirsEleve";
 import FormCours from "./FormCours";
 import SuiviCours from "./SuiviCours";
 
@@ -18,7 +22,18 @@ function ordonner(ressources: any[] | null | undefined) {
   return [...(ressources ?? [])].sort((a, b) => (a.ordre ?? 0) - (b.ordre ?? 0));
 }
 
-export default function CoursClient({ peutGerer, estEquipe }: { peutGerer: boolean; estEquipe?: boolean }) {
+type Onglet = "cours" | "qcm" | "devoirs";
+
+export default function CoursClient({
+  peutGerer,
+  estEquipe,
+  estFormateur,
+}: {
+  peutGerer: boolean;
+  estEquipe?: boolean;
+  estFormateur?: boolean;
+}) {
+  const [onglet, setOnglet] = useState<Onglet>("cours");
   const [cours, setCours] = useState<any[]>([]);
   const [enfants, setEnfants] = useState<any[]>([]);
   const [vus, setVus] = useState<any[]>([]);
@@ -105,19 +120,25 @@ export default function CoursClient({ peutGerer, estEquipe }: { peutGerer: boole
     return <div className="flex items-center justify-center h-64"><Loader2 className="w-6 h-6 animate-spin text-brand-400" /></div>;
   }
 
+  // Un parent sans enfant rattaché n'a ni QCM ni devoir à voir.
+  const aDesEnfants = enfants.length > 0;
+  const ongletsVisibles: Onglet[] = peutGerer || aDesEnfants ? ["cours", "qcm", "devoirs"] : ["cours"];
+
   return (
     <div>
-      <div className="flex items-start justify-between gap-3 mb-6 flex-wrap">
+      <div className="flex items-start justify-between gap-3 mb-4 flex-wrap">
         <div>
-          <h1 className="text-xl font-bold text-gray-900">Cours</h1>
+          <h1 className="text-xl font-bold text-gray-900">
+            {estFormateur && !peutGerer ? "Formation" : "Cours"}
+          </h1>
           <p className="text-sm text-gray-500 mt-0.5">
             {peutGerer
-              ? "Documents mis à disposition des familles, et suivi de lecture par élève"
-              : "Les cours partagés par votre aéroclub"}
+              ? "Documents, QCM et devoirs mis à disposition des familles, et suivi par élève"
+              : "Les cours, QCM et devoirs partagés par votre aéroclub"}
           </p>
         </div>
         <div className="flex items-center gap-2">
-          {MATIERES.some((m) => cours.some((c) => c.matiere === m)) && (
+          {onglet === "cours" && MATIERES.some((m) => cours.some((c) => c.matiere === m)) && (
             <select value={filtreMatiere} onChange={(e) => setFiltreMatiere(e.target.value)} className="select text-sm">
               <option value="">Toutes les matières</option>
               {MATIERES.filter((m) => cours.some((c) => c.matiere === m)).map((m) => (
@@ -125,7 +146,7 @@ export default function CoursClient({ peutGerer, estEquipe }: { peutGerer: boole
               ))}
             </select>
           )}
-          {peutGerer && (
+          {peutGerer && onglet === "cours" && (
             <button onClick={() => setFormPour(null)} className="btn-primary btn-sm">
               <Plus className="w-4 h-4" /> Nouveau cours
             </button>
@@ -133,7 +154,30 @@ export default function CoursClient({ peutGerer, estEquipe }: { peutGerer: boole
         </div>
       </div>
 
-      {visibles.length === 0 ? (
+      {ongletsVisibles.length > 1 && (
+        <div className="flex gap-1 p-1 bg-gray-100 rounded-lg mb-5 w-fit">
+          {([
+            ["cours", "Cours"],
+            ["qcm", "QCM"],
+            ["devoirs", "Devoirs"],
+          ] as [Onglet, string][])
+            .filter(([k]) => ongletsVisibles.includes(k))
+            .map(([k, label]) => (
+              <button
+                key={k}
+                onClick={() => setOnglet(k)}
+                className={`px-4 py-1.5 rounded-md text-xs font-semibold transition-all ${onglet === k ? "bg-white text-brand-500 shadow-sm" : "text-gray-500 hover:text-gray-700"}`}
+              >
+                {label}
+              </button>
+            ))}
+        </div>
+      )}
+
+      {onglet === "qcm" && (peutGerer ? <QcmGestion /> : <QcmEleve enfants={enfants} />)}
+      {onglet === "devoirs" && (peutGerer ? <DevoirsGestion /> : <DevoirsEleve enfants={enfants} />)}
+
+      {onglet === "cours" && (visibles.length === 0 ? (
         <div className="card text-center py-12">
           <GraduationCap className="w-10 h-10 text-gray-300 mx-auto mb-3" />
           <p className="text-sm font-semibold text-gray-700">Aucun cours pour l&apos;instant</p>
@@ -329,7 +373,7 @@ export default function CoursClient({ peutGerer, estEquipe }: { peutGerer: boole
             );
           })}
         </div>
-      )}
+      ))}
 
       {formPour !== undefined && peutGerer && (
         <FormCours cours={formPour} onFermer={() => { setFormPour(undefined); load(); }} onChangement={load} />
