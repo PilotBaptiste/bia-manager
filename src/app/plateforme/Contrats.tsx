@@ -2,9 +2,10 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import {
-  FileText, Loader2, Printer, Save, Trash2, Building2, Check, AlertTriangle, X, Pencil, Send, ShieldCheck, Download,
+  FileText, Loader2, Printer, Save, Trash2, Building2, Check, AlertTriangle, X, Pencil, Send, ShieldCheck, Download, PenLine,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
+import PadSignature from "@/components/PadSignature";
 import { documentContrat, STATUTS, TYPES_CONTRAT, type Contrat, type TypeContrat } from "@/lib/contrats";
 import { editeurEnv, type Editeur } from "@/lib/legal";
 
@@ -48,6 +49,7 @@ export default function Contrats({ clubs }: { clubs: Club[] }) {
   const [suppression, setSuppression] = useState<any | null>(null);
   const [envoiPour, setEnvoiPour] = useState<any | null>(null);
   const [telechargement, setTelechargement] = useState<string | null>(null);
+  const [signaturePour, setSignaturePour] = useState<any | null>(null);
 
   const load = useCallback(async () => {
     const [pR, cR] = await Promise.all([
@@ -105,11 +107,12 @@ export default function Contrats({ clubs }: { clubs: Club[] }) {
     const { data, error } = await createClient().storage.from("contrats").download(c.document_path);
     setTelechargement(null);
     if (error || !data) { toast.error(error?.message ?? "Document introuvable"); return; }
-    const w = window.open("", "_blank");
-    if (!w) { toast.error("Fenêtre bloquée — autorisez les popups"); return; }
-    w.document.write(await data.text());
-    w.document.close();
-    w.focus();
+    const url = URL.createObjectURL(data);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `contrat-${c.signature_id ?? "signe"}.pdf`;
+    a.click();
+    URL.revokeObjectURL(url);
   }
 
   async function supprimer(c: any) {
@@ -228,9 +231,16 @@ export default function Contrats({ clubs }: { clubs: Club[] }) {
                             <td className="px-4 py-2.5 text-xs text-gray-500 whitespace-nowrap">
                               Effet : {fmt(c.date_effet)}
                               {c.statut === "signe" && ` · signé le ${fmt(c.signe_le)}`}
-                              {c.statut === "signe" && c.signature_nom && (
+                              {c.statut === "signe" && (
                                 <p className="text-[11px] text-emerald-600 flex items-center gap-1">
-                                  <ShieldCheck className="w-3 h-3" /> {c.signature_nom} · {c.signature_id}
+                                  <ShieldCheck className="w-3 h-3" /> Signé des deux parties · {c.signature_id}
+                                </p>
+                              )}
+                              {c.statut === "partiel" && (
+                                <p className="text-[11px] text-amber-600">
+                                  {c.signature_club_le && !c.signature_editeur_le
+                                    ? "L'aéroclub a signé — à vous de contresigner"
+                                    : `Vous avez signé — en attente de ${c.signataire_email ?? "l'aéroclub"}`}
                                 </p>
                               )}
                               {c.statut === "envoye" && c.signataire_email && (
@@ -245,9 +255,16 @@ export default function Contrats({ clubs }: { clubs: Club[] }) {
                                     Exemplaire signé
                                   </button>
                                 ) : (
-                                  <button onClick={() => setEnvoiPour({ contrat: c, club })} className="btn-primary btn-sm" title="Envoyer le lien de signature au représentant du club">
-                                    <Send className="w-3.5 h-3.5" /> {c.statut === "envoye" ? "Relancer" : "Envoyer à signer"}
-                                  </button>
+                                  <>
+                                    {!c.signature_editeur_le && (
+                                      <button onClick={() => setSignaturePour(c)} className="btn-secondary btn-sm" title="Apposer votre signature sur ce contrat">
+                                        <PenLine className="w-3.5 h-3.5" /> Signer
+                                      </button>
+                                    )}
+                                    <button onClick={() => setEnvoiPour({ contrat: c, club })} className="btn-primary btn-sm" title="Envoyer le lien de signature au représentant du club">
+                                      <Send className="w-3.5 h-3.5" /> {c.statut === "envoye" || c.statut === "partiel" ? "Relancer" : "Envoyer à signer"}
+                                    </button>
+                                  </>
                                 )}
                                 <button onClick={() => imprimer(c, club.nom)} className="btn-secondary btn-sm" title="Ouvrir le document, prêt à imprimer ou enregistrer en PDF">
                                   <Printer className="w-3.5 h-3.5" /> Document
@@ -284,6 +301,15 @@ export default function Contrats({ clubs }: { clubs: Club[] }) {
           editeur={editeur}
           onFerme={() => setEdition(null)}
           onEnregistre={() => { setEdition(null); load(); }}
+        />
+      )}
+
+      {signaturePour && (
+        <SignatureEditeur
+          contrat={signaturePour}
+          paraphe={parametres.signature_image ?? null}
+          onFerme={() => setSignaturePour(null)}
+          onSigne={() => { setSignaturePour(null); load(); }}
         />
       )}
 
@@ -646,6 +672,81 @@ function EnvoiSignature({
               {occupe ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />} Envoyer
             </button>
           )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** Signature du contrat par l'éditeur, avec son paraphe enregistré. */
+function SignatureEditeur({
+  contrat,
+  paraphe,
+  onFerme,
+  onSigne,
+}: {
+  contrat: any;
+  paraphe: string | null;
+  onFerme: () => void;
+  onSigne: () => void;
+}) {
+  const [trace, setTrace] = useState<string | null>(paraphe);
+  const [occupe, setOccupe] = useState(false);
+
+  async function signer() {
+    setOccupe(true);
+    const res = await fetch("/api/plateforme/contrats/signer", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      // Sans nouveau tracé, le serveur reprend le paraphe enregistré.
+      body: JSON.stringify({ id: contrat.id, signature: trace === paraphe ? null : trace }),
+    });
+    const json = await res.json().catch(() => ({}));
+    setOccupe(false);
+    if (!res.ok) { toast.error(json.error ?? "Signature impossible"); return; }
+    toast.success(json.complet ? "Contrat signé des deux parties — PDF envoyé" : "Votre signature est enregistrée");
+    onSigne();
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-black/40" onClick={onFerme} />
+      <div className="relative bg-white rounded-2xl p-6 w-full max-w-md shadow-xl">
+        <div className="flex items-start justify-between mb-4">
+          <div>
+            <h3 className="text-lg font-bold text-gray-900">Votre signature</h3>
+            <p className="text-xs text-gray-500 mt-0.5">
+              {contrat.club_raison_sociale || "Contrat"}
+            </p>
+          </div>
+          <button onClick={onFerme} className="p-1.5 rounded-lg hover:bg-gray-100"><X className="w-4 h-4" /></button>
+        </div>
+
+        <PadSignature onChange={setTrace} valeurInitiale={paraphe} />
+
+        <p className="text-[11px] text-gray-500 mt-3">
+          {paraphe
+            ? "Votre signature enregistrée sera apposée. Tracez-en une nouvelle pour la remplacer, ici et pour les contrats suivants."
+            : "Ce tracé sera conservé et réutilisé pour vos prochains contrats."}
+        </p>
+
+        {contrat.signature_club_le ? (
+          <p className="text-xs text-emerald-700 bg-emerald-50 rounded-lg px-3 py-2 mt-3">
+            L&apos;aéroclub a déjà signé. Dès que vous aurez contresigné, le PDF signé des deux parties partira
+            automatiquement aux deux adresses.
+          </p>
+        ) : (
+          <p className="text-xs text-gray-500 bg-gray-50 rounded-lg px-3 py-2 mt-3">
+            Vous pouvez signer avant l&apos;aéroclub. Le PDF définitif ne sera produit que lorsque les deux
+            signatures seront là.
+          </p>
+        )}
+
+        <div className="flex justify-end gap-2 mt-5">
+          <button onClick={onFerme} className="btn-secondary">Annuler</button>
+          <button onClick={signer} disabled={occupe || !trace} className="btn-primary">
+            {occupe ? <Loader2 className="w-4 h-4 animate-spin" /> : <PenLine className="w-4 h-4" />} Signer
+          </button>
         </div>
       </div>
     </div>

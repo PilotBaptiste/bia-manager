@@ -3,10 +3,10 @@ import { Resend } from "resend";
 import { createServiceClient } from "@/lib/supabase/server";
 import { documentContrat } from "@/lib/contrats";
 import { editeur } from "@/lib/legalServeur";
+import { finaliserSiComplet } from "@/lib/contratFinalisation";
 import {
   MINUTES_VALIDITE_CODE,
   TENTATIVES_MAX,
-  blocPreuve,
   codeValide,
   empreinte,
   estExpire,
@@ -59,7 +59,8 @@ export async function GET(req: Request) {
     representant: contrat.club_representant ?? "",
     fonction: contrat.club_fonction ?? "",
     email_masque: masquer(contrat.signataire_email ?? ""),
-    deja_signe: contrat.statut === "signe",
+    deja_signe: !!contrat.signature_club_le,
+    editeur_a_signe: !!contrat.signature_editeur_le,
     signature: contrat.statut === "signe"
       ? { nom: contrat.signature_nom, le: contrat.signature_horodatage, reference: contrat.signature_id }
       : null,
@@ -78,8 +79,8 @@ export async function POST(req: Request) {
   if (estExpire(contrat.token_expire_le)) {
     return NextResponse.json({ error: "Ce lien a expiré. Demandez-en un nouveau." }, { status: 410 });
   }
-  if (contrat.statut === "signe") {
-    return NextResponse.json({ error: "Ce contrat est déjà signé" }, { status: 409 });
+  if (contrat.signature_club_le) {
+    return NextResponse.json({ error: "Ce contrat est déjà signé par l'aéroclub" }, { status: 409 });
   }
 
   const db = createServiceClient();
@@ -155,83 +156,51 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: `Tapez exactement : ${attendu}` }, { status: 400 });
     }
 
-    const e = await editeur();
-    const nomClub = contrat.organisation?.nom ?? "";
+    const trace = String(body?.signature ?? "");
+    if (!trace.startsWith("data:image/png;base64,") || trace.length < 200) {
+      return NextResponse.json({ error: "Tracez votre signature dans le cadre" }, { status: 400 });
+    }
+    if (trace.length > 400_000) {
+      return NextResponse.json({ error: "Signature trop lourde" }, { status: 400 });
+    }
+
     const horodatage = new Date().toISOString();
-    const signatureId = nouvelIdSignature();
+    const signatureId = contrat.signature_id || nouvelIdSignature();
     const ip = ipDe(req);
-    const emailSignataire = String(contrat.signataire_email ?? "");
-
-    // Le document est figé tel qu'il a été montré, avec la signature portée.
-    const signe = { ...contrat, statut: "signe", signe_le: horodatage.slice(0, 10), signe_par: nom };
-    const document = documentContrat(signe as any, nomClub, e);
-    const empreinteDocument = empreinte(document);
-    const archive = document.replace(
-      "</body>",
-      `${blocPreuve({ signatureId, nom, email: emailSignataire, horodatage, ip, empreinteDocument })}</body>`,
-    );
-
-    const chemin = `${contrat.organisation_id}/${contrat.type}-${signatureId}.html`;
-    const { error: upErr } = await createServiceClient()
-      .storage.from("contrats")
-      .upload(chemin, new Blob([archive], { type: "text/html; charset=utf-8" }), { upsert: true });
-    if (upErr) return NextResponse.json({ error: `Archivage impossible : ${upErr.message}` }, { status: 500 });
 
     const { error: majErr } = await db
       .from("contrats")
       .update({
-        statut: "signe",
-        signe_le: horodatage.slice(0, 10),
-        signe_par: nom,
         signature_id: signatureId,
         signature_nom: nom,
-        signature_email: emailSignataire,
+        signature_email: contrat.signataire_email ?? null,
         signature_ip: ip,
         signature_agent: (req.headers.get("user-agent") ?? "").slice(0, 400),
         signature_horodatage: horodatage,
-        document_empreinte: empreinteDocument,
-        document_path: chemin,
-        // Le lien et le code ont servi : ils ne doivent plus rien ouvrir.
-        signature_token: null,
-        token_expire_le: null,
+        signature_club_image: trace,
+        signature_club_le: horodatage,
+        signe_par: nom,
+        // Tant que l'éditeur n'a pas signé, le contrat n'est pas complet.
+        statut: contrat.signature_editeur_le ? "signe" : "partiel",
         code_empreinte: null,
         code_expire_le: null,
       })
       .eq("id", contrat.id);
     if (majErr) return NextResponse.json({ error: majErr.message }, { status: 400 });
 
-    // Copie aux deux parties : le signataire doit garder son exemplaire.
-    if (process.env.RESEND_API_KEY) {
-      const resend = new Resend(process.env.RESEND_API_KEY);
-      const destinataires = [emailSignataire, e.email].filter(Boolean) as string[];
-      const corps = `
-      <div style="font-family:system-ui,sans-serif;max-width:520px;margin:0 auto;padding:32px 24px">
-        <h2 style="margin:0 0 8px;font-size:20px;color:#111">Contrat signé</h2>
-        <p style="color:#555">
-          Le contrat concernant <strong>${esc(contrat.club_raison_sociale || nomClub)}</strong> a été signé par
-          <strong>${esc(nom)}</strong> le ${esc(new Date(horodatage).toLocaleString("fr-FR", { dateStyle: "long", timeStyle: "short" }))}.
-        </p>
-        <p style="color:#555">Référence : <strong>${esc(signatureId)}</strong></p>
-        <p style="color:#777;font-size:12px">L'exemplaire signé est joint à ce message.</p>
-      </div>`;
-      for (const to of destinataires) {
-        try {
-          await resend.emails.send({
-            from: process.env.RESEND_FROM ?? "BIA Manager <noreply@bia-manager-acba.vercel.app>",
-            to,
-            subject: `Contrat signé — ${signatureId}`,
-            html: corps,
-            attachments: [
-              { filename: `contrat-${signatureId}.html`, content: Buffer.from(archive).toString("base64") },
-            ],
-          });
-        } catch {
-          /* L'envoi raté ne doit pas annuler une signature valide. */
-        }
-      }
+    let finalise: { reference: string } | null = null;
+    try {
+      finalise = await finaliserSiComplet(contrat.id);
+    } catch (e: any) {
+      return NextResponse.json({ error: e?.message ?? "Finalisation impossible" }, { status: 500 });
     }
 
-    return NextResponse.json({ ok: true, reference: signatureId, horodatage });
+    return NextResponse.json({
+      ok: true,
+      reference: signatureId,
+      horodatage,
+      complet: !!finalise,
+    });
   }
 
   return NextResponse.json({ error: "Action inconnue" }, { status: 400 });
